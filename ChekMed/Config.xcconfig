@@ -1,3 +1,11 @@
 // Optional local secrets. Copy SupabaseConfig.example → Secrets.xcconfig
 // (Secrets.xcconfig is gitignored). The `?` keeps a clean clone buildable.
+GOOGLE_CLOUD_VISION_API_KEY =
+GOOGLE_CLOUD_PROJECT_ID =
+GOOGLE_DOCUMENT_AI_LOCATION =
+GOOGLE_DOCUMENT_AI_PROCESSOR_ID =
+GOOGLE_DOCUMENT_AI_CREDENTIALS_PATH =
+GOOGLE_DOCUMENT_AI_API_KEY =
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT =
+AZURE_DOCUMENT_INTELLIGENCE_KEY =
 #include? "Secrets.xcconfig"

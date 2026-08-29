@@ -14,8 +14,24 @@
 //                    (reversed client ID). After you paste the real value, add it as a
 //                    CFBundleURLTypes / CFBundleURLSchemes entry in Info.plist.
 // Do not invent Client IDs, Bundle IDs, or Team IDs.
+//
+// Cloud Vision / Document AI (optional OCR). These are NOT the iOS OAuth client.
+// Leave empty to keep on-device Vision. Never commit keys or service-account JSON.
+//   GOOGLE_CLOUD_VISION_API_KEY          → Vision API images:annotate
+//   GOOGLE_CLOUD_PROJECT_ID              → Document AI project
+//   GOOGLE_DOCUMENT_AI_LOCATION          → us or southamerica-east1
+//   GOOGLE_DOCUMENT_AI_PROCESSOR_ID      → Enterprise Document OCR processor
+//   GOOGLE_DOCUMENT_AI_CREDENTIALS_PATH  → absolute path to gitignored GoogleDocumentAI.json
+//   GOOGLE_DOCUMENT_AI_API_KEY           → only if Google allows API-key Document AI (usually no)
+// Place GoogleDocumentAI.json next to Secrets (gitignored) or set GOOGLE_APPLICATION_CREDENTIALS.
 
 SUPABASE_URL = https:/$()/YOUR_PROJECT_REF.supabase.co
 SUPABASE_ANON_KEY = YOUR_PUBLISHABLE_OR_ANON_KEY
 GOOGLE_IOS_CLIENT_ID =
 GOOGLE_IOS_REVERSED_CLIENT_ID =
+GOOGLE_CLOUD_VISION_API_KEY =
+GOOGLE_CLOUD_PROJECT_ID =
+GOOGLE_DOCUMENT_AI_LOCATION =
+GOOGLE_DOCUMENT_AI_PROCESSOR_ID =
+GOOGLE_DOCUMENT_AI_CREDENTIALS_PATH =
+GOOGLE_DOCUMENT_AI_API_KEY =

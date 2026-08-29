@@ -9,9 +9,9 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if session.isRestoring {
+            if session.isRestoring || session.isResolvingPostAuth {
                 restoring
-            } else if !session.hasCompletedOnboarding {
+            } else if !session.hasCompletedOnboarding || session.kind != .authenticated {
                 FirstTimeOnboardingView()
             } else if session.needsPrivacyAcknowledgement {
                 PrivacyConsentView(onAccept: { session.acknowledgePrivacy() })

@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 // MARK: - 02 Home (07–09)
 
@@ -26,7 +27,9 @@ struct TodayTreatmentScreen: View {
             Text(session.t(.todayGlance))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
             ForEach(periods, id: \.key) { period in
-                let items = CheckMedDemo.todayDoses.filter { $0.period == period.key }
+                let items = path.nodes.filter { node in
+                    period.key == Self.period(for: node.time)
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     Text(period.label)
                         .font(.system(.caption, design: .rounded).weight(.bold))
@@ -37,8 +40,8 @@ struct TodayTreatmentScreen: View {
                             .font(.system(.body, design: .rounded).weight(.bold))
                             .foregroundStyle(CheckMedTheme.muted)
                     } else {
-                        ForEach(items, id: \.time) { dose in
-                            Text("\(dose.time) · \(dose.name)")
+                        ForEach(items) { dose in
+                            Text("\(dose.time) · \(dose.medicine)")
                                 .font(.system(.body, design: .rounded).weight(.bold))
                         }
                     }
@@ -62,32 +65,81 @@ struct TodayTreatmentScreen: View {
             SafetyCaption().frame(maxWidth: .infinity)
         }
     }
+
+    private static func period(for time: String) -> String {
+        let hour = Int(time.split(separator: ":").first ?? "") ?? 0
+        switch hour {
+        case 5..<12: return "Morning"
+        case 12..<17: return "Afternoon"
+        case 17..<21: return "Evening"
+        default: return "Night"
+        }
+    }
 }
 
 struct UpcomingScreen: View {
+    @Environment(TodayPathStore.self) private var path
+    @Environment(SessionStore.self) private var session
+
+    private var remaining: [DoseNode] {
+        path.nodes.filter { $0.status == .current || $0.status == .locked }
+    }
+
     var body: some View {
-        ScreenScaffold(title: "Upcoming", bubble: "Next up is evening Amoxicillin — I'll sit with you until then.") {
-            CardBlock(kicker: "Next dose", title: "20:00 · Amoxicillin 500mg")
-            CardBlock(kicker: "Later today", title: "Ibuprofen 400mg · as needed")
-            CardBlock(kicker: "Tomorrow", title: "Same plan · 08:00 / 20:00 Amoxicillin")
-            CardBlock(kicker: "Upcoming treatments", title: "Antibiotic course ends Aug 30")
+        ScreenScaffold(
+            title: session.t(.homeUpcoming),
+            bubble: remaining.first.map { "Next up is \($0.medicine) at \($0.time)." }
+                ?? session.t(.todayNothing)
+        ) {
+            if remaining.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                ForEach(remaining) { node in
+                    CardBlock(kicker: node.time, title: "\(node.medicine) · \(node.detail)")
+                }
+            }
         }
     }
 }
 
 struct DailySummaryScreen: View {
+    @Environment(TodayPathStore.self) private var path
+    @Environment(SessionStore.self) private var session
+
     var body: some View {
         ScreenScaffold(
-            title: "Daily summary",
+            title: session.t(.homeSummary),
             philSize: 128,
-            bubble: "Phil: That's a full day. Your 6-day streak is still glowing."
+            bubble: path.pathComplete
+                ? "Phil: That's a full day. I'm proud of you."
+                : "Phil: We'll keep going together."
         ) {
-            Text("You did it!")
+            Text(path.pathComplete ? "You did it!" : session.t(.homeToday))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
-            Text("3/3 doses today")
+            Text("\(path.takenCount)/\(max(path.total, 1)) \(session.t(.taken).lowercased())")
                 .font(.system(.title3, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.primaryShadow)
+            if path.skippedCount > 0 {
+                Text("\(path.skippedCount) \(session.t(.skipped).lowercased())")
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            ForEach(path.nodes) { node in
+                Text("\(node.time) · \(node.medicine) · \(statusLabel(for: node.status))")
+                    .font(.system(.body, design: .rounded).weight(.bold))
+            }
             SafetyCaption().frame(maxWidth: .infinity)
+        }
+    }
+
+    private func statusLabel(for status: PathStatus) -> String {
+        switch status {
+        case .done: session.t(.logged)
+        case .skipped: session.t(.skipped)
+        case .current: session.t(.homeNextDose)
+        case .locked: session.t(.locked)
         }
     }
 }
@@ -242,50 +294,73 @@ struct PrescriptionSavedScreen: View {
 
 struct TreatmentOverviewScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
+
+    private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
 
     var body: some View {
         ScreenScaffold(
-            title: "Treatment overview",
-            kicker: "Treatment",
-            bubble: "7 days · 80%. Started Aug 24 · Ends Aug 30."
+            title: session.t(.tabTreatments),
+            kicker: session.t(.tabTreatments),
+            bubble: medicines.isEmpty
+                ? "Phil: Add a prescription and I'll keep the plan here with you."
+                : "Phil: Here's what we're organizing together."
         ) {
-            Text("Antibiotic Treatment")
-                .font(.system(.title2, design: .rounded).weight(.heavy))
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(CheckMedTheme.locked)
-                    Capsule()
-                        .fill(CheckMedTheme.primary)
-                        .frame(width: geo.size.width * 0.8)
+            if medicines.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                CheckMedButton(title: session.t(.homeScan)) { go(.addPrescription) }
+            } else {
+                ForEach(medicines) { med in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(med.name)
+                            .font(.system(.title3, design: .rounded).weight(.heavy))
+                        Text("\(med.doseLabel) · \(med.frequency) · \(med.duration)")
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(CheckMedTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                    )
                 }
+                CheckMedButton(title: session.t(.homeScan), style: .secondary) { go(.addPrescription) }
+                CheckMedButton(title: session.t(.profileMedicines), style: .ghost) { go(.medicationList) }
             }
-            .frame(height: 12)
-            CheckMedButton(title: "My medicines", style: .secondary) { go(.medicationList) }
-            CheckMedButton(title: "Timeline", style: .secondary) { go(.treatmentTimeline) }
-            CheckMedButton(title: "Edit treatment", style: .ghost) { go(.editTreatment) }
-            CheckMedButton(title: "Medication library", style: .ghost) { go(.myMedicines) }
         }
     }
 }
 
 struct MedicationListScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
+
+    private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
 
     var body: some View {
-        ScreenScaffold(title: "Medication list", kicker: "MY MEDICINES") {
-            Text("Active now")
+        ScreenScaffold(title: session.t(.profileMedicines), kicker: session.t(.profileLibrary)) {
+            Text(session.t(.profileMedicines))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
-            ForEach(CheckMedDemo.medicines, id: \.name) { med in
-                Button {
-                    go(.medicationDetail)
-                } label: {
+            if medicines.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                ForEach(medicines) { med in
                     HStack(spacing: 12) {
                         PhilView(size: 56)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(med.name)
                                 .font(.system(.body, design: .rounded).weight(.heavy))
                                 .foregroundStyle(CheckMedTheme.ink)
-                            Text("\(med.schedule) · \(med.duration)")
+                            Text("\(med.doseLabel) · \(med.frequency) · \(med.duration)")
                                 .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundStyle(CheckMedTheme.muted)
                         }
@@ -299,7 +374,6 @@ struct MedicationListScreen: View {
                             .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
                     )
                 }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -342,23 +416,41 @@ struct HowToTakeScreen: View {
 
 struct TreatmentTimelineScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
 
     var body: some View {
-        ScreenScaffold(title: "Treatment timeline") {
-            ForEach(CheckMedDemo.timelineDays, id: \.date) { day in
-                HStack {
-                    Text(day.date)
-                        .font(.system(.body, design: .rounded).weight(.heavy))
-                    Spacer()
-                    Text(day.note)
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
+        let cells = treatments.dayStatuses()
+        ScreenScaffold(title: session.t(.progressCalendar)) {
+            if cells.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
+                    HStack {
+                        Text("\(cell.day)")
+                            .font(.system(.body, design: .rounded).weight(.heavy))
+                        Spacer()
+                        Text(timelineNote(cell.kind))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                    .padding(12)
+                    .background(cell.kind == "today" ? CheckMedTheme.belly : CheckMedTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .padding(12)
-                .background(day.status == "today" ? CheckMedTheme.belly : CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-            CheckMedButton(title: "Overview", style: .ghost) { go(.treatmentOverview) }
+            CheckMedButton(title: session.t(.tabTreatments), style: .ghost) { go(.treatmentOverview) }
+        }
+    }
+
+    private func timelineNote(_ kind: String) -> String {
+        switch kind {
+        case "done": session.t(.logged)
+        case "miss": session.t(.skipped)
+        case "today": session.t(.homeToday)
+        default: session.t(.homeUpcoming)
         }
     }
 }
@@ -407,66 +499,100 @@ struct EditTreatmentScreen: View {
 
 struct NextDoseScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(TodayPathStore.self) private var path
+    @Environment(SessionStore.self) private var session
+
+    private var next: DoseNode? {
+        path.nodes.first { $0.status == .current || $0.status == .locked }
+    }
 
     var body: some View {
-        ScreenScaffold(title: "Next dose", kicker: "NEXT DOSE", philSize: 128, bubble: "20:00 · in 32 minutes") {
-            Text("Amoxicillin 500mg")
+        ScreenScaffold(
+            title: session.t(.homeNextDose),
+            kicker: session.t(.homeNextDose),
+            philSize: 128,
+            bubble: next.map { "\($0.time) · \($0.medicine)" } ?? session.t(.todayNothing)
+        ) {
+            Text(next?.medicine ?? session.t(.todayNothing))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
-            CheckMedButton(title: "View details") { go(.medicationDetail) }
-            CheckMedButton(title: "Preview alarm", style: .secondary) { go(.medicationAlarm) }
+            if let next {
+                VoiceReadButton(text: session.t(.notificationDoseBody, next.medicine, next.detail, next.time))
+                CheckMedButton(title: session.t(.homeAlarm), style: .secondary) { go(.medicationAlarm) }
+            }
         }
     }
 }
 
 struct MedicationAlarmScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(TodayPathStore.self) private var path
+    @Environment(EntitlementStore.self) private var entitlements
+    @Environment(SessionStore.self) private var session
+    @State private var theme = ReminderPreferences.alarmTheme
+
+    private var next: DoseNode? {
+        path.overdue ?? path.nodes.first { $0.status == .current }
+    }
 
     var body: some View {
         ScreenScaffold(
-            title: "Medication alarm",
+            title: session.t(.homeAlarm),
             philSize: 140,
-            bubble: "It's medicine time!"
+            bubble: path.overdue != nil ? session.t(.philMissedBubble) : session.t(.philAlarmBubble)
         ) {
-            Text("Amoxicillin 500mg · 20:00")
+            Text(next.map { "\($0.medicine) · \($0.time)" } ?? session.t(.todayNothing))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
-            Text("Alarm placeholder — real notifications land later. Taken stays free.")
+            if let next {
+                VoiceReadButton(text: session.t(.notificationDoseBody, next.medicine, next.detail, next.time))
+            }
+            AlarmThemePicker(theme: $theme)
+            Text(session.t(.takenStaysFree))
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
-            CheckMedButton(title: "Take now") { go(.confirmMedication) }
-            CheckMedButton(title: "Snooze", style: .ghost) { go(.nextDose) }
+            if next != nil {
+                CheckMedButton(title: session.t(.taken)) { go(.confirmMedication) }
+            }
+            CheckMedButton(title: session.t(.homeNextDose), style: .ghost) { go(.nextDose) }
         }
+        .onAppear { theme = ReminderPreferences.alarmTheme }
     }
 }
 
 struct ConfirmMedicationScreen: View {
     var go: (AppRoute) -> Void
     @Environment(TodayPathStore.self) private var path
+    @Environment(SessionStore.self) private var session
 
     var body: some View {
-        ScreenScaffold(title: "Confirm medication", philSize: 128, bubble: "Did you take it?") {
-            Text("Amoxicillin 500mg · 1 capsule")
+        ScreenScaffold(title: session.t(.taken), philSize: 128, bubble: "Did you take it?") {
+            Text(path.current.map { "\($0.medicine) · \($0.detail)" } ?? session.t(.todayNothing))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
-            CheckMedButton(title: "Yes, I took it") {
+            CheckMedButton(title: session.t(.taken)) {
                 path.takeCurrent()
                 go(.doseCompleted)
             }
-            CheckMedButton(title: "Not yet", style: .secondary) { go(.missedDose) }
+            CheckMedButton(title: session.t(.skip), style: .secondary) {
+                path.skipCurrent()
+                go(.nextDose)
+            }
         }
     }
 }
 
 struct DoseCompletedScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(TodayPathStore.self) private var path
+    @Environment(SessionStore.self) private var session
 
     var body: some View {
         ScreenScaffold(
-            title: "Dose completed",
+            title: session.t(.doseCompletedTitle),
             philSize: 140,
-            bubble: "Nice work! Streak continues 🔥 \(CheckMedDemo.streakDays)"
+            bubble: "Nice work! Streak continues 🔥 \(path.streakDays)"
         ) {
-            Text("3/3 today")
+            Text("\(path.completed)/\(max(path.total, 1))")
                 .font(.system(.title2, design: .rounded).weight(.heavy))
-            CheckMedButton(title: "Keep going") { go(.dailySummary) }
+            CheckMedButton(title: session.t(.keepGoing)) { go(.dailySummary) }
         }
     }
 }
@@ -474,23 +600,29 @@ struct DoseCompletedScreen: View {
 struct MissedDoseScreen: View {
     var go: (AppRoute) -> Void
     @Environment(TodayPathStore.self) private var path
+    @Environment(SessionStore.self) private var session
+
+    private var target: DoseNode? { path.overdue ?? path.current }
 
     var body: some View {
         ScreenScaffold(
-            title: "Missed dose",
-            bubble: "Phil is here — no shame. Let's just see what the plan says."
+            title: session.t(.missedDoseTitle),
+            bubble: session.t(.philMissedBubble)
         ) {
-            Text("This dose is still open")
+            Text(session.t(.missedStillOpen))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
-            Text("Amoxicillin 500mg · 14:00 window")
+            Text(target.map { "\($0.medicine) · \($0.time)" } ?? session.t(.todayNothing))
                 .font(.system(.body, design: .rounded).weight(.bold))
-            CheckMedButton(title: "Take now") { go(.confirmMedication) }
-            CheckMedButton(title: "Skip for now", style: .secondary) {
+            if let target {
+                VoiceReadButton(text: session.t(.notificationMissedBody, target.medicine, target.time))
+            }
+            CheckMedButton(title: session.t(.missedTakeNow)) { go(.confirmMedication) }
+            CheckMedButton(title: session.t(.missedSkipForNow), style: .secondary) {
                 path.skipCurrent()
                 go(.nextDose)
             }
-            CheckMedButton(title: "View instructions", style: .ghost) { go(.howToTake) }
-            Text("CheckMed never tells you to double a dose. Follow the prescription, or ask your clinician or pharmacist.")
+            CheckMedButton(title: session.t(.homeTodaysTreatment), style: .ghost) { go(.todayTreatment) }
+            Text(session.t(.missedNeverDouble))
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.safety)
         }
@@ -499,17 +631,41 @@ struct MissedDoseScreen: View {
 
 struct ReminderSettingsScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(SessionStore.self) private var session
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(EntitlementStore.self) private var entitlements
+    @State private var theme = ReminderPreferences.alarmTheme
+    @State private var drafts: [ReminderDraft] = []
 
     var body: some View {
-        ScreenScaffold(title: "Reminder settings", bubble: "Reminders · Amoxicillin") {
-            ForEach(
-                ["Notifications on", "08:00 · 14:00 · 20:00", "Sound · Chime", "Haptics on", "Quiet hours 22:30–07:00"],
-                id: \.self
-            ) { item in
-                Text("• \(item)")
+        ScreenScaffold(title: session.t(.profileReminders), bubble: session.t(.prefsBubble)) {
+            let times = treatments.reminderTimesLabel()
+            Text(times.isEmpty ? session.t(.remindersNoneScheduled) : times)
+                .font(.system(.title3, design: .rounded).weight(.heavy))
+            if drafts.isEmpty {
+                Text(session.t(.remindersNoneScheduled))
                     .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                Text(session.t(.remindersScheduled))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                ForEach(drafts.prefix(8)) { draft in
+                    Text("• \(draft.time) · \(draft.medicine)")
+                        .font(.system(.body, design: .rounded).weight(.bold))
+                }
             }
-            CheckMedButton(title: "All preferences", style: .secondary) { go(.notificationPrefs) }
+            AlarmThemePicker(theme: $theme)
+            if !entitlements.canUseVoiceReading {
+                Text(session.t(.voiceLockedHint))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            CheckMedButton(title: session.t(.prefsTitle), style: .secondary) { go(.notificationPrefs) }
+        }
+        .onAppear {
+            theme = ReminderPreferences.alarmTheme
+            drafts = treatments.reminderDrafts().filter { $0.kind == .dose }
         }
     }
 }
@@ -605,26 +761,41 @@ struct QuestionsForDoctorScreen: View {
 
 struct ProgressDashboardScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
+    @Environment(CheckMedStore.self) private var treatments
+
+    private var stats: AdherenceSnapshot { treatments.adherence() }
 
     var body: some View {
         ScreenScaffold(
-            title: "Progress dashboard",
+            title: session.t(.progressTitle),
             philSize: 120,
-            bubble: "Phil: Progress is a streak of small wins — not perfection."
+            bubble: stats.hasHistory
+                ? "Phil: Progress is a streak of small wins — not perfection."
+                : session.t(.progressEmptyBubble)
         ) {
-            Text("You're on a roll")
+            Text(stats.hasHistory ? session.t(.progressOnARoll) : session.t(.progressEmptyBody))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
-            Text("🔥 \(CheckMedDemo.streakDays) DAYS")
+            Text("🔥 \(stats.streakDays)")
                 .font(.system(.title3, design: .rounded).weight(.black))
                 .foregroundStyle(CheckMedTheme.streak)
-            HStack {
-                stat("87%", "taken as planned")
-                stat("18/21", "doses")
-                stat("🏆 2", "treatments")
+            if stats.hasHistory {
+                HStack {
+                    stat(stats.percent.map { "\($0)%" } ?? "—", session.t(.progressTakenAsPlanned))
+                    stat("\(stats.takenCount)/\(stats.plannedCount)", session.t(.progressDosesLabel))
+                    stat("\(stats.treatmentCount)", session.t(.progressTreatmentsLabel))
+                }
+            } else {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
             }
-            CheckMedButton(title: "Calendar", style: .secondary) { go(.adherence) }
-            CheckMedButton(title: "Treatment history", style: .secondary) { go(.treatmentHistory) }
+            CheckMedButton(title: session.t(.backToDashboard)) {
+                session.showHomeTab()
+            }
+            CheckMedButton(title: session.t(.progressCalendar), style: .secondary) { go(.adherence) }
+            CheckMedButton(title: session.t(.progressHistory), style: .secondary) { go(.treatmentHistory) }
             Button {
                 if !entitlements.isSuper {
                     entitlements.presentPaywall()
@@ -633,10 +804,10 @@ struct ProgressDashboardScreen: View {
                 }
             } label: {
                 HStack {
-                    Text("Longer filters")
+                    Text(session.t(.longerFilters))
                         .font(.system(.body, design: .rounded).weight(.bold))
                     Spacer()
-                    Text(entitlements.isSuper ? "Week · Month" : "Super")
+                    Text(entitlements.isSuper ? "Week · Month" : session.t(.paywallSuper))
                         .font(.system(.caption, design: .rounded).weight(.bold))
                         .foregroundStyle(entitlements.isSuper ? CheckMedTheme.superAccent : CheckMedTheme.muted)
                 }
@@ -661,17 +832,19 @@ struct ProgressDashboardScreen: View {
 }
 
 struct AdherenceScreen: View {
-    private let cells = ["done", "done", "done", "miss", "done", "done", "today", "soon", "soon", "soon", "soon", "soon", "soon", "soon"]
+    @Environment(CheckMedStore.self) private var treatments
+
+    private var cells: [(day: Int, kind: String)] { treatments.dayStatuses() }
 
     var body: some View {
         ScreenScaffold(title: "Adherence") {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
-                ForEach(Array(cells.enumerated()), id: \.offset) { index, kind in
-                    Text("\(index + 17)")
+                ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
+                    Text("\(cell.day)")
                         .font(.system(.caption, design: .rounded).weight(.heavy))
                         .frame(width: 36, height: 36)
-                        .background(cellColor(kind), in: Circle())
-                        .foregroundStyle(kind == "soon" ? CheckMedTheme.muted : CheckMedTheme.ink)
+                        .background(cellColor(cell.kind), in: Circle())
+                        .foregroundStyle(cell.kind == "soon" ? CheckMedTheme.muted : CheckMedTheme.ink)
                 }
             }
             Text("Green completed · Gray still open · Light upcoming")
@@ -692,31 +865,54 @@ struct AdherenceScreen: View {
 
 struct TreatmentHistoryScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
+
+    private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
 
     var body: some View {
-        ScreenScaffold(title: "Treatment history", bubble: "Taken days count for the streak. Skip does not break it.") {
-            CardBlock(kicker: "ACTIVE", title: "Antibiotic · Aug 2026")
-            CardBlock(kicker: "COMPLETED", title: "Pain plan · Jul 2026")
-            CheckMedButton(title: "Preview completion", style: .secondary) { go(.treatmentComplete) }
+        ScreenScaffold(title: session.t(.progressHistory), bubble: session.t(.progressEmptyBody)) {
+            if medicines.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                ForEach(medicines) { med in
+                    CardBlock(kicker: med.treatmentTitle, title: "\(med.name) · \(med.frequency)")
+                }
+            }
+            CheckMedButton(title: session.t(.homeScan), style: .secondary) { go(.addPrescription) }
         }
     }
 }
 
 struct TreatmentCompleteScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
+
+    private var stats: AdherenceSnapshot { treatments.adherence() }
 
     var body: some View {
         ScreenScaffold(
-            title: "Treatment complete",
+            title: session.t(.progressTitle),
             philSize: 140,
-            bubble: "Phil: You finished the course. That's something to be proud of."
+            bubble: stats.hasHistory
+                ? "Phil: You finished the course. That's something to be proud of."
+                : session.t(.progressEmptyBubble)
         ) {
-            Text("Treatment complete!")
+            Text(stats.hasHistory ? session.t(.progressOnARoll) : session.t(.progressEmptyBody))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
-            Text("7 days · 21 doses · 19 completed")
-                .font(.system(.body, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
-            CheckMedButton(title: "View summary") { go(.progressDashboard) }
+            if stats.hasHistory {
+                Text("\(stats.takenCount)/\(stats.plannedCount) \(session.t(.progressDosesLabel))")
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            CheckMedButton(title: session.t(.progressTitle)) { go(.progressDashboard) }
         }
     }
 }
@@ -725,34 +921,36 @@ struct TreatmentCompleteScreen: View {
 
 struct MyMedicinesScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
     @State private var query = ""
 
+    private var medicines: [CheckMedStore.MedicineSummary] {
+        treatments.medicineSummaries().filter {
+            query.isEmpty || $0.name.localizedCaseInsensitiveContains(query)
+        }
+    }
+
     var body: some View {
-        ScreenScaffold(title: "My medicines") {
+        ScreenScaffold(title: session.t(.profileMedicines)) {
             TextField("Search", text: $query)
                 .padding(14)
                 .background(CheckMedTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.locked, lineWidth: 2))
-            HStack {
-                Text("Active")
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(CheckMedTheme.primary, in: Capsule())
-                    .foregroundStyle(.white)
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
-                Text("Completed").font(.system(.caption, design: .rounded).weight(.bold)).foregroundStyle(CheckMedTheme.muted)
-                Text("Archived").font(.system(.caption, design: .rounded).weight(.bold)).foregroundStyle(CheckMedTheme.muted)
-            }
-            ForEach(CheckMedDemo.medicines.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }, id: \.name) { med in
-                Button { go(.medicineHistory) } label: {
+            if medicines.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                ForEach(medicines) { med in
                     HStack {
                         PhilView(size: 52)
                         VStack(alignment: .leading) {
                             Text(med.name)
                                 .font(.system(.body, design: .rounded).weight(.heavy))
                                 .foregroundStyle(CheckMedTheme.ink)
-                            Text(med.status)
+                            Text("\(med.doseLabel) · \(med.frequency)")
                                 .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundStyle(CheckMedTheme.muted)
                         }
@@ -762,19 +960,30 @@ struct MyMedicinesScreen: View {
                     .background(CheckMedTheme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                .buttonStyle(.plain)
             }
         }
     }
 }
 
 struct MedicineHistoryScreen: View {
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
+
+    private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
+
     var body: some View {
-        ScreenScaffold(title: "Medicine history", bubble: "Doses and prescriptions stay on the record — you can show this to a clinician.") {
-            Text("Amoxicillin history")
-                .font(.system(.title3, design: .rounded).weight(.heavy))
-            CardBlock(kicker: "Current", title: "Aug 24–30 · 3× daily")
-            CardBlock(kicker: "Previous", title: "Mar 2026 · 5-day course")
+        ScreenScaffold(title: session.t(.profileMedicines), bubble: session.t(.progressEmptyBody)) {
+            if medicines.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                ForEach(medicines) { med in
+                    Text(med.name)
+                        .font(.system(.title3, design: .rounded).weight(.heavy))
+                    CardBlock(kicker: med.frequency, title: "\(med.doseLabel) · \(med.treatmentTitle)")
+                }
+            }
         }
     }
 }
@@ -783,13 +992,46 @@ struct MedicineHistoryScreen: View {
 
 struct NotificationPrefsScreen: View {
     @Environment(SessionStore.self) private var session
+    @Environment(EntitlementStore.self) private var entitlements
+    @State private var quietHours = ReminderPreferences.quietHoursEnabled
+    @State private var voiceReminders = ReminderPreferences.voiceRemindersEnabled
+    @State private var theme = ReminderPreferences.alarmTheme
+    @State private var authorized = false
 
     var body: some View {
         ScreenScaffold(title: session.t(.prefsTitle), bubble: session.t(.prefsBubble)) {
-            ForEach(L10n.prefsItems(session.locale), id: \.self) { item in
-                Text("• \(item)")
-                    .font(.system(.body, design: .rounded).weight(.bold))
+            Text(authorized ? session.t(.notifsEnable) : session.t(.remindersPermissionOff))
+                .font(.system(.body, design: .rounded).weight(.bold))
+            Toggle(session.t(.prefsQuietToggle), isOn: $quietHours)
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .onChange(of: quietHours) { _, value in
+                    ReminderPreferences.quietHoursEnabled = value
+                    ReminderScheduler.shared.reschedule()
+                }
+            Toggle(session.t(.voiceRemindersToggle), isOn: $voiceReminders)
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .disabled(!entitlements.canUseVoiceReading)
+                .onChange(of: voiceReminders) { _, value in
+                    if entitlements.canUseVoiceReading {
+                        ReminderPreferences.voiceRemindersEnabled = value
+                    } else {
+                        voiceReminders = false
+                        entitlements.presentPaywall()
+                    }
+                }
+            if !entitlements.canUseVoiceReading {
+                Text(session.t(.voiceLockedHint))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
             }
+            AlarmThemePicker(theme: $theme)
+        }
+        .task {
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            authorized = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+            quietHours = ReminderPreferences.quietHoursEnabled
+            voiceReminders = entitlements.canUseVoiceReading && ReminderPreferences.voiceRemindersEnabled
+            theme = ReminderPreferences.alarmTheme
         }
     }
 }

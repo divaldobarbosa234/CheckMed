@@ -59,7 +59,7 @@ struct AccountGateView: View {
                     .foregroundStyle(CheckMedTheme.muted)
                     .multilineTextAlignment(.center)
                 CheckMedButton(title: "Create account", action: onCreateAccount)
-                CheckMedButton(title: "Keep browsing as guest", style: .ghost, action: onDismiss)
+                CheckMedButton(title: "Not now", style: .ghost, action: onDismiss)
             }
             .padding(24)
             .background(CheckMedTheme.background)

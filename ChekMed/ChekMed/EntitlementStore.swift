@@ -22,6 +22,8 @@ final class EntitlementStore {
     var familySlots: Int { isSuper ? 2 : freeFamilySlots }
     var extraFamilySlotUnlocked: Bool { isSuper }
     var canUseStreakFreeze: Bool { isSuper }
+    var canChooseAlarmTheme: Bool { isSuper }
+    var canUseVoiceReading: Bool { isSuper }
 
     var allowsDebugUnlock: Bool {
         #if targetEnvironment(simulator)

@@ -6,6 +6,7 @@ import Supabase
 import UIKit
 
 nonisolated struct CheckMedProfile: Codable, Sendable {
+    var id: UUID?
     var ownerId: UUID
     var displayName: String?
     var companionName: String
@@ -16,6 +17,7 @@ nonisolated struct CheckMedProfile: Codable, Sendable {
     var gender: String?
 
     enum CodingKeys: String, CodingKey {
+        case id
         case ownerId = "owner_id"
         case displayName = "display_name"
         case companionName = "companion_name"
@@ -28,6 +30,7 @@ nonisolated struct CheckMedProfile: Codable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(id, forKey: .id)
         try container.encode(ownerId, forKey: .ownerId)
         try container.encode(companionName, forKey: .companionName)
         try container.encodeIfPresent(displayName, forKey: .displayName)
@@ -54,9 +57,14 @@ final class AuthManager {
     private(set) var statusMessage: String?
 
     var isConfigured: Bool { client != nil }
+    /// SyncEngine only. Screens must not call Supabase except through SessionStore auth/profile.
+    var supabaseForSync: SupabaseClient? { client }
     var isGoogleConfigured: Bool { AuthConfig.isGoogleConfigured }
     var userId: UUID? { client?.auth.currentUser?.id }
 
+    /// Called before `isAuthenticated` flips on, so routing can avoid a Home flash.
+    @ObservationIgnored
+    var onBeforeAuthenticated: ((_ isRestore: Bool) -> Void)?
     /// Called when a session is restored (`true`) or the user just signed in (`false`).
     @ObservationIgnored
     var onAuthenticated: ((_ isRestore: Bool) async -> Void)?
@@ -261,13 +269,26 @@ final class AuthManager {
     }
 
     private func handleAuthChange(_ event: AuthChangeEvent, _ session: Session?) async {
+        let wasAuthenticated = isAuthenticated
+        let isRestore: Bool
+        switch event {
+        case .initialSession:
+            isRestore = true
+        case .signedIn:
+            isRestore = wasAuthenticated
+        default:
+            isRestore = wasAuthenticated
+        }
+        if session != nil, event == .initialSession || event == .signedIn {
+            onBeforeAuthenticated?(isRestore)
+        }
         apply(session: session)
         if session != nil {
             switch event {
             case .initialSession:
                 await onAuthenticated?(true)
             case .signedIn:
-                await onAuthenticated?(false)
+                await onAuthenticated?(isRestore)
             default:
                 break
             }
@@ -297,7 +318,7 @@ final class AuthManager {
         do {
             let rows: [CheckMedProfile] = try await client
                 .from("profiles")
-                .select("owner_id, display_name, companion_name, date_of_birth, language, time_zone, pronouns, gender")
+                .select("id, owner_id, display_name, companion_name, date_of_birth, language, time_zone, pronouns, gender")
                 .eq("owner_id", value: userId.uuidString)
                 .limit(1)
                 .execute()

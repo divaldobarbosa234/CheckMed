@@ -9,6 +9,7 @@ struct ContentView: View {
 #Preview {
     RootView()
         .environment(SessionStore())
+        .environment(CheckMedStore())
         .environment(TodayPathStore())
         .environment(EntitlementStore())
 }

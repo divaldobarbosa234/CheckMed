@@ -1,0 +1,7782 @@
+{
+  "version": 1,
+  "description": "On-device essential catalog (Brazil/LATAM + global INN/brands). Grow this file; do not fetch a live world dump on each keystroke.",
+  "entryCount": 904,
+  "aliasCount": 1446,
+  "items": [
+    {
+      "name": "AAS",
+      "aliases": [
+        "Ácido acetilsalicílico"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "AAS 100",
+      "aliases": [
+        "Aspirin protect",
+        "Cardioaspirina"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "AAS infantil",
+      "aliases": [
+        "Aspirina Prevent",
+        "Baby aspirin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Acarbose",
+      "aliases": [
+        "Glucobay"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Acebrofilina",
+      "aliases": [
+        "Acebrophylline",
+        "Bronfilin",
+        "Filinar"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Acebrofilina xarope",
+      "aliases": [
+        "Filinar xarope"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Aceclofenaco",
+      "aliases": [
+        "Aceclofenac",
+        "Airtal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Acetaminophen",
+      "aliases": [
+        "Paracetamol",
+        "Tylenol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Acetaminophen extra strength",
+      "aliases": [
+        "Tylenol Extra Strength"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Acetilcisteína",
+      "aliases": [
+        "ACC",
+        "Acetylcysteine",
+        "Fluimucil"
+      ],
+      "formHint": "sachet",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Acetilcisteína 600",
+      "aliases": [
+        "Fluimucil"
+      ],
+      "formHint": "sobre",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Acetylcysteine",
+      "aliases": [
+        "Mucomyst",
+        "NAC"
+      ],
+      "formHint": "solution",
+      "strengthHint": ""
+    },
+    {
+      "name": "Aché enalapril",
+      "aliases": [
+        "Enalapril"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Aciclovir",
+      "aliases": [
+        "Acyclovir",
+        "Zovirax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Aciclovir 400",
+      "aliases": [
+        "Zovirax"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Acyclovir",
+      "aliases": [
+        "Zovirax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Adalimumab",
+      "aliases": [
+        "Humira"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Adalimumabe",
+      "aliases": [
+        "Adalimumab",
+        "Humira"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Adapalene",
+      "aliases": [
+        "Differin"
+      ],
+      "formHint": "gel",
+      "strengthHint": ""
+    },
+    {
+      "name": "Addera D3",
+      "aliases": [
+        "Colecalciferol",
+        "Vitamina D"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Adrenalina",
+      "aliases": [
+        "Adrenalin",
+        "Epinephrine",
+        "EpiPen"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Advil",
+      "aliases": [
+        "Ibuprofeno"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Aerolin",
+      "aliases": [
+        "Salbutamol"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Albendazol",
+      "aliases": [
+        "Albendazole",
+        "Zentel"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Albuterol",
+      "aliases": [
+        "Salbutamol",
+        "Ventolin"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Albuterol inhaler",
+      "aliases": [
+        "ProAir",
+        "Ventolin"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Alendronate",
+      "aliases": [
+        "Fosamax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "70 mg"
+    },
+    {
+      "name": "Alendronato",
+      "aliases": [
+        "Alendronate",
+        "Fosamax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "70 mg"
+    },
+    {
+      "name": "Alendronato 70",
+      "aliases": [
+        "Fosamax"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "70 mg"
+    },
+    {
+      "name": "Alfuzosin",
+      "aliases": [
+        "Uroxatral"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Alirocumab",
+      "aliases": [
+        "Praluent"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Alivium",
+      "aliases": [
+        "Ibuprofeno"
+      ],
+      "formHint": "suspension / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Allegra",
+      "aliases": [
+        "Fexofenadina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "180 mg"
+    },
+    {
+      "name": "Allopurinol",
+      "aliases": [
+        "Zyloprim"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Alopurinol",
+      "aliases": [
+        "Allopurinol",
+        "Zyloric"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Alopurinol 100",
+      "aliases": [
+        "Zyloric"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Alprazolam",
+      "aliases": [
+        "Frontal",
+        "Xanax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Alprazolam 0.5",
+      "aliases": [
+        "Alplax",
+        "Xanax"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Alprostadil",
+      "aliases": [
+        "Caverject",
+        "MUSE"
+      ],
+      "formHint": "pellet / injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ambroxol",
+      "aliases": [
+        "Ambrol",
+        "Mucosolvan"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ambroxol jarabe",
+      "aliases": [
+        "Mucosolvan"
+      ],
+      "formHint": "jarabe",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ambroxol xarope",
+      "aliases": [
+        "Mucosolvan xarope"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Amiodarona",
+      "aliases": [
+        "Amiodarone",
+        "Ancoron",
+        "Cordarone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Amiodarone",
+      "aliases": [
+        "Pacerone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Amitriptilina",
+      "aliases": [
+        "Amitriptyline",
+        "Tryptanol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Amlodipine",
+      "aliases": [
+        "Anlodipino",
+        "Norvasc"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Amlodipine 10 mg",
+      "aliases": [
+        "Norvasc 10"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Amlodipino",
+      "aliases": [
+        "Amlodipine"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Amoxicilina",
+      "aliases": [
+        "Amoxicillin",
+        "Amoxil",
+        "Amoxilina",
+        "Clamoxyl"
+      ],
+      "formHint": "capsule / syrup",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Amoxicilina + Clavulanato",
+      "aliases": [
+        "Amoxi-clav",
+        "Amoxicillin clavulanate",
+        "Augmentin",
+        "Clavulin"
+      ],
+      "formHint": "tablet / syrup",
+      "strengthHint": "875/125 mg"
+    },
+    {
+      "name": "Amoxicilina 250 mg/5 ml",
+      "aliases": [
+        "Amoxil xarope"
+      ],
+      "formHint": "syrup",
+      "strengthHint": "250 mg/5 ml"
+    },
+    {
+      "name": "Amoxicilina 400 mg/5 ml",
+      "aliases": [
+        "Amoxil BD"
+      ],
+      "formHint": "syrup",
+      "strengthHint": "400 mg/5 ml"
+    },
+    {
+      "name": "Amoxicilina 500",
+      "aliases": [
+        "Amoxidal 500"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Amoxicilina clavulánico",
+      "aliases": [
+        "Augmentin",
+        "Clavulox"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Amoxicilina H. pylori",
+      "aliases": [
+        "Amoxil HP"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Amoxicillin",
+      "aliases": [
+        "Amoxicilina",
+        "Amoxil"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Amoxicillin-clavulanate",
+      "aliases": [
+        "Augmentin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "875/125 mg"
+    },
+    {
+      "name": "Amoxidal",
+      "aliases": [
+        "Amoxicilina"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Amphetamine salts",
+      "aliases": [
+        "Adderall"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Anastrozol",
+      "aliases": [
+        "Arimidex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Anlodipino",
+      "aliases": [
+        "Amlocor",
+        "Amlodipine",
+        "Norvasc"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Anlodipino 10 mg",
+      "aliases": [
+        "Norvasc 10"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Anlodipino 2.5 mg",
+      "aliases": [
+        "Norvasc 2.5"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2.5 mg"
+    },
+    {
+      "name": "Apixaban",
+      "aliases": [
+        "Eliquis"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Apixabana",
+      "aliases": [
+        "Apixaban",
+        "Eliquis"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Apixabán",
+      "aliases": [
+        "Eliquis"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Aradois",
+      "aliases": [
+        "Losartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Aripiprazol",
+      "aliases": [
+        "Abilify",
+        "Aripiprazole"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Aripiprazole",
+      "aliases": [
+        "Abilify"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Arteméter + Lumefantrina",
+      "aliases": [
+        "Coartem",
+        "Riamet"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Artificial tears",
+      "aliases": [
+        "Refresh",
+        "Systane"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Aspirin",
+      "aliases": [
+        "AAS",
+        "Aspirina",
+        "Ácido acetilsalicílico"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Aspirin 325 mg",
+      "aliases": [
+        "Bayer"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "325 mg"
+    },
+    {
+      "name": "Aspirin 81 mg",
+      "aliases": [
+        "Baby aspirin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "81 mg"
+    },
+    {
+      "name": "AstraZeneca rosuvastatina",
+      "aliases": [
+        "Rosuvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Atenolol",
+      "aliases": [
+        "Atenol",
+        "Tenormin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Atenolol 50",
+      "aliases": [
+        "Atenolon"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Atorvastatin",
+      "aliases": [
+        "Atorvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Atorvastatin 40 mg",
+      "aliases": [
+        "Lipitor 40"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Atorvastatin 80 mg",
+      "aliases": [
+        "Lipitor 80"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "80 mg"
+    },
+    {
+      "name": "Atorvastatina",
+      "aliases": [
+        "Atorvastatin",
+        "Citalor",
+        "Lipitor"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Atorvastatina 10 mg",
+      "aliases": [
+        "Lipitor 10"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Atorvastatina 20",
+      "aliases": [
+        "Zarator"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Atorvastatina 40 mg",
+      "aliases": [
+        "Lipitor 40"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Atropina",
+      "aliases": [
+        "Atropine"
+      ],
+      "formHint": "injection / drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Azathioprine",
+      "aliases": [
+        "Imuran"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Azatioprina",
+      "aliases": [
+        "Azathioprine",
+        "Imuran"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Azithromycin",
+      "aliases": [
+        "Azitromicina",
+        "Z-Pak",
+        "Zithromax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Azitromicina",
+      "aliases": [
+        "Azithromycin",
+        "Zithromax",
+        "Zitromax"
+      ],
+      "formHint": "tablet / syrup",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Azitromicina 200 mg/5 ml",
+      "aliases": [
+        "Zitromax suspensão"
+      ],
+      "formHint": "suspension",
+      "strengthHint": "200 mg/5 ml"
+    },
+    {
+      "name": "Azitromicina 500",
+      "aliases": [
+        "Athromycin",
+        "Zitromax"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Baclofen",
+      "aliases": [
+        "Lioresal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Bactrim",
+      "aliases": [
+        "Sulfametoxazol trimetoprima"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bayaspirina",
+      "aliases": [
+        "AAS"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Bayer ciprofloxacino",
+      "aliases": [
+        "Ciprofloxacino"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Beclometasona",
+      "aliases": [
+        "Beclomethasone",
+        "Clenil"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Beclometasona + Formoterol",
+      "aliases": [
+        "Fostair",
+        "Foster"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bempedoic acid",
+      "aliases": [
+        "Nexletol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "180 mg"
+    },
+    {
+      "name": "Benegrip",
+      "aliases": [
+        "Paracetamol combo"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Benzil benzoato",
+      "aliases": [
+        "Acarsan",
+        "Benzyl benzoate"
+      ],
+      "formHint": "lotion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Benznidazol",
+      "aliases": [
+        "Rochagan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Benzocaína",
+      "aliases": [
+        "Benzocaine"
+      ],
+      "formHint": "gel",
+      "strengthHint": ""
+    },
+    {
+      "name": "Benzonatate",
+      "aliases": [
+        "Tessalon"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Benzoyl peroxide",
+      "aliases": [
+        "PanOxyl"
+      ],
+      "formHint": "gel",
+      "strengthHint": ""
+    },
+    {
+      "name": "Betahistina",
+      "aliases": [
+        "Betahistine",
+        "Labs",
+        "Serc"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "16 mg"
+    },
+    {
+      "name": "Betametasona",
+      "aliases": [
+        "Betamethasone",
+        "Celestone",
+        "Diprospan"
+      ],
+      "formHint": "cream / injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Betametasona crema",
+      "aliases": [
+        "Diprosone"
+      ],
+      "formHint": "crema",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bicalutamida",
+      "aliases": [
+        "Casodex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Bicarbonato de sódio",
+      "aliases": [
+        "Sodium bicarbonate"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Biolab carvedilol",
+      "aliases": [
+        "Carvedilol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "12.5 mg"
+    },
+    {
+      "name": "Biotin",
+      "aliases": [
+        "Vitamin B7"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bisacodil",
+      "aliases": [
+        "Bisacodyl",
+        "Dulcolax",
+        "Laxan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Bismuth subsalicylate",
+      "aliases": [
+        "Pepto-Bismol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bismuto",
+      "aliases": [
+        "Bismuth",
+        "Pepto-Bismol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bisoprolol",
+      "aliases": [
+        "Concor",
+        "Zebeta"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Boehringer empagliflozina",
+      "aliases": [
+        "Jardiance"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Brimonidina",
+      "aliases": [
+        "Alphagan",
+        "Brimonidine"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bromazepam",
+      "aliases": [
+        "Lexotan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "3 mg"
+    },
+    {
+      "name": "Bromexina",
+      "aliases": [
+        "Bisolvon",
+        "Bromhexine"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bromocriptina",
+      "aliases": [
+        "Bromocriptine",
+        "Parlodel"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2.5 mg"
+    },
+    {
+      "name": "Budesonida",
+      "aliases": [
+        "Budecort",
+        "Budesonide",
+        "Pulmicort"
+      ],
+      "formHint": "inhaler / nasal",
+      "strengthHint": ""
+    },
+    {
+      "name": "Budesonida + Formoterol",
+      "aliases": [
+        "Alenia",
+        "Symbicort",
+        "Vannair"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Budesonida formoterol",
+      "aliases": [
+        "Symbicort"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Budesonida spray",
+      "aliases": [
+        "Budecort"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Budesonide EC",
+      "aliases": [
+        "Entocort"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "3 mg"
+    },
+    {
+      "name": "Budesonide nasal",
+      "aliases": [
+        "Rhinocort"
+      ],
+      "formHint": "nasal spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Budesonide-formoterol",
+      "aliases": [
+        "Symbicort"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Bumetanide",
+      "aliases": [
+        "Bumex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Bupropion XL",
+      "aliases": [
+        "Wellbutrin XL"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Bupropiona",
+      "aliases": [
+        "Bupropion",
+        "Wellbutrin",
+        "Zyban"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Buscapina",
+      "aliases": [
+        "Buscopan",
+        "Hioscina"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Buscopan",
+      "aliases": [
+        "Escopolamina",
+        "Hyoscine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Cabergolina",
+      "aliases": [
+        "Cabergoline",
+        "Dostinex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Calcium carbonate",
+      "aliases": [
+        "Oscal",
+        "Tums"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Canagliflozin",
+      "aliases": [
+        "Invokana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Canagliflozina",
+      "aliases": [
+        "Canagliflozin",
+        "Invokana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Candesartan",
+      "aliases": [
+        "Candesartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "8 mg"
+    },
+    {
+      "name": "Candesartana",
+      "aliases": [
+        "Atacand",
+        "Blopress",
+        "Candesartan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "8 mg"
+    },
+    {
+      "name": "Capsaicina",
+      "aliases": [
+        "Capsaicin",
+        "Capsicum"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Captopril",
+      "aliases": [
+        "Capoten"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Carbamazepina",
+      "aliases": [
+        "Carbamazepine",
+        "Tegretol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Carbamazepine",
+      "aliases": [
+        "Tegretol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Carbonato de calcio",
+      "aliases": [
+        "Calcio"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Carbonato de cálcio",
+      "aliases": [
+        "Calcium carbonate",
+        "Oscal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Carboplatina",
+      "aliases": [
+        "Carboplatin"
+      ],
+      "formHint": "infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Carisoprodol",
+      "aliases": [
+        "Soma",
+        "Torsilax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Carvedilol",
+      "aliases": [
+        "Cardilol",
+        "Coreg",
+        "Karvedilol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "12.5 mg"
+    },
+    {
+      "name": "Carvedilol 12.5",
+      "aliases": [
+        "Dilatrend"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "12.5 mg"
+    },
+    {
+      "name": "Carvedilol 25 mg",
+      "aliases": [
+        "Coreg 25"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Carvão ativado",
+      "aliases": [
+        "Activated charcoal"
+      ],
+      "formHint": "powder",
+      "strengthHint": ""
+    },
+    {
+      "name": "Cataflam",
+      "aliases": [
+        "Diclofenaco"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Cebion",
+      "aliases": [
+        "Vitamina C"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Cefalexina",
+      "aliases": [
+        "Cefalexin",
+        "Cephalexin",
+        "Keflex"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Cefalexina 500",
+      "aliases": [
+        "Cefalexina",
+        "Keflex"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Ceftriaxona",
+      "aliases": [
+        "Ceftriaxone",
+        "Rocefin"
+      ],
+      "formHint": "injection",
+      "strengthHint": "1 g"
+    },
+    {
+      "name": "Celecoxib",
+      "aliases": [
+        "Celebrex"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Celecoxibe",
+      "aliases": [
+        "Celebra",
+        "Celebrex",
+        "Celecoxib"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Cephalexin",
+      "aliases": [
+        "Keflex"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Cetirizina",
+      "aliases": [
+        "Cetirizine",
+        "Cetyrin",
+        "Zyrtec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Cetirizina 10",
+      "aliases": [
+        "Reactine",
+        "Zyrtec"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Cetirizine",
+      "aliases": [
+        "Zyrtec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Cetoconazol",
+      "aliases": [
+        "Ketoconazole",
+        "Nizoral"
+      ],
+      "formHint": "cream / shampoo",
+      "strengthHint": ""
+    },
+    {
+      "name": "Cetoprofeno",
+      "aliases": [
+        "Ketoprofen",
+        "Profenid",
+        "Profénid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Chlorthalidone",
+      "aliases": [
+        "Thalitone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Cholecalciferol",
+      "aliases": [
+        "Vitamin D3"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "1000 IU"
+    },
+    {
+      "name": "Cholestyramine",
+      "aliases": [
+        "Questran"
+      ],
+      "formHint": "powder",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ciclobenzaprina",
+      "aliases": [
+        "Cyclobenzaprine",
+        "Flexeril",
+        "Miosan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Ciclofosfamida",
+      "aliases": [
+        "Cyclophosphamide",
+        "Cytoxan"
+      ],
+      "formHint": "tablet / infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ciclosporina",
+      "aliases": [
+        "Cyclosporine",
+        "Sandimmun"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Cilostazol",
+      "aliases": [
+        "Pletal",
+        "Vasogard"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Cimegripe",
+      "aliases": [
+        "Paracetamol combo"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Cinarizina",
+      "aliases": [
+        "Cinnarizine",
+        "Stugeron"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Ciprofloxacin",
+      "aliases": [
+        "Cipro"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Ciprofloxacin-dexamethasone ear",
+      "aliases": [
+        "Ciprodex"
+      ],
+      "formHint": "ear drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ciprofloxacina 500",
+      "aliases": [
+        "Cipro"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Ciprofloxacino",
+      "aliases": [
+        "Cipro",
+        "Ciprofloxacin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Ciprofloxacino oftálmico",
+      "aliases": [
+        "Ciloxan"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ciproterona + Etinilestradiol",
+      "aliases": [
+        "Diane 35",
+        "Selene"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Cisplatina",
+      "aliases": [
+        "Cisplatin"
+      ],
+      "formHint": "infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Citalopram",
+      "aliases": [
+        "Celexa",
+        "Cipramil"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Claritin",
+      "aliases": [
+        "Loratadina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Claritromicina",
+      "aliases": [
+        "Biaxin",
+        "Clarithromycin",
+        "Klaricid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Clavulin",
+      "aliases": [
+        "Amoxicilina clavulanato"
+      ],
+      "formHint": "tablet / syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Clindamicina",
+      "aliases": [
+        "Clindamycin",
+        "Dalacin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Clindamicina 300",
+      "aliases": [
+        "Dalacin"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Clindamycin topical",
+      "aliases": [
+        "Cleocin T"
+      ],
+      "formHint": "gel",
+      "strengthHint": ""
+    },
+    {
+      "name": "Clonazepam",
+      "aliases": [
+        "Klonopin",
+        "Rivotril"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Clonazepam 0.5",
+      "aliases": [
+        "Rivotril"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Clonidina",
+      "aliases": [
+        "Atensina",
+        "Clonidine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.150 mg"
+    },
+    {
+      "name": "Clonidine",
+      "aliases": [
+        "Catapres"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.1 mg"
+    },
+    {
+      "name": "Clopidogrel",
+      "aliases": [
+        "Iscover",
+        "Plavix"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Clopidogrel 75",
+      "aliases": [
+        "Plavix"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Clopidogrel 75 mg",
+      "aliases": [
+        "Plavix 75"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Clorfeniramina",
+      "aliases": [
+        "Chlorpheniramine",
+        "Polaramine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "4 mg"
+    },
+    {
+      "name": "Cloroquina",
+      "aliases": [
+        "Chloroquine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Clortalidona",
+      "aliases": [
+        "Chlorthalidone",
+        "Higroton"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Clotrimazol",
+      "aliases": [
+        "Canesten",
+        "Clotrimazole",
+        "Gino-Canesten"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Clotrimazole cream",
+      "aliases": [
+        "Lotrimin"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Codeína",
+      "aliases": [
+        "Codeine",
+        "Tylex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Codeína paracetamol",
+      "aliases": [
+        "Tylex"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Colchicina",
+      "aliases": [
+        "Colchicine",
+        "Colchis"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Colchicina 0.5",
+      "aliases": [
+        "Colchicina"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Colchicine",
+      "aliases": [
+        "Colcrys"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.6 mg"
+    },
+    {
+      "name": "Colesevelam",
+      "aliases": [
+        "Welchol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "625 mg"
+    },
+    {
+      "name": "Complejo B",
+      "aliases": [
+        "Neurobionta"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Complexo B",
+      "aliases": [
+        "Citoneurin",
+        "Neurobion",
+        "Vitamin B complex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Coveram",
+      "aliases": [
+        "Perindopril amlodipine"
+      ],
+      "formHint": "comprimé",
+      "strengthHint": ""
+    },
+    {
+      "name": "Cozaar",
+      "aliases": [
+        "Losartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Crestor",
+      "aliases": [
+        "Rosuvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Cyanocobalamin",
+      "aliases": [
+        "Vitamin B12"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1000 mcg"
+    },
+    {
+      "name": "Cyclobenzaprine",
+      "aliases": [
+        "Flexeril"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Cyclosporine",
+      "aliases": [
+        "Neoral"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Dabigatran",
+      "aliases": [
+        "Pradaxa"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Dabigatrana",
+      "aliases": [
+        "Dabigatran",
+        "Pradaxa"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Daclatasvir",
+      "aliases": [
+        "Daklinza"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dapagliflozin",
+      "aliases": [
+        "Farxiga"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Dapagliflozin HF",
+      "aliases": [
+        "Farxiga HF"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Dapagliflozina",
+      "aliases": [
+        "Dapagliflozin",
+        "Farxiga",
+        "Forxiga"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Decadron",
+      "aliases": [
+        "Dexametasona"
+      ],
+      "formHint": "tablet / elixir",
+      "strengthHint": ""
+    },
+    {
+      "name": "Desalex",
+      "aliases": [
+        "Desloratadina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Desloratadina",
+      "aliases": [
+        "Aerius",
+        "Clarinex",
+        "Desalex",
+        "Desloratadine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Desloratadina 5",
+      "aliases": [
+        "Aerius"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Desloratadina xarope",
+      "aliases": [
+        "Desalex xarope"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Desogestrel",
+      "aliases": [
+        "Cerazette",
+        "Nactali"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Desogestrel 75 mcg",
+      "aliases": [
+        "Cerazette"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "75 mcg"
+    },
+    {
+      "name": "Dexametasona",
+      "aliases": [
+        "Decadron",
+        "Dexamethasone"
+      ],
+      "formHint": "tablet / drops",
+      "strengthHint": "4 mg"
+    },
+    {
+      "name": "Dexametasona 4",
+      "aliases": [
+        "Decadron"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "4 mg"
+    },
+    {
+      "name": "Dexametasona elixir",
+      "aliases": [
+        "Decadron elixir"
+      ],
+      "formHint": "elixir",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dexketoprofen",
+      "aliases": [
+        "Dexketoprofeno",
+        "Enantyum"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Dexketoprofeno",
+      "aliases": [
+        "Enantyum",
+        "Ketesse"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Dextromethorphan",
+      "aliases": [
+        "Delsym"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dextrometorfano",
+      "aliases": [
+        "Benalet",
+        "Dextromethorphan"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Diazepam",
+      "aliases": [
+        "Compaz",
+        "Valium"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Diazepam 10",
+      "aliases": [
+        "Valium"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Diclofenac",
+      "aliases": [
+        "Dioxaflex",
+        "Voltaren"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Diclofenaco",
+      "aliases": [
+        "Cataflam",
+        "Diclofenac",
+        "Voltaren"
+      ],
+      "formHint": "tablet / gel",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Dicyclomine",
+      "aliases": [
+        "Bentyl"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Difenhidramina",
+      "aliases": [
+        "Benadryl"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Difenidramina",
+      "aliases": [
+        "Benadryl",
+        "Diphenhydramine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Digoxin",
+      "aliases": [
+        "Lanoxin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.125 mg"
+    },
+    {
+      "name": "Digoxina",
+      "aliases": [
+        "Digoxin",
+        "Lanoxin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.25 mg"
+    },
+    {
+      "name": "Diltiazem",
+      "aliases": [
+        "Cardizem"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "60 mg"
+    },
+    {
+      "name": "Diltiazem ER",
+      "aliases": [
+        "Cardizem CD"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "120 mg"
+    },
+    {
+      "name": "Dimenidrinato",
+      "aliases": [
+        "Dimenhydrinate",
+        "Dramamine",
+        "Dramin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Dinitrato de isossorbida",
+      "aliases": [
+        "Isosorbide dinitrate"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Diosmectite",
+      "aliases": [
+        "Smecta"
+      ],
+      "formHint": "powder",
+      "strengthHint": ""
+    },
+    {
+      "name": "Diosmina",
+      "aliases": [
+        "Daflon",
+        "Diosmin",
+        "Venalot"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Diphenhydramine",
+      "aliases": [
+        "Benadryl"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Dipirona",
+      "aliases": [
+        "Anador",
+        "Dipyrone",
+        "Magnopyrol",
+        "Metamizole",
+        "Novalgin",
+        "Novalgina"
+      ],
+      "formHint": "tablet / drops",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Dipirona + Cafeína",
+      "aliases": [
+        "Dorflex",
+        "Novalgina composed"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dipirona + Orfenadrina + Cafeína",
+      "aliases": [
+        "Dorflex",
+        "Torsilax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dipirona 1 g",
+      "aliases": [
+        "Novalgina 1 g"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 g"
+    },
+    {
+      "name": "Dipirona gotas",
+      "aliases": [
+        "Anador gotas",
+        "Novalgina gotas"
+      ],
+      "formHint": "drops",
+      "strengthHint": "500 mg/ml"
+    },
+    {
+      "name": "Dipirona injetável",
+      "aliases": [
+        "Metamizole injection",
+        "Novalgina amp"
+      ],
+      "formHint": "injection",
+      "strengthHint": "1 g"
+    },
+    {
+      "name": "Dipirona magnésica",
+      "aliases": [
+        "Magnopyrol"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dobutamina",
+      "aliases": [
+        "Dobutamine"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Docusate",
+      "aliases": [
+        "Colace"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Doliprane",
+      "aliases": [
+        "Paracetamol"
+      ],
+      "formHint": "comprimé",
+      "strengthHint": "1000 mg"
+    },
+    {
+      "name": "Dolutegravir",
+      "aliases": [
+        "DTG",
+        "Tivicay"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Domperidona",
+      "aliases": [
+        "Domperidone",
+        "Motilium",
+        "Peridal",
+        "Peridona"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Domperidona suspensão",
+      "aliases": [
+        "Motilium suspensão"
+      ],
+      "formHint": "suspension",
+      "strengthHint": ""
+    },
+    {
+      "name": "Donepezil",
+      "aliases": [
+        "Aricept"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Donepezila",
+      "aliases": [
+        "Aricept",
+        "Donepezil"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Donepezilo",
+      "aliases": [
+        "Aricept"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Dopamina",
+      "aliases": [
+        "Dopamine"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dorflex",
+      "aliases": [
+        "Cafeína",
+        "Dipirona",
+        "Orfenadrina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Doril",
+      "aliases": [
+        "AAS cafeína"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dorzolamida",
+      "aliases": [
+        "Dorzolamide",
+        "Trusopt"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Doxazosin",
+      "aliases": [
+        "Cardura"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Doxazosina",
+      "aliases": [
+        "Cardura",
+        "Doxazosin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Doxiciclina",
+      "aliases": [
+        "Doxycycline",
+        "Vibramycin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Doxiciclina 100",
+      "aliases": [
+        "Vibramicina"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Doxiciclina malária",
+      "aliases": [
+        "Doxycycline malaria"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Doxycycline",
+      "aliases": [
+        "Vibramycin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Dramin",
+      "aliases": [
+        "Dimenidrinato"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Drospirenona + Etinilestradiol",
+      "aliases": [
+        "Elani",
+        "Iumi",
+        "Yasmin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Drospirenone ethinyl estradiol",
+      "aliases": [
+        "Yasmin",
+        "Yaz"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Dulaglutide",
+      "aliases": [
+        "Trulicity"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Duloxetina",
+      "aliases": [
+        "Cymbalta",
+        "Duloxetine"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Duloxetine",
+      "aliases": [
+        "Cymbalta"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Dutasterida",
+      "aliases": [
+        "Avodart",
+        "Dutasteride"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Dutasteride",
+      "aliases": [
+        "Avodart"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Efavirenz",
+      "aliases": [
+        "Stocrin",
+        "Sustiva"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Eliquis",
+      "aliases": [
+        "Apixabana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Eluxadoline",
+      "aliases": [
+        "Viberzi"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Empagliflozin",
+      "aliases": [
+        "Jardiance"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Empagliflozin HF",
+      "aliases": [
+        "Jardiance HF"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Empagliflozina",
+      "aliases": [
+        "Empagliflozin",
+        "Jardiance"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "EMS dipirona",
+      "aliases": [
+        "Dipirona"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Enalapril",
+      "aliases": [
+        "Renitec",
+        "Vasotec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Enalapril 10",
+      "aliases": [
+        "Lotrial"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Enalapril 20 mg",
+      "aliases": [
+        "Renitec 20"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Enalapril 5 mg",
+      "aliases": [
+        "Renitec 5"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Enalapril HCT",
+      "aliases": [
+        "Lotrial D"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Enoxaparina",
+      "aliases": [
+        "Clexane",
+        "Enoxaparin",
+        "Lovenox"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Entecavir",
+      "aliases": [
+        "Baraclude"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Epinephrine auto-injector",
+      "aliases": [
+        "Auvi-Q",
+        "EpiPen"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Eplerenone",
+      "aliases": [
+        "Inspra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Ergotamina",
+      "aliases": [
+        "Cefalium",
+        "Ergotamine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Eritropoetina",
+      "aliases": [
+        "Epoetin",
+        "Eprex"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Escitalopram",
+      "aliases": [
+        "Espran",
+        "Lexapro"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Escitalopram 10",
+      "aliases": [
+        "Cipralex",
+        "Lexapro"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Escopolamina",
+      "aliases": [
+        "Buscopan",
+        "Butylscopolamine",
+        "Hyoscine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Esomeprazol",
+      "aliases": [
+        "Esomeprazole",
+        "Nexium"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Esomeprazol 40",
+      "aliases": [
+        "Nexium"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Espironolactona",
+      "aliases": [
+        "Aldactone",
+        "Spironolactone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Espironolactona 25",
+      "aliases": [
+        "Aldactone"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Estradiol",
+      "aliases": [
+        "Climene",
+        "Estradot"
+      ],
+      "formHint": "patch / gel",
+      "strengthHint": ""
+    },
+    {
+      "name": "Estreptomicina",
+      "aliases": [
+        "Streptomycin"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Etambutol",
+      "aliases": [
+        "Ethambutol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Etanercepte",
+      "aliases": [
+        "Enbrel",
+        "Etanercept"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ethinyl estradiol norgestimate",
+      "aliases": [
+        "Ortho Tri-Cyclen",
+        "Sprintec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Etinilestradiol + Levonorgestrel",
+      "aliases": [
+        "Combined oral contraceptive",
+        "Microvlar",
+        "Selene"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Etonogestrel implant",
+      "aliases": [
+        "Nexplanon"
+      ],
+      "formHint": "implant",
+      "strengthHint": ""
+    },
+    {
+      "name": "Etoricoxib",
+      "aliases": [
+        "Arcoxia"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "60 mg"
+    },
+    {
+      "name": "Etoricoxibe",
+      "aliases": [
+        "Arcoxia",
+        "Etoricoxib"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "90 mg"
+    },
+    {
+      "name": "Eurofarma losartana",
+      "aliases": [
+        "Losartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Euthyrox",
+      "aliases": [
+        "Levotiroxina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mcg"
+    },
+    {
+      "name": "Evolocumab",
+      "aliases": [
+        "Repatha"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ezetimiba",
+      "aliases": [
+        "Ezetimibe",
+        "Ezetrol",
+        "Zetia"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Ezetimibe",
+      "aliases": [
+        "Ezetimiba"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Ezetimibe-simvastatin",
+      "aliases": [
+        "Vytorin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Famotidina",
+      "aliases": [
+        "Famotidine",
+        "Famox",
+        "Pepcid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Famotidine",
+      "aliases": [
+        "Pepcid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Fenitoína",
+      "aliases": [
+        "Hidantal",
+        "Phenytoin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Fenobarbital",
+      "aliases": [
+        "Gardenal",
+        "Phenobarbital"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Fenofibrate",
+      "aliases": [
+        "Tricor"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "145 mg"
+    },
+    {
+      "name": "Fenofibrato",
+      "aliases": [
+        "Fenofibrate",
+        "Lipanthyl"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "160 mg"
+    },
+    {
+      "name": "Fenoterol",
+      "aliases": [
+        "Berotec"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Fenoterol + Ipratrópio",
+      "aliases": [
+        "Berodual"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ferro intravenoso",
+      "aliases": [
+        "Iron sucrose",
+        "Noripurum IV",
+        "Venofer"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ferrous sulfate",
+      "aliases": [
+        "Feosol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "325 mg"
+    },
+    {
+      "name": "Fesoterodine",
+      "aliases": [
+        "Toviaz"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "4 mg"
+    },
+    {
+      "name": "Fexofenadina",
+      "aliases": [
+        "Allegra",
+        "Fexofenadine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "180 mg"
+    },
+    {
+      "name": "Fexofenadina 180",
+      "aliases": [
+        "Allegra"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "180 mg"
+    },
+    {
+      "name": "Fexofenadine",
+      "aliases": [
+        "Allegra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "180 mg"
+    },
+    {
+      "name": "Filgrastim",
+      "aliases": [
+        "Neupogen"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Finasterida",
+      "aliases": [
+        "Finasteride",
+        "Propecia",
+        "Proscar"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Finasterida 5",
+      "aliases": [
+        "Proscar"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Finasteride",
+      "aliases": [
+        "Propecia",
+        "Proscar"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Flagyl",
+      "aliases": [
+        "Metronidazol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Floratil",
+      "aliases": [
+        "Saccharomyces boulardii"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Fluconazol",
+      "aliases": [
+        "Diflucan",
+        "Fluconazole",
+        "Zoltec"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Fluconazol 150",
+      "aliases": [
+        "Diflucan"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Fluconazole",
+      "aliases": [
+        "Diflucan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Fluimucil",
+      "aliases": [
+        "Acetilcisteína"
+      ],
+      "formHint": "sachet",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Flumazenil",
+      "aliases": [
+        "Anexate"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Flunarizina",
+      "aliases": [
+        "Flunarizine",
+        "Sibelium"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Fluoxetina",
+      "aliases": [
+        "Daforin",
+        "Fluoxetine",
+        "Prozac"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Fluoxetina 20",
+      "aliases": [
+        "Prozac"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Fluoxetine",
+      "aliases": [
+        "Prozac"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Fluticasona",
+      "aliases": [
+        "Flonase",
+        "Fluticaps",
+        "Fluticasone"
+      ],
+      "formHint": "inhaler / nasal",
+      "strengthHint": ""
+    },
+    {
+      "name": "Fluticasona + Salmeterol",
+      "aliases": [
+        "Advair",
+        "Seretide"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Fluticasona nasal",
+      "aliases": [
+        "Flixonase",
+        "Flonase"
+      ],
+      "formHint": "spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Fluticasone nasal",
+      "aliases": [
+        "Flonase"
+      ],
+      "formHint": "nasal spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Fluticasone-salmeterol",
+      "aliases": [
+        "Advair"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Folic acid",
+      "aliases": [
+        "Folate"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Formoterol",
+      "aliases": [
+        "Foradil",
+        "Oxis"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Furosemida",
+      "aliases": [
+        "Furosemide",
+        "Lasix"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Furosemida 40",
+      "aliases": [
+        "Lasix"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Furosemide",
+      "aliases": [
+        "Furosemida",
+        "Lasix"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Furosemide 20 mg",
+      "aliases": [
+        "Lasix 20"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Furosemide 80 mg",
+      "aliases": [
+        "Lasix 80"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "80 mg"
+    },
+    {
+      "name": "Gabapentin",
+      "aliases": [
+        "Neurontin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Gabapentina",
+      "aliases": [
+        "Gabapentin",
+        "Neurontin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Gabapentina 300",
+      "aliases": [
+        "Neurontin"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Gaviscon",
+      "aliases": [
+        "Alginate"
+      ],
+      "formHint": "suspension",
+      "strengthHint": ""
+    },
+    {
+      "name": "Gemfibrozil",
+      "aliases": [
+        "Lopid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Geniol",
+      "aliases": [
+        "Paracetamol"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Germed omeprazol",
+      "aliases": [
+        "Omeprazol"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Glibenclamida",
+      "aliases": [
+        "Daonil",
+        "Glibenclamide",
+        "Glyburide"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Glibenclamida 5",
+      "aliases": [
+        "Euglucon"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Glicerina",
+      "aliases": [
+        "Glycerin suppository"
+      ],
+      "formHint": "suppository",
+      "strengthHint": ""
+    },
+    {
+      "name": "Gliclazida",
+      "aliases": [
+        "Diamicron",
+        "Gliclazide"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Gliclazide MR",
+      "aliases": [
+        "Diamicron MR"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Glicose 50%",
+      "aliases": [
+        "Dextrose 50%",
+        "Glucose"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Glifage",
+      "aliases": [
+        "Metformina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "850 mg"
+    },
+    {
+      "name": "Glimepirida",
+      "aliases": [
+        "Amaryl",
+        "Glimepiride"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Glimepiride",
+      "aliases": [
+        "Amaryl"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Glipizide",
+      "aliases": [
+        "Glucotrol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Glucagon",
+      "aliases": [
+        "Baqsimi",
+        "GlucaGen"
+      ],
+      "formHint": "injection / nasal",
+      "strengthHint": ""
+    },
+    {
+      "name": "Glyburide",
+      "aliases": [
+        "Glibenclamida",
+        "Micronase"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Goserrelina",
+      "aliases": [
+        "Goserelin",
+        "Zoladex"
+      ],
+      "formHint": "implant",
+      "strengthHint": ""
+    },
+    {
+      "name": "GSK amoxi-clav",
+      "aliases": [
+        "Clavulin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Guaifenesin",
+      "aliases": [
+        "Mucinex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Guaifenesin-codeine",
+      "aliases": [
+        "Cheratussin"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Haloperidol",
+      "aliases": [
+        "Haldol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Heparina",
+      "aliases": [
+        "Heparin"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Hidralazina",
+      "aliases": [
+        "Apresoline",
+        "Hydralazine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Hidroclorotiazida",
+      "aliases": [
+        "Clorana",
+        "HCTZ",
+        "Hydrochlorothiazide"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Hidrocortisona",
+      "aliases": [
+        "Hydrocortisone"
+      ],
+      "formHint": "cream / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Hidrocortisona crema",
+      "aliases": [
+        "Crema hidrocortisona"
+      ],
+      "formHint": "crema",
+      "strengthHint": "1%"
+    },
+    {
+      "name": "Hidrocortisona injetável",
+      "aliases": [
+        "Solu-Cortef"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Hidroxicloroquina",
+      "aliases": [
+        "Hydroxychloroquine",
+        "Plaquenil",
+        "Reuquinol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Hidroxizina",
+      "aliases": [
+        "Atarax",
+        "Hydroxyzine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Hidróxido de alumínio",
+      "aliases": [
+        "Aluminum hydroxide",
+        "Pepsamar"
+      ],
+      "formHint": "suspension",
+      "strengthHint": ""
+    },
+    {
+      "name": "Hipoglós",
+      "aliases": [
+        "Zinc oxide diaper"
+      ],
+      "formHint": "ointment",
+      "strengthHint": ""
+    },
+    {
+      "name": "Hydralazine",
+      "aliases": [
+        "Apresoline"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Hydrochlorothiazide",
+      "aliases": [
+        "Hidroclorotiazida"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Hydrochlorothiazide 12.5 mg",
+      "aliases": [
+        "HCTZ 12.5"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "12.5 mg"
+    },
+    {
+      "name": "Hydrocodone-acetaminophen",
+      "aliases": [
+        "Norco",
+        "Vicodin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Hydrocortisone 1%",
+      "aliases": [
+        "Cortaid"
+      ],
+      "formHint": "cream",
+      "strengthHint": "1%"
+    },
+    {
+      "name": "Hydrocortisone cream",
+      "aliases": [
+        "Cortizone"
+      ],
+      "formHint": "cream",
+      "strengthHint": "1%"
+    },
+    {
+      "name": "Hydroxychloroquine",
+      "aliases": [
+        "Plaquenil"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Hyoscyamine",
+      "aliases": [
+        "Levsin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.125 mg"
+    },
+    {
+      "name": "Hypera ibuprofeno",
+      "aliases": [
+        "Ibuprofeno"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Ibuprofen",
+      "aliases": [
+        "Advil",
+        "Ibuprofeno",
+        "Motrin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Ibuprofeno",
+      "aliases": [
+        "Advil",
+        "Alivium",
+        "Buscofen",
+        "Ibuprofen",
+        "Ibuprofène",
+        "Motrin",
+        "Nurofen"
+      ],
+      "formHint": "tablet / suspension",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Ibuprofeno 100 mg/5 ml",
+      "aliases": [
+        "Advil children",
+        "Alivium suspensão"
+      ],
+      "formHint": "suspension",
+      "strengthHint": "100 mg/5 ml"
+    },
+    {
+      "name": "Ibuprofeno 200 mg",
+      "aliases": [
+        "Advil 200"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Ibuprofeno 600",
+      "aliases": [
+        "Actron",
+        "Ibupirac"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Ibuprofeno 600 mg",
+      "aliases": [
+        "Alivium 600"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "600 mg"
+    },
+    {
+      "name": "Icosapent ethyl",
+      "aliases": [
+        "Vascepa"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "1 g"
+    },
+    {
+      "name": "Imodium",
+      "aliases": [
+        "Loperamida",
+        "Lopéramide"
+      ],
+      "formHint": "gélule",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Inclisiran",
+      "aliases": [
+        "Leqvio"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Indapamida",
+      "aliases": [
+        "Indapamide",
+        "Natrilix"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1.5 mg"
+    },
+    {
+      "name": "Indapamide",
+      "aliases": [
+        "Lozol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1.25 mg"
+    },
+    {
+      "name": "Indometacina",
+      "aliases": [
+        "Indocid",
+        "Indomethacin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Infliximab",
+      "aliases": [
+        "Remicade"
+      ],
+      "formHint": "infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Infliximabe",
+      "aliases": [
+        "Infliximab",
+        "Remicade"
+      ],
+      "formHint": "infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulin aspart",
+      "aliases": [
+        "NovoLog"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulin detemir",
+      "aliases": [
+        "Levemir"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulin glargine",
+      "aliases": [
+        "Lantus"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulin lispro",
+      "aliases": [
+        "Humalog"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulina aspart",
+      "aliases": [
+        "Insulin aspart",
+        "NovoLog",
+        "NovoRapid"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulina degludeca",
+      "aliases": [
+        "Insulin degludec",
+        "Tresiba"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulina detemir",
+      "aliases": [
+        "Insulin detemir",
+        "Levemir"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulina glargina",
+      "aliases": [
+        "Basaglar",
+        "Insulin glargine",
+        "Lantus",
+        "Toujeo"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulina lispro",
+      "aliases": [
+        "Humalog",
+        "Insulin lispro"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulina NPH",
+      "aliases": [
+        "Humulin N",
+        "Insulatard",
+        "Novolin N",
+        "NPH insulin"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Insulina regular",
+      "aliases": [
+        "Actrapid",
+        "Humulin R",
+        "Regular insulin"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ipratropio",
+      "aliases": [
+        "Atrovent"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ipratropium",
+      "aliases": [
+        "Atrovent"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ipratrópio",
+      "aliases": [
+        "Atrovent",
+        "Ipratropium"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Isoniazida",
+      "aliases": [
+        "INH",
+        "Isoniazid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Isosorbide mononitrate",
+      "aliases": [
+        "Imdur"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Isossorbida",
+      "aliases": [
+        "Isordil",
+        "Isosorbide",
+        "Monocordil"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Itraconazol",
+      "aliases": [
+        "Hongoseril",
+        "Sporanox"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Ivabradine",
+      "aliases": [
+        "Corlanor"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Ivermectin cream",
+      "aliases": [
+        "Soolantra"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ivermectina",
+      "aliases": [
+        "Ivermectin",
+        "Revectina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "6 mg"
+    },
+    {
+      "name": "Jardiance",
+      "aliases": [
+        "Empagliflozina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Kardegic",
+      "aliases": [
+        "AAS",
+        "Lysine acetylsalicylate"
+      ],
+      "formHint": "sachet",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Ketoconazole shampoo",
+      "aliases": [
+        "Nizoral"
+      ],
+      "formHint": "shampoo",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ketoprofen",
+      "aliases": [
+        "Cetoprofeno"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Ketorolac eye drops",
+      "aliases": [
+        "Acular"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lactase",
+      "aliases": [
+        "Lactaid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lactobacillus",
+      "aliases": [
+        "Lactobacillus rhamnosus",
+        "LGG"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lactulosa",
+      "aliases": [
+        "Lactulax"
+      ],
+      "formHint": "jarabe",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lactulose",
+      "aliases": [
+        "Duphalac",
+        "Enulose",
+        "Lactulona"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lamivudina",
+      "aliases": [
+        "3TC",
+        "Epivir",
+        "Lamivudine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lamotrigina",
+      "aliases": [
+        "Lamictal",
+        "Lamotrigine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Lamotrigine",
+      "aliases": [
+        "Lamictal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Lansoprazol",
+      "aliases": [
+        "Lansoprazole",
+        "Lanzol",
+        "Prevacid"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Lansoprazol 30",
+      "aliases": [
+        "Lanzopral"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Lasix",
+      "aliases": [
+        "Furosemida"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Latanoprost",
+      "aliases": [
+        "Xalatan"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Latanoprosta",
+      "aliases": [
+        "Latanoprost",
+        "Xalatan"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Legrand metformina",
+      "aliases": [
+        "Metformina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "850 mg"
+    },
+    {
+      "name": "Letrozol",
+      "aliases": [
+        "Femara",
+        "Letrozole"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2.5 mg"
+    },
+    {
+      "name": "Levetiracetam",
+      "aliases": [
+        "Keppra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Levocetirizina",
+      "aliases": [
+        "Levocetirizine",
+        "Xyzal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Levofloxacin",
+      "aliases": [
+        "Levaquin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Levofloxacina",
+      "aliases": [
+        "Tavanic"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Levofloxacino",
+      "aliases": [
+        "Levaquin",
+        "Levofloxacin",
+        "Tavanic"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Levonorgestrel",
+      "aliases": [
+        "DIU LNG",
+        "Plan B",
+        "Postinor"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1.5 mg"
+    },
+    {
+      "name": "Levonorgestrel 1.5 mg",
+      "aliases": [
+        "Plan B One-Step"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1.5 mg"
+    },
+    {
+      "name": "Levonorgestrel IUD",
+      "aliases": [
+        "Kyleena",
+        "Mirena"
+      ],
+      "formHint": "device",
+      "strengthHint": ""
+    },
+    {
+      "name": "Levothyroxine",
+      "aliases": [
+        "Levotiroxina",
+        "Synthroid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mcg"
+    },
+    {
+      "name": "Levothyroxine 100 mcg",
+      "aliases": [
+        "Synthroid 100"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mcg"
+    },
+    {
+      "name": "Levothyroxine 125 mcg",
+      "aliases": [
+        "Synthroid 125"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "125 mcg"
+    },
+    {
+      "name": "Levothyroxine 25 mcg",
+      "aliases": [
+        "Synthroid 25"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mcg"
+    },
+    {
+      "name": "Levothyroxine 75 mcg",
+      "aliases": [
+        "Synthroid 75"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "75 mcg"
+    },
+    {
+      "name": "Levotiroxina",
+      "aliases": [
+        "Euthyrox",
+        "Levoid",
+        "Levothyrox",
+        "Levothyroxine",
+        "Lévothyroxine",
+        "Puran T4",
+        "Synthroid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mcg"
+    },
+    {
+      "name": "Levotiroxina 50",
+      "aliases": [
+        "Euthyrox",
+        "T4 Montpellier"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "50 mcg"
+    },
+    {
+      "name": "Lidocaína",
+      "aliases": [
+        "Lidocaine",
+        "Xylocaine"
+      ],
+      "formHint": "gel / injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lilly tirzepatida",
+      "aliases": [
+        "Mounjaro"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Linaclotide",
+      "aliases": [
+        "Linzess"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "145 mcg"
+    },
+    {
+      "name": "Linagliptin",
+      "aliases": [
+        "Tradjenta"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Linagliptina",
+      "aliases": [
+        "Linagliptin",
+        "Trajenta"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Lipitor",
+      "aliases": [
+        "Atorvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Liraglutida",
+      "aliases": [
+        "Liraglutide",
+        "Saxenda",
+        "Victoza"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Liraglutide",
+      "aliases": [
+        "Victoza"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lisdexamfetamine",
+      "aliases": [
+        "Vyvanse"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Lisdexanfetamina",
+      "aliases": [
+        "Lisdexamfetamine",
+        "Venvanse",
+        "Vyvanse"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Lisinopril",
+      "aliases": [
+        "Prinivil",
+        "Zestril"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Lisinopril 20 mg",
+      "aliases": [
+        "Zestril 20"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Lisinopril 40 mg",
+      "aliases": [
+        "Zestril 40"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Lithium carbonate",
+      "aliases": [
+        "Lithobid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Loperamida",
+      "aliases": [
+        "Imodium",
+        "Imosec",
+        "Loperamide"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Loperamida 2",
+      "aliases": [
+        "loperin"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Loperamide",
+      "aliases": [
+        "Imodium"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Loperamide-simethicone",
+      "aliases": [
+        "Imodium Multi-Symptom"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lopinavir + Ritonavir",
+      "aliases": [
+        "Kaletra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Loratadina",
+      "aliases": [
+        "Claritin",
+        "Clarityne",
+        "Loratadine",
+        "Loratamed"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Loratadina 10",
+      "aliases": [
+        "Clarityne"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Loratadina xarope",
+      "aliases": [
+        "Claritin xarope"
+      ],
+      "formHint": "syrup",
+      "strengthHint": "5 mg/5 ml"
+    },
+    {
+      "name": "Loratadine",
+      "aliases": [
+        "Claritin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Lorazepam",
+      "aliases": [
+        "Ativan",
+        "Lorax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Losartan",
+      "aliases": [
+        "Cozaar",
+        "Losartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Losartan 100 mg",
+      "aliases": [
+        "Cozaar 100"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Losartan 50 mg",
+      "aliases": [
+        "Cozaar 50"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Losartana",
+      "aliases": [
+        "Aradois",
+        "Cozaar",
+        "Losartan",
+        "Valtrian"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Losartana + Hidroclorotiazida",
+      "aliases": [
+        "Aradois H",
+        "Hyzaar",
+        "Losartan HCTZ"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50/12.5 mg"
+    },
+    {
+      "name": "Losartana 100 mg",
+      "aliases": [
+        "Cozaar 100"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Losartana 25 mg",
+      "aliases": [
+        "Cozaar 25"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Losartán",
+      "aliases": [
+        "Cozaar",
+        "Losartan"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Losartán 50",
+      "aliases": [
+        "Losacor"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Losartán HCT",
+      "aliases": [
+        "Losacor D"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lubiprostone",
+      "aliases": [
+        "Amitiza"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "24 mcg"
+    },
+    {
+      "name": "Lubrificante ocular",
+      "aliases": [
+        "Artificial tears",
+        "Lacrima",
+        "Refresh"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Luftal",
+      "aliases": [
+        "Simeticona"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Lítio",
+      "aliases": [
+        "Carbolitium",
+        "Lithium"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Macrogol",
+      "aliases": [
+        "MiraLAX",
+        "Muvinlax",
+        "Polyethylene glycol"
+      ],
+      "formHint": "powder",
+      "strengthHint": ""
+    },
+    {
+      "name": "Macrogol 3350",
+      "aliases": [
+        "Muvinlax",
+        "PalaCol"
+      ],
+      "formHint": "polvo",
+      "strengthHint": ""
+    },
+    {
+      "name": "Magnesium oxide",
+      "aliases": [
+        "Mag-Ox"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Magnésio",
+      "aliases": [
+        "Magnesio quelado",
+        "Magnesium"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Mebendazol",
+      "aliases": [
+        "Mebendazole",
+        "Pantelmin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Meclizina",
+      "aliases": [
+        "Antivert",
+        "Meclin",
+        "Meclizine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Medley amoxicilina",
+      "aliases": [
+        "Amoxicilina"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Medroxiprogesterona",
+      "aliases": [
+        "Depo-Provera",
+        "Medroxyprogesterone"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Medroxyprogesterone acetate",
+      "aliases": [
+        "Depo-Provera",
+        "Provera"
+      ],
+      "formHint": "tablet / injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Meloxicam",
+      "aliases": [
+        "Mobic",
+        "Movatec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "15 mg"
+    },
+    {
+      "name": "Memantina",
+      "aliases": [
+        "Ebixa",
+        "Memantine",
+        "Namenda"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Memantina 10",
+      "aliases": [
+        "Ebixa"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Memantine",
+      "aliases": [
+        "Namenda"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Mesalamine",
+      "aliases": [
+        "Lialda",
+        "Pentasa"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Mesalazina",
+      "aliases": [
+        "Asacol",
+        "Mesalamine",
+        "Pentasa"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "800 mg"
+    },
+    {
+      "name": "Metamizole",
+      "aliases": [
+        "Dipirona",
+        "Dipyrone",
+        "Novalgina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Metformin",
+      "aliases": [
+        "Glifage",
+        "Glucophage",
+        "Metformina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Metformin 1000 mg",
+      "aliases": [
+        "Glucophage 1000"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1000 mg"
+    },
+    {
+      "name": "Metformin XR",
+      "aliases": [
+        "Glucophage XR"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Metformina",
+      "aliases": [
+        "Glifage",
+        "Glucophage",
+        "Metformin",
+        "Metformine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "850 mg"
+    },
+    {
+      "name": "Metformina 500",
+      "aliases": [
+        "Diaformina 500"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Metformina 500 mg",
+      "aliases": [
+        "Glifage 500"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Metformina 850",
+      "aliases": [
+        "Diaformina"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "850 mg"
+    },
+    {
+      "name": "Metformina XR",
+      "aliases": [
+        "Glifage XR",
+        "Glucophage XR"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Methotrexate",
+      "aliases": [
+        "Trexall"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2.5 mg"
+    },
+    {
+      "name": "Methylphenidate",
+      "aliases": [
+        "Concerta",
+        "Ritalin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Methylprednisolone dose pack",
+      "aliases": [
+        "Medrol Dosepak"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Meticorten",
+      "aliases": [
+        "Prednisona"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Metilfenidato",
+      "aliases": [
+        "Concerta",
+        "Methylphenidate",
+        "Ritalin",
+        "Ritalina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Metilprednisolona",
+      "aliases": [
+        "Methylprednisolone",
+        "Solu-Medrol"
+      ],
+      "formHint": "injection / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Metimazol",
+      "aliases": [
+        "Methimazole",
+        "Tapazol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Metoclopramida",
+      "aliases": [
+        "Metoclopramide",
+        "Plasil",
+        "Reglan",
+        "Reliveran"
+      ],
+      "formHint": "tablet / drops",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Metoclopramide",
+      "aliases": [
+        "Reglan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Metolazone",
+      "aliases": [
+        "Zaroxolyn"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2.5 mg"
+    },
+    {
+      "name": "Metoprolol",
+      "aliases": [
+        "Lopressor",
+        "Seloken",
+        "Selozok",
+        "Toprol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Metoprolol succinate",
+      "aliases": [
+        "Selozok",
+        "Toprol XL"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Metoprolol tartrate",
+      "aliases": [
+        "Lopressor"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Metotrexato",
+      "aliases": [
+        "Methotrexate",
+        "Rheumatrex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2.5 mg"
+    },
+    {
+      "name": "Metronidazol",
+      "aliases": [
+        "Flagyl",
+        "Metronidazole"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Metronidazol 500",
+      "aliases": [
+        "Flagyl"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Metronidazole",
+      "aliases": [
+        "Flagyl"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Micofenolato",
+      "aliases": [
+        "CellCept",
+        "Mycophenolate"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Miconazol",
+      "aliases": [
+        "Daktarin",
+        "Miconazole"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Migral",
+      "aliases": [
+        "Ergotamina combo"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Miosan",
+      "aliases": [
+        "Ciclobenzaprina",
+        "Cyclobenzaprine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Mirabegron",
+      "aliases": [
+        "Myrbetriq"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Mirtazapina",
+      "aliases": [
+        "Mirtazapine",
+        "Remeron"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Mirtazapine",
+      "aliases": [
+        "Remeron"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "15 mg"
+    },
+    {
+      "name": "Misoprostol",
+      "aliases": [
+        "Cytotec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Misoprostol GI",
+      "aliases": [
+        "Cytotec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mcg"
+    },
+    {
+      "name": "Molnupiravir",
+      "aliases": [
+        "Lagevrio"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Mometasona",
+      "aliases": [
+        "Mometasone",
+        "Nasonex"
+      ],
+      "formHint": "nasal spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Mometasona nasal",
+      "aliases": [
+        "Nasonex"
+      ],
+      "formHint": "spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Mometasone nasal",
+      "aliases": [
+        "Nasonex"
+      ],
+      "formHint": "nasal spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Montelucaste",
+      "aliases": [
+        "Montelukast",
+        "Singulair"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Montelukast",
+      "aliases": [
+        "Broncast",
+        "Singulair"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Montelukast 10",
+      "aliases": [
+        "Singulair"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Morfina",
+      "aliases": [
+        "Morphine",
+        "MST"
+      ],
+      "formHint": "tablet / injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Morphine sulfate",
+      "aliases": [
+        "MS Contin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Motilium",
+      "aliases": [
+        "Domperidona"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Mucosolvan",
+      "aliases": [
+        "Ambroxol"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Mupirocin",
+      "aliases": [
+        "Bactroban"
+      ],
+      "formHint": "ointment",
+      "strengthHint": ""
+    },
+    {
+      "name": "Mycophenolate mofetil",
+      "aliases": [
+        "CellCept"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "250 mg"
+    },
+    {
+      "name": "Naloxona",
+      "aliases": [
+        "Naloxone",
+        "Narcan"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Naloxone nasal",
+      "aliases": [
+        "Narcan"
+      ],
+      "formHint": "nasal spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Naproxen",
+      "aliases": [
+        "Aleve"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "220 mg"
+    },
+    {
+      "name": "Naproxeno",
+      "aliases": [
+        "Flanax",
+        "Naprosyn",
+        "Naproxen"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Nebacetin",
+      "aliases": [
+        "Neomicina bacitracina"
+      ],
+      "formHint": "ointment",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nebivolol",
+      "aliases": [
+        "Nebilet"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Neomicina + Bacitracina",
+      "aliases": [
+        "Nebacetin",
+        "Neosporin"
+      ],
+      "formHint": "ointment",
+      "strengthHint": ""
+    },
+    {
+      "name": "Neomycin-polymyxin-HC",
+      "aliases": [
+        "Cortisporin"
+      ],
+      "formHint": "ear drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Neosaldina",
+      "aliases": [
+        "Dipirona",
+        "Tensaldin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nexium",
+      "aliases": [
+        "Esomeprazol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Niacin",
+      "aliases": [
+        "Niaspan",
+        "Vitamin B3"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Niacin ER",
+      "aliases": [
+        "Niaspan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Nifedipine ER",
+      "aliases": [
+        "Procardia XL"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Nifedipino",
+      "aliases": [
+        "Adalat",
+        "Nifedipine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Nifurtimox",
+      "aliases": [
+        "Lampit"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nimesulida",
+      "aliases": [
+        "Nimesulide",
+        "Nisulid",
+        "Scaflam"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Nimesulida gotas",
+      "aliases": [
+        "Nisulid gotas"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nimesulide",
+      "aliases": [
+        "Nimesulida"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Nirmatrelvir + Ritonavir",
+      "aliases": [
+        "Paxlovid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nistatina",
+      "aliases": [
+        "Micostatin",
+        "Mycostatin",
+        "Nystatin"
+      ],
+      "formHint": "oral suspension",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nistatina creme",
+      "aliases": [
+        "Nystatin cream"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nistatina suspensão",
+      "aliases": [
+        "Micostatin"
+      ],
+      "formHint": "oral suspension",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nitrofurantoin",
+      "aliases": [
+        "Macrobid"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Nitrofurantoína",
+      "aliases": [
+        "Macrobid",
+        "Macrodantin",
+        "Macrodantoína",
+        "Nitrofurantoin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Nitroglycerin sublingual",
+      "aliases": [
+        "Nitrostat"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.4 mg"
+    },
+    {
+      "name": "Nitroprussiato",
+      "aliases": [
+        "Nitroprusside"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Noradrenalina",
+      "aliases": [
+        "Levophed",
+        "Norepinephrine"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Norethindrone",
+      "aliases": [
+        "Aygestin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Noretisterona",
+      "aliases": [
+        "Norethisterone",
+        "Primolut-Nor"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Noripurum",
+      "aliases": [
+        "Ferro"
+      ],
+      "formHint": "drops / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nortriptilina",
+      "aliases": [
+        "Nortriptyline",
+        "Pamelor"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Norvasc",
+      "aliases": [
+        "Anlodipino"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Novalgina",
+      "aliases": [
+        "Dipirona",
+        "Metamizole"
+      ],
+      "formHint": "tablet / drops",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Novartis valsartana",
+      "aliases": [
+        "Valsartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "160 mg"
+    },
+    {
+      "name": "Novo Nordisk semaglutida",
+      "aliases": [
+        "Ozempic"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Nurofen",
+      "aliases": [
+        "Ibuprofeno",
+        "Ibuprofène"
+      ],
+      "formHint": "comprimé",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Nystatin oral",
+      "aliases": [
+        "Mycostatin"
+      ],
+      "formHint": "suspension",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ocitocina",
+      "aliases": [
+        "Oxytocin"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ofloxacin ear",
+      "aliases": [
+        "Floxin Otic"
+      ],
+      "formHint": "ear drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Olanzapina",
+      "aliases": [
+        "Olanzapine",
+        "Zyprexa"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Olanzapine",
+      "aliases": [
+        "Zyprexa"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Olmesartan",
+      "aliases": [
+        "Olmesartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Olmesartana",
+      "aliases": [
+        "Benicar",
+        "Olmesartan",
+        "Olmetec"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Olopatadine",
+      "aliases": [
+        "Pataday",
+        "Patanol"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Omega-3 acid ethyl esters",
+      "aliases": [
+        "Lovaza"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Omeprazol",
+      "aliases": [
+        "Losec",
+        "Mopral",
+        "Omeprazole",
+        "Oméprazole",
+        "Ozemp",
+        "Prilosec"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Omeprazol + claritromicina + amoxi",
+      "aliases": [
+        "Triple terapia H. pylori"
+      ],
+      "formHint": "combo",
+      "strengthHint": ""
+    },
+    {
+      "name": "Omeprazol 20",
+      "aliases": [
+        "Ulcozol"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Omeprazol 40",
+      "aliases": [
+        "Ulcozol 40"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Omeprazol 40 mg",
+      "aliases": [
+        "Losec 40"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Omeprazole",
+      "aliases": [
+        "Omeprazol",
+        "Prilosec"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Omeprazole 40 mg",
+      "aliases": [
+        "Prilosec 40"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Ondansetron",
+      "aliases": [
+        "Zofran"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "4 mg"
+    },
+    {
+      "name": "Ondansetron ODT",
+      "aliases": [
+        "Zofran ODT"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "4 mg"
+    },
+    {
+      "name": "Ondansetrona",
+      "aliases": [
+        "Ondansetron",
+        "Vonau",
+        "Zofran"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "8 mg"
+    },
+    {
+      "name": "Ondansetrona injetável",
+      "aliases": [
+        "Zofran injection"
+      ],
+      "formHint": "injection",
+      "strengthHint": "8 mg"
+    },
+    {
+      "name": "Oral rehydration salts",
+      "aliases": [
+        "ORS",
+        "Pedialyte",
+        "Soro de reidratação"
+      ],
+      "formHint": "powder / solution",
+      "strengthHint": ""
+    },
+    {
+      "name": "Orfenadrina",
+      "aliases": [
+        "Dorflex",
+        "Norflex",
+        "Orphenadrine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Oseltamivir",
+      "aliases": [
+        "Tamiflu"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Oseltamivir 75",
+      "aliases": [
+        "Tamiflu"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Oximetazolina",
+      "aliases": [
+        "Afrin",
+        "Nasivin",
+        "Oxymetazoline"
+      ],
+      "formHint": "nasal spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Oxybutynin",
+      "aliases": [
+        "Ditropan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Oxybutynin ER",
+      "aliases": [
+        "Ditropan XL"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Oxycodone",
+      "aliases": [
+        "OxyContin",
+        "Roxicodone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Ozempic",
+      "aliases": [
+        "Semaglutida"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Paclitaxel",
+      "aliases": [
+        "Taxol"
+      ],
+      "formHint": "infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Pancrelipase",
+      "aliases": [
+        "Creon",
+        "Zenpep"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Pantogar",
+      "aliases": [
+        "Hair vitamin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Pantoprazol",
+      "aliases": [
+        "Pantoprazole",
+        "Pantozol",
+        "Protonix",
+        "Zurcal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Pantoprazol 20 mg",
+      "aliases": [
+        "Pantozol 20"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Pantoprazol 40",
+      "aliases": [
+        "Pantop",
+        "Tecta"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Pantoprazole",
+      "aliases": [
+        "Pantoprazol",
+        "Protonix"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Pantoprazole 40 mg",
+      "aliases": [
+        "Protonix 40"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Pantoprazole IV",
+      "aliases": [
+        "Protonix IV"
+      ],
+      "formHint": "injection",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Pantozol",
+      "aliases": [
+        "Pantoprazol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Paracetamol",
+      "aliases": [
+        "Acetaminofén",
+        "Acetaminophen",
+        "Doliprane",
+        "Dôrico",
+        "Efferalgan",
+        "Panadol",
+        "Tylenol"
+      ],
+      "formHint": "tablet / syrup",
+      "strengthHint": "750 mg"
+    },
+    {
+      "name": "Paracetamol + Cafeína",
+      "aliases": [
+        "Excedrin",
+        "Tylenol DC"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Paracetamol + Codeína",
+      "aliases": [
+        "Tylenol with codeine",
+        "Tylex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Paracetamol + Tramadol",
+      "aliases": [
+        "Revange",
+        "Ultracet"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Paracetamol 200 mg/ml",
+      "aliases": [
+        "Tylenol gotas"
+      ],
+      "formHint": "drops",
+      "strengthHint": "200 mg/ml"
+    },
+    {
+      "name": "Paracetamol 500 mg",
+      "aliases": [
+        "Tylenol 500"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Paracetamol 750 mg",
+      "aliases": [
+        "Dôrico 750",
+        "Tylenol 750"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "750 mg"
+    },
+    {
+      "name": "Paroxetina",
+      "aliases": [
+        "Paroxetine",
+        "Paxil",
+        "Pondera"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Pentoxifilina",
+      "aliases": [
+        "Pentoxifylline",
+        "Trental"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400 mg"
+    },
+    {
+      "name": "Perindopril",
+      "aliases": [
+        "Aceon",
+        "Coversyl"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "4 mg"
+    },
+    {
+      "name": "Permanganato de potássio",
+      "aliases": [
+        "Potassium permanganate"
+      ],
+      "formHint": "solution",
+      "strengthHint": ""
+    },
+    {
+      "name": "Permethrin cream",
+      "aliases": [
+        "Elimite"
+      ],
+      "formHint": "cream",
+      "strengthHint": "5%"
+    },
+    {
+      "name": "Permetrina",
+      "aliases": [
+        "Pazol",
+        "Permethrin"
+      ],
+      "formHint": "cream / lotion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Pfizer atorvastatina",
+      "aliases": [
+        "Atorvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Phenylephrine",
+      "aliases": [
+        "Sudafed PE"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Phenytoin",
+      "aliases": [
+        "Dilantin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Phloroglucinol",
+      "aliases": [
+        "Spasfon"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Picosulfato de sódio",
+      "aliases": [
+        "Guttalax",
+        "Sodium picosulfate"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Pioglitazona",
+      "aliases": [
+        "Actos",
+        "Pioglitazone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "15 mg"
+    },
+    {
+      "name": "Pioglitazone",
+      "aliases": [
+        "Actos"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "15 mg"
+    },
+    {
+      "name": "Pirazinamida",
+      "aliases": [
+        "Pyrazinamide"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Piridoxina",
+      "aliases": [
+        "Pyridoxine",
+        "Vitamin B6"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Piroxicam",
+      "aliases": [
+        "Feldene"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Piroxicam gel",
+      "aliases": [
+        "Feldene gel"
+      ],
+      "formHint": "gel",
+      "strengthHint": ""
+    },
+    {
+      "name": "Plasil",
+      "aliases": [
+        "Metoclopramida"
+      ],
+      "formHint": "drops / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Plavix",
+      "aliases": [
+        "Clopidogrel"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Plecanatide",
+      "aliases": [
+        "Trulance"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "3 mg"
+    },
+    {
+      "name": "Polivitamínico",
+      "aliases": [
+        "Centrum",
+        "Farmácia de manipulação poly",
+        "Multivitamin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Polyethylene glycol 3350",
+      "aliases": [
+        "Macrogol",
+        "MiraLAX"
+      ],
+      "formHint": "powder",
+      "strengthHint": ""
+    },
+    {
+      "name": "Potassium chloride",
+      "aliases": [
+        "Klor-Con"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mEq"
+    },
+    {
+      "name": "Potassium citrate",
+      "aliases": [
+        "Urocit-K"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Prasugrel",
+      "aliases": [
+        "Effient",
+        "Efient"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Prati-Donaduzzi sinvastatina",
+      "aliases": [
+        "Sinvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Pravastatina",
+      "aliases": [
+        "Pravachol",
+        "Pravastatin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Praziquantel",
+      "aliases": [
+        "Biltricide",
+        "Cestox"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Prazosin",
+      "aliases": [
+        "Minipress"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Prazosina",
+      "aliases": [
+        "Minipress",
+        "Prazosin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Prednisolona",
+      "aliases": [
+        "Prednisolone",
+        "Prelone"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Prednisolona 3 mg/ml",
+      "aliases": [
+        "Prelone"
+      ],
+      "formHint": "syrup",
+      "strengthHint": "3 mg/ml"
+    },
+    {
+      "name": "Prednisolona jarabe",
+      "aliases": [
+        "Prelone"
+      ],
+      "formHint": "jarabe",
+      "strengthHint": ""
+    },
+    {
+      "name": "Prednisolona xarope",
+      "aliases": [
+        "Prelone syrup"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Prednisolone",
+      "aliases": [
+        "Orapred"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Prednisona",
+      "aliases": [
+        "Meticorten",
+        "Prednisone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Prednisona 20",
+      "aliases": [
+        "Meticorten"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Prednisone",
+      "aliases": [
+        "Deltasone",
+        "Meticorten",
+        "Prednisona"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Pregabalin",
+      "aliases": [
+        "Lyrica"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Pregabalina",
+      "aliases": [
+        "Lyrica",
+        "Pregabalin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Pregabalina 75",
+      "aliases": [
+        "Lyrica"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Primaquina",
+      "aliases": [
+        "Primaquine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Probiótico",
+      "aliases": [
+        "Floratil",
+        "Probiotic",
+        "Saccharomyces boulardii"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Prochlorperazine",
+      "aliases": [
+        "Compazine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Progesterona",
+      "aliases": [
+        "Progesterone",
+        "Utrogestan"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Prometazina",
+      "aliases": [
+        "Fenergan",
+        "Promethazine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Promethazine",
+      "aliases": [
+        "Phenergan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Propranolol",
+      "aliases": [
+        "Inderal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Prozac",
+      "aliases": [
+        "Fluoxetina"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Pseudoephedrine",
+      "aliases": [
+        "Sudafed"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "60 mg"
+    },
+    {
+      "name": "Puran",
+      "aliases": [
+        "Levotiroxina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Puran T4",
+      "aliases": [
+        "Levotiroxina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mcg"
+    },
+    {
+      "name": "Quetiapina",
+      "aliases": [
+        "Quetiapine",
+        "Seroquel"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Quetiapina 25",
+      "aliases": [
+        "Seroquel"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Quetiapine",
+      "aliases": [
+        "Seroquel"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Qura",
+      "aliases": [
+        "Ibuprofeno"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Rabeprazol",
+      "aliases": [
+        "Pariet",
+        "Rabeprazole"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Ramipril",
+      "aliases": [
+        "Altace",
+        "Tritace"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Ranitidina",
+      "aliases": [
+        "Label",
+        "Ranitidine",
+        "Zantac"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Ranitidina 150",
+      "aliases": [
+        "Taural"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Ranitidine",
+      "aliases": [
+        "Ranitidina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "150 mg"
+    },
+    {
+      "name": "Redoxon",
+      "aliases": [
+        "Vitamina C"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Remdesivir",
+      "aliases": [
+        "Veklury"
+      ],
+      "formHint": "infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Repaglinida",
+      "aliases": [
+        "Prandin",
+        "Repaglinide"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Resfenol",
+      "aliases": [
+        "Paracetamol combo"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Rifampicina",
+      "aliases": [
+        "Rifadin",
+        "Rifampin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Rifaximin",
+      "aliases": [
+        "Xifaxan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "550 mg"
+    },
+    {
+      "name": "Rifaximin HE",
+      "aliases": [
+        "Xifaxan HE"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "550 mg"
+    },
+    {
+      "name": "Ringer lactato",
+      "aliases": [
+        "Lactated Ringer",
+        "RL"
+      ],
+      "formHint": "IV",
+      "strengthHint": ""
+    },
+    {
+      "name": "Risedronato",
+      "aliases": [
+        "Actonel",
+        "Risedronate"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "35 mg"
+    },
+    {
+      "name": "Risperidona",
+      "aliases": [
+        "Risperdal",
+        "Risperidone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Risperidona 1",
+      "aliases": [
+        "Risperdal"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Risperidone",
+      "aliases": [
+        "Risperdal"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Ritalina",
+      "aliases": [
+        "Metilfenidato"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Ritonavir",
+      "aliases": [
+        "Norvir"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Rivaroxaban",
+      "aliases": [
+        "Xarelto"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Rivaroxabana",
+      "aliases": [
+        "Rivaroxaban",
+        "Xarelto"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Rivaroxabán",
+      "aliases": [
+        "Xarelto"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Rivotril",
+      "aliases": [
+        "Clonazepam"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "0.5 mg"
+    },
+    {
+      "name": "Rizatriptana",
+      "aliases": [
+        "Maxalt",
+        "Rizatriptan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Rosuvastatin",
+      "aliases": [
+        "Rosuvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Rosuvastatin 40 mg",
+      "aliases": [
+        "Crestor 40"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Rosuvastatina",
+      "aliases": [
+        "Crestor",
+        "Rosuvastatin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Rosuvastatina 10",
+      "aliases": [
+        "Crestor"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Rosuvastatina 20 mg",
+      "aliases": [
+        "Crestor 20"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Rosuvastatina 5 mg",
+      "aliases": [
+        "Crestor 5"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Rutosídeo",
+      "aliases": [
+        "Rutin",
+        "Venoruton"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Saccharomyces",
+      "aliases": [
+        "Floratil"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": ""
+    },
+    {
+      "name": "Saccharomyces boulardii",
+      "aliases": [
+        "Floratil"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sacubitril-valsartan",
+      "aliases": [
+        "Entresto"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "24/26 mg"
+    },
+    {
+      "name": "Salbutamol",
+      "aliases": [
+        "Aerolin",
+        "Albuterol",
+        "Proventil",
+        "Ventolin",
+        "Ventoline"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": "100 mcg"
+    },
+    {
+      "name": "Salbutamol inhalador",
+      "aliases": [
+        "Ventolin"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Salbutamol spray",
+      "aliases": [
+        "Aerolin",
+        "Ventolin"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Salbutamol xarope",
+      "aliases": [
+        "Aerolin xarope"
+      ],
+      "formHint": "syrup",
+      "strengthHint": ""
+    },
+    {
+      "name": "Saline nasal spray",
+      "aliases": [
+        "Simply Saline",
+        "Soro nasal"
+      ],
+      "formHint": "spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Salmeterol",
+      "aliases": [
+        "Serevent"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sandoz anlodipino",
+      "aliases": [
+        "Anlodipino"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Sanofi ramipril",
+      "aliases": [
+        "Ramipril"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Saxagliptina",
+      "aliases": [
+        "Onglyza",
+        "Saxagliptin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Selozok",
+      "aliases": [
+        "Metoprolol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Semaglutida",
+      "aliases": [
+        "Ozempic",
+        "Rybelsus",
+        "Semaglutide",
+        "Wegovy"
+      ],
+      "formHint": "injection / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Semaglutide",
+      "aliases": [
+        "Ozempic",
+        "Wegovy"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Senna",
+      "aliases": [
+        "Sennosides",
+        "Senokot"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sertal",
+      "aliases": [
+        "Paracetamol combo"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sertal compuesto",
+      "aliases": [
+        "Paracetamol propifenazona"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sertralina",
+      "aliases": [
+        "Assert",
+        "Sertraline",
+        "Zoloft"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Sertralina 50",
+      "aliases": [
+        "Altruline",
+        "Zoloft"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Sertraline",
+      "aliases": [
+        "Zoloft"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Sildenafil",
+      "aliases": [
+        "Sildenafila",
+        "Viagra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Sildenafil 100 mg",
+      "aliases": [
+        "Viagra 100"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Sildenafil 50",
+      "aliases": [
+        "Viagra"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Sildenafila",
+      "aliases": [
+        "Revatio",
+        "Sildenafil",
+        "Viagra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Sildenafila 25 mg",
+      "aliases": [
+        "Viagra 25"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Silodosin",
+      "aliases": [
+        "Rapaflo"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "8 mg"
+    },
+    {
+      "name": "Simethicone",
+      "aliases": [
+        "Gas-X"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "125 mg"
+    },
+    {
+      "name": "Simeticona",
+      "aliases": [
+        "Gascon",
+        "Luftal",
+        "Simethicone"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Simeticona gotas",
+      "aliases": [
+        "Luftal gotas"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Simvastatin",
+      "aliases": [
+        "Sinvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Singulair",
+      "aliases": [
+        "Montelucaste"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Sinvastatina",
+      "aliases": [
+        "Simvastatin",
+        "Sinvascor",
+        "Zocor"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Sinvastatina + Ezetimiba",
+      "aliases": [
+        "Vytorin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sinvastatina 10 mg",
+      "aliases": [
+        "Zocor 10"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Sinvastatina 20",
+      "aliases": [
+        "Zocor"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Sitagliptin",
+      "aliases": [
+        "Januvia"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Sitagliptina",
+      "aliases": [
+        "Januvia",
+        "Sitagliptin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Smecta",
+      "aliases": [
+        "Diosmectite"
+      ],
+      "formHint": "sachet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sofosbuvir",
+      "aliases": [
+        "Sovaldi"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Solifenacin",
+      "aliases": [
+        "Vesicare"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Sorine",
+      "aliases": [
+        "Saline",
+        "Soro nasal"
+      ],
+      "formHint": "spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Soro fisiológico",
+      "aliases": [
+        "NaCl 0.9%",
+        "Normal saline",
+        "SF 0.9%"
+      ],
+      "formHint": "IV / nasal",
+      "strengthHint": "0.9%"
+    },
+    {
+      "name": "Soro fisiológico nasal",
+      "aliases": [
+        "Nasal saline",
+        "Saline nasal",
+        "Sorine",
+        "Soro nasal"
+      ],
+      "formHint": "spray / drops",
+      "strengthHint": "0.9%"
+    },
+    {
+      "name": "Soro glicosado",
+      "aliases": [
+        "Dextrose saline",
+        "SG 5%"
+      ],
+      "formHint": "IV",
+      "strengthHint": "5%"
+    },
+    {
+      "name": "Soro nasal",
+      "aliases": [
+        "Physiomer",
+        "Suero fisiológico nasal"
+      ],
+      "formHint": "spray",
+      "strengthHint": ""
+    },
+    {
+      "name": "Spasfon",
+      "aliases": [
+        "Phloroglucinol"
+      ],
+      "formHint": "comprimé",
+      "strengthHint": ""
+    },
+    {
+      "name": "Spironolactone",
+      "aliases": [
+        "Espironolactona"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Spironolactone 50 mg",
+      "aliases": [
+        "Aldactone 50"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Spironolactone ascites",
+      "aliases": [
+        "Aldactone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Sucralfato",
+      "aliases": [
+        "Sucrafil",
+        "Sucralfate"
+      ],
+      "formHint": "suspension",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sulfadiazina de prata",
+      "aliases": [
+        "Dermazine",
+        "Silver sulfadiazine"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sulfametoxazol + Trimetoprima",
+      "aliases": [
+        "Bactrim",
+        "Cotrimoxazole",
+        "Septrin",
+        "SMX-TMP"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "400/80 mg"
+    },
+    {
+      "name": "Sulfasalazine",
+      "aliases": [
+        "Azulfidine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Sulfassalazina",
+      "aliases": [
+        "Azulfidine",
+        "Sulfasalazine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Sulfato ferroso",
+      "aliases": [
+        "Ferrous sulfate",
+        "Hematofer",
+        "Noripurum",
+        "Vitalferro"
+      ],
+      "formHint": "tablet / drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sulfato ferroso gotas",
+      "aliases": [
+        "Hierro",
+        "Noripurum gotas"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Sulindac",
+      "aliases": [
+        "Clinoril"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "200 mg"
+    },
+    {
+      "name": "Sumatriptan",
+      "aliases": [
+        "Imitrex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Sumatriptana",
+      "aliases": [
+        "Imigran",
+        "Imitrex",
+        "Sumatriptan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Tacrolimus",
+      "aliases": [
+        "Prograf"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "1 mg"
+    },
+    {
+      "name": "Tadalafil",
+      "aliases": [
+        "Cialis",
+        "Tadalafila"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Tadalafil 20",
+      "aliases": [
+        "Cialis"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Tadalafil 20 mg",
+      "aliases": [
+        "Cialis 20"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Tadalafila",
+      "aliases": [
+        "Cialis",
+        "Tadalafil"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Tadalafila 5 mg",
+      "aliases": [
+        "Cialis daily"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Tafirol",
+      "aliases": [
+        "Paracetamol"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "1 g"
+    },
+    {
+      "name": "Tafirol Plus",
+      "aliases": [
+        "Paracetamol"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tahor",
+      "aliases": [
+        "Atorvastatina"
+      ],
+      "formHint": "comprimé",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Tamoxifeno",
+      "aliases": [
+        "Nolvadex",
+        "Tamoxifen"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Tamsulosin",
+      "aliases": [
+        "Flomax"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "0.4 mg"
+    },
+    {
+      "name": "Tamsulosin 0.4 mg",
+      "aliases": [
+        "Flomax 0.4"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "0.4 mg"
+    },
+    {
+      "name": "Tamsulosina",
+      "aliases": [
+        "Omnic",
+        "Secotex"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "0.4 mg"
+    },
+    {
+      "name": "Tansulosina",
+      "aliases": [
+        "Flomax",
+        "Secotex",
+        "Tamsulosin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "0.4 mg"
+    },
+    {
+      "name": "Telmisartana",
+      "aliases": [
+        "Micardis",
+        "Telmisartan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "40 mg"
+    },
+    {
+      "name": "Tenofovir",
+      "aliases": [
+        "TDF",
+        "TDF/FTC",
+        "Truvada",
+        "Viread"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tenofovir alafenamida",
+      "aliases": [
+        "TAF",
+        "Vemlidy"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tenoxicam",
+      "aliases": [
+        "Tilatil"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Teofilina",
+      "aliases": [
+        "Theophylline"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Terazosin",
+      "aliases": [
+        "Hytrin"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Terbinafina",
+      "aliases": [
+        "Lamisil",
+        "Terbinafine"
+      ],
+      "formHint": "cream / tablet",
+      "strengthHint": "250 mg"
+    },
+    {
+      "name": "Terbinafina 250",
+      "aliases": [
+        "Lamisil"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "250 mg"
+    },
+    {
+      "name": "Terbinafine cream",
+      "aliases": [
+        "Lamisil AT"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Theophylline",
+      "aliases": [
+        "Theo-24"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Thiamine",
+      "aliases": [
+        "Vitamin B1"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Tiabendazol",
+      "aliases": [
+        "Thiabendazole"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tiamina",
+      "aliases": [
+        "Thiamine",
+        "Vitamin B1"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Ticagrelor",
+      "aliases": [
+        "Brilinta",
+        "Brilique"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "90 mg"
+    },
+    {
+      "name": "Timolol",
+      "aliases": [
+        "Timoptic",
+        "Timoptol"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": "0.5%"
+    },
+    {
+      "name": "Timolol eye drops",
+      "aliases": [
+        "Timoptic"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tiotropio",
+      "aliases": [
+        "Spiriva"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tiotropium",
+      "aliases": [
+        "Spiriva"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tiotrópio",
+      "aliases": [
+        "Spiriva",
+        "Tiotropium"
+      ],
+      "formHint": "inhaler",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tirzepatide",
+      "aliases": [
+        "Mounjaro",
+        "Zepbound"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tizanidine",
+      "aliases": [
+        "Zanaflex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Tobramicina",
+      "aliases": [
+        "Tobrex"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tolterodine",
+      "aliases": [
+        "Detrol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2 mg"
+    },
+    {
+      "name": "Topiramate",
+      "aliases": [
+        "Topamax"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "25 mg"
+    },
+    {
+      "name": "Topiramato",
+      "aliases": [
+        "Topamax",
+        "Topiramate"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Torsemide",
+      "aliases": [
+        "Demadex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Torsilax",
+      "aliases": [
+        "Carisoprodol combo"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tramadol",
+      "aliases": [
+        "Tramal",
+        "Ultram"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Tramadol 50",
+      "aliases": [
+        "Tramal"
+      ],
+      "formHint": "cápsula",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Trazodona",
+      "aliases": [
+        "Donaren",
+        "Trazodone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Trazodone",
+      "aliases": [
+        "Desyrel"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Tretinoin",
+      "aliases": [
+        "Retin-A"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Triamcinolone cream",
+      "aliases": [
+        "Kenalog"
+      ],
+      "formHint": "cream",
+      "strengthHint": ""
+    },
+    {
+      "name": "Triamterene-HCTZ",
+      "aliases": [
+        "Dyazide",
+        "Maxzide"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Trimethoprim-sulfamethoxazole",
+      "aliases": [
+        "Bactrim",
+        "Septra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Trimetoprima sulfametoxazol",
+      "aliases": [
+        "Bactrimel"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": ""
+    },
+    {
+      "name": "Trinitrato de glicerila",
+      "aliases": [
+        "Nitradisc",
+        "Nitroglycerin"
+      ],
+      "formHint": "sublingual",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tropicamida",
+      "aliases": [
+        "Mydriacyl"
+      ],
+      "formHint": "eye drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Tylenol",
+      "aliases": [
+        "Acetaminophen",
+        "Paracetamol"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "750 mg"
+    },
+    {
+      "name": "Ulipristal",
+      "aliases": [
+        "Ella"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Ursodiol",
+      "aliases": [
+        "Actigall",
+        "Urso"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "300 mg"
+    },
+    {
+      "name": "Ustekinumab",
+      "aliases": [
+        "Stelara"
+      ],
+      "formHint": "injection",
+      "strengthHint": ""
+    },
+    {
+      "name": "Valaciclovir",
+      "aliases": [
+        "Valtrex"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Valacyclovir",
+      "aliases": [
+        "Valtrex"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Valproato de sódio",
+      "aliases": [
+        "Depakene",
+        "Depakote",
+        "Valproate"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Valproic acid",
+      "aliases": [
+        "Depakote"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "250 mg"
+    },
+    {
+      "name": "Valsartan",
+      "aliases": [
+        "Valsartana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "80 mg"
+    },
+    {
+      "name": "Valsartana",
+      "aliases": [
+        "Diovan",
+        "Valsartan"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "160 mg"
+    },
+    {
+      "name": "Vardenafil",
+      "aliases": [
+        "Levitra"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Varfarina",
+      "aliases": [
+        "Coumadin",
+        "Marevan",
+        "Warfarin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Vedolizumab",
+      "aliases": [
+        "Entyvio"
+      ],
+      "formHint": "infusion",
+      "strengthHint": ""
+    },
+    {
+      "name": "Venlafaxina",
+      "aliases": [
+        "Alenthus",
+        "Effexor",
+        "Venlafaxine"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Venvanse",
+      "aliases": [
+        "Lisdexanfetamina"
+      ],
+      "formHint": "capsule",
+      "strengthHint": "30 mg"
+    },
+    {
+      "name": "Verapamil",
+      "aliases": [
+        "Dilacoron",
+        "Isoptin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "80 mg"
+    },
+    {
+      "name": "Verapamil ER",
+      "aliases": [
+        "Calan SR"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "120 mg"
+    },
+    {
+      "name": "Vibegron",
+      "aliases": [
+        "Gemtesa"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "75 mg"
+    },
+    {
+      "name": "Vildagliptina",
+      "aliases": [
+        "Galvus",
+        "Vildagliptin"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Vitamin A",
+      "aliases": [
+        "Retinol"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Vitamin E",
+      "aliases": [
+        "Tocopherol"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Vitamin K",
+      "aliases": [
+        "Mephyton",
+        "Phytonadione"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Vitamina B12",
+      "aliases": [
+        "Bedoz",
+        "Cyanocobalamin"
+      ],
+      "formHint": "injection / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Vitamina C",
+      "aliases": [
+        "Ascorbic acid",
+        "Cebion",
+        "Redoxon"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Vitamina D",
+      "aliases": [
+        "Addera D3",
+        "Cholecalciferol",
+        "Colecalciferol",
+        "DePura"
+      ],
+      "formHint": "drops / capsule",
+      "strengthHint": ""
+    },
+    {
+      "name": "Vitamina D gotas",
+      "aliases": [
+        "Addera D3 gotas"
+      ],
+      "formHint": "drops",
+      "strengthHint": ""
+    },
+    {
+      "name": "Vitamina D3",
+      "aliases": [
+        "Colecalciferol"
+      ],
+      "formHint": "gotas",
+      "strengthHint": ""
+    },
+    {
+      "name": "Voltaren",
+      "aliases": [
+        "Diclofenaco"
+      ],
+      "formHint": "gel / tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Warfarin",
+      "aliases": [
+        "Varfarina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Warfarin 2.5 mg",
+      "aliases": [
+        "Coumadin 2.5"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "2.5 mg"
+    },
+    {
+      "name": "Warfarin 5 mg",
+      "aliases": [
+        "Coumadin 5"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Warfarina 5",
+      "aliases": [
+        "Coumadin"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Xarelto",
+      "aliases": [
+        "Rivaroxabana"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Zidovudina",
+      "aliases": [
+        "AZT",
+        "Retrovir",
+        "Zidovudine"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Zinc sulfate",
+      "aliases": [
+        "Zinc diarrhea"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Zinco",
+      "aliases": [
+        "Zinc",
+        "Zinco quelado"
+      ],
+      "formHint": "tablet",
+      "strengthHint": ""
+    },
+    {
+      "name": "Zitromax",
+      "aliases": [
+        "Azitromicina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "500 mg"
+    },
+    {
+      "name": "Zocor",
+      "aliases": [
+        "Sinvastatina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "20 mg"
+    },
+    {
+      "name": "Zoloft",
+      "aliases": [
+        "Sertralina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "50 mg"
+    },
+    {
+      "name": "Zolpidem",
+      "aliases": [
+        "Ambien",
+        "Stilnox"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Zolpidem 10",
+      "aliases": [
+        "Stilnox"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "10 mg"
+    },
+    {
+      "name": "Zopiclona",
+      "aliases": [
+        "Imovane",
+        "Zopiclone"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "7.5 mg"
+    },
+    {
+      "name": "Ácido acetilsalicílico",
+      "aliases": [
+        "AAS",
+        "ASA",
+        "Aspirin",
+        "Aspirina"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "100 mg"
+    },
+    {
+      "name": "Ácido fólico",
+      "aliases": [
+        "Endofolin",
+        "Folacin",
+        "Folic acid"
+      ],
+      "formHint": "tablet",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Ácido fólico 5 mg",
+      "aliases": [
+        "Folival"
+      ],
+      "formHint": "comprimido",
+      "strengthHint": "5 mg"
+    },
+    {
+      "name": "Óleo mineral",
+      "aliases": [
+        "Mineral oil",
+        "Nujol"
+      ],
+      "formHint": "liquid",
+      "strengthHint": ""
+    },
+    {
+      "name": "Ômega-3",
+      "aliases": [
+        "Fish oil",
+        "Omega-3"
+      ],
+      "formHint": "capsule",
+      "strengthHint": ""
+    }
+  ]
+}

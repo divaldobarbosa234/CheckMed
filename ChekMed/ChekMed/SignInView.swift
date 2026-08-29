@@ -4,7 +4,7 @@ import UIKit
 struct SignInView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.dismiss) private var dismiss
-    var allowsGuest = true
+    var allowsGuest = false
     var onAuthenticated: (() -> Void)? = nil
     @State private var email = ""
     @State private var password = ""
@@ -39,14 +39,22 @@ struct SignInView: View {
                 }
 
                 VStack(spacing: 14) {
-                    field(session.t(.email), text: $email, contentType: .emailAddress, keyboard: .emailAddress, secure: false)
+                    field(
+                        session.t(.email),
+                        text: $email,
+                        contentType: .emailAddress,
+                        keyboard: .emailAddress,
+                        secure: false,
+                        identifier: "auth-email"
+                    )
                     if mode != .reset {
                         field(
                             session.t(.password),
                             text: $password,
                             contentType: mode == .signUp ? .newPassword : .password,
                             keyboard: .default,
-                            secure: true
+                            secure: true,
+                            identifier: "auth-password"
                         )
                     }
                     if mode == .signUp {
@@ -55,16 +63,20 @@ struct SignInView: View {
                             text: $confirmPassword,
                             contentType: .newPassword,
                             keyboard: .default,
-                            secure: true
+                            secure: true,
+                            identifier: "auth-confirm-password"
                         )
                     }
                     CheckMedButton(title: primaryTitle, action: submit)
                         .disabled(session.isLoading)
+                        .accessibilityIdentifier("auth-submit")
                 }
 
                 HStack {
                     Button(secondaryTitle) { toggleMode() }
                         .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .accessibilityIdentifier("auth-toggle-mode")
+                        .keyboardShortcut("u", modifiers: [.command])
                     Spacer()
                     if mode != .reset {
                         Button(session.t(.forgotPassword)) { mode = .reset }
@@ -78,9 +90,10 @@ struct SignInView: View {
                     .padding(.bottom, 8)
 
                 VStack(spacing: 12) {
-                    provider(.google, title: session.t(.continueWithGoogle)) {
+                    provider(.google, title: session.t(.continueWithGoogle), identifier: "auth-google") {
                         session.requestProvider(.google)
                     }
+                    .keyboardShortcut("g", modifiers: [.command])
                     provider(.facebook, title: session.t(.continueWithFacebook)) {
                         session.requestProvider(.facebook)
                     }
@@ -150,6 +163,7 @@ struct SignInView: View {
             session.auth.clearMessages()
             toast = nil
             readyForBanners = true
+            applyDebugLaunchHooks()
         }
         .onDisappear {
             toastTask?.cancel()
@@ -233,6 +247,25 @@ struct SignInView: View {
         }
     }
 
+    private func applyDebugLaunchHooks() {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if let value = env["CHECKMED_UI_EMAIL"], !value.isEmpty {
+            email = value
+        }
+        if let value = env["CHECKMED_UI_PASSWORD"], !value.isEmpty {
+            password = value
+            confirmPassword = value
+        }
+        if env["CHECKMED_UI_SIGNUP"] == "1" {
+            mode = .signUp
+        }
+        if env["CHECKMED_UI_GOOGLE"] == "1" {
+            session.requestProvider(.google)
+        }
+        #endif
+    }
+
     private func toggleMode() {
         session.auth.clearMessages()
         toast = nil
@@ -288,7 +321,8 @@ struct SignInView: View {
         text: Binding<String>,
         contentType: UITextContentType,
         keyboard: UIKeyboardType,
-        secure: Bool
+        secure: Bool,
+        identifier: String
     ) -> some View {
         Group {
             if secure {
@@ -306,13 +340,15 @@ struct SignInView: View {
         .background(CheckMedTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.locked, lineWidth: 2))
+        .accessibilityIdentifier(identifier)
+        .accessibilityLabel(title)
     }
 
     private enum ProviderKind {
         case apple, google, facebook
     }
 
-    private func provider(_ kind: ProviderKind, title: String, action: @escaping () -> Void) -> some View {
+    private func provider(_ kind: ProviderKind, title: String, identifier: String? = nil, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 providerMark(kind)
@@ -331,6 +367,8 @@ struct SignInView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier ?? title)
+        .accessibilityLabel(title)
     }
 
     @ViewBuilder

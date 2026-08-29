@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>CheckMed uses the camera to photograph prescriptions so Phil can help you organize them. You review every field before anything is saved.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CheckMed can import a prescription photo from your library so Phil can help you organize it. You review every field before anything is saved.</string>
+	<key>NSAlarmKitUsageDescription</key>
+	<string>CheckMed uses alarms for medication dose times so Phil can wake the device even in Silent or Focus. Taken and Skip cancel or reschedule the next dose.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
@@ -13,6 +19,22 @@
 	<string>$(SUPABASE_URL)</string>
 	<key>SUPABASE_ANON_KEY</key>
 	<string>$(SUPABASE_ANON_KEY)</string>
+	<key>GOOGLE_CLOUD_VISION_API_KEY</key>
+	<string>$(GOOGLE_CLOUD_VISION_API_KEY)</string>
+	<key>GOOGLE_CLOUD_PROJECT_ID</key>
+	<string>$(GOOGLE_CLOUD_PROJECT_ID)</string>
+	<key>GOOGLE_DOCUMENT_AI_LOCATION</key>
+	<string>$(GOOGLE_DOCUMENT_AI_LOCATION)</string>
+	<key>GOOGLE_DOCUMENT_AI_PROCESSOR_ID</key>
+	<string>$(GOOGLE_DOCUMENT_AI_PROCESSOR_ID)</string>
+	<key>GOOGLE_DOCUMENT_AI_CREDENTIALS_PATH</key>
+	<string>$(GOOGLE_DOCUMENT_AI_CREDENTIALS_PATH)</string>
+	<key>GOOGLE_DOCUMENT_AI_API_KEY</key>
+	<string>$(GOOGLE_DOCUMENT_AI_API_KEY)</string>
+	<key>AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT</key>
+	<string>$(AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT)</string>
+	<key>AZURE_DOCUMENT_INTELLIGENCE_KEY</key>
+	<string>$(AZURE_DOCUMENT_INTELLIGENCE_KEY)</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

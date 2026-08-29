@@ -133,7 +133,7 @@ struct AppRouteView: View {
         case .todayTreatment: TodayTreatmentScreen(go: nav.go)
         case .upcoming: UpcomingScreen()
         case .dailySummary: DailySummaryScreen()
-        case .addPrescription: AddPrescriptionScreen(go: nav.go)
+        case .addPrescription: AddPrescriptionIntakeHost()
         case .cameraScanner: CameraScannerScreen(go: nav.go)
         case .scanning: ScanningScreen(go: nav.go)
         case .extractionResults: ExtractionResultsScreen(go: nav.go)

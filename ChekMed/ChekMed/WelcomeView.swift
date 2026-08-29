@@ -29,9 +29,6 @@ struct WelcomeView: View {
             VStack(spacing: 12) {
                 CheckMedButton(title: session.t(.getStarted), action: onGetStarted)
                 CheckMedButton(title: session.t(.haveAccount), style: .secondary, action: onSignIn)
-                CheckMedButton(title: session.t(.continueAsGuest), style: .ghost) {
-                    session.continueAsGuest()
-                }
                 SafetyCaption()
             }
             .padding(.bottom, 24)

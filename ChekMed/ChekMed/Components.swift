@@ -26,6 +26,7 @@ struct CheckMedButton: View {
                 .shadow(color: style == .primary ? CheckMedTheme.primaryShadow : .clear, radius: 0, y: 4)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
         .modifier(PrimaryReturnKey(enabled: style == .primary))
     }
 

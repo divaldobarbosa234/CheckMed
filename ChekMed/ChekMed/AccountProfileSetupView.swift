@@ -32,8 +32,13 @@ struct AccountProfileSetupView: View {
         .background(CheckMedTheme.background)
         .onAppear {
             step = session.needsCallYouScreen ? .callYou : .addressYou
-            if session.hasPreferredName { name = session.displayName }
+            if session.hasPreferredName {
+                name = session.displayName
+            } else if let inferred = session.inferredPreferredName {
+                name = inferred
+            }
             birthDate = session.birthDate
+            applyDebugLaunchHooks()
         }
     }
 
@@ -79,6 +84,22 @@ struct AccountProfileSetupView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.ink, lineWidth: 2))
         }
+    }
+
+    private func applyDebugLaunchHooks() {
+        #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        if let value = env["CHECKMED_UI_NAME"], !value.isEmpty {
+            name = value
+        }
+        if birthDate == nil, env["CHECKMED_UI_NAME"] != nil || env["CHECKMED_UI_SIGNUP"] == "1" {
+            var components = DateComponents()
+            components.year = 1994
+            components.month = 6
+            components.day = 15
+            birthDate = Calendar(identifier: .gregorian).date(from: components)
+        }
+        #endif
     }
 
     private func persistCallYou() {

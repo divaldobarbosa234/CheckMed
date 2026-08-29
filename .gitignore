@@ -38,6 +38,7 @@ yarn-error.*
 ChekMed/Secrets.xcconfig
 ChekMed/ChekMed/SupabaseConfig.plist
 **/GoogleService-Info.plist
+**/GoogleDocumentAI.json
 
 # Nested git leftover inside the SwiftUI app (parent repo tracks ChekMed/)
 ChekMed/.git/

@@ -29,6 +29,8 @@ struct ProgressTabView: View {
 struct ProfileView: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(FamilyStore.self) private var family
     @State private var showSignIn = false
     @State private var confirmDelete = false
     @State private var path = NavigationPath()
@@ -70,6 +72,7 @@ struct ProfileView: View {
                             CheckMedButton(title: session.t(.profileSignOut), style: .secondary) {
                                 session.signOut()
                             }
+                            .accessibilityIdentifier("profile-sign-out")
                         }
                     }
                     .padding(16)
@@ -98,7 +101,11 @@ struct ProfileView: View {
                     Button { path.append(AppRoute.family) } label: {
                         profileRow(
                             label: session.t(.profileFamily),
-                            value: session.t(.profileFamilyCount, entitlements.freeFamilySlots, entitlements.familySlots)
+                            value: session.t(
+                                .profileFamilyCount,
+                                entitlements.isSuper ? family.occupiedSlots : 1,
+                                entitlements.familySlots
+                            )
                         )
                     }
                     .buttonStyle(.plain)
@@ -110,7 +117,10 @@ struct ProfileView: View {
                     }
                     .buttonStyle(.plain)
                     Button { path.append(AppRoute.reminderSettings) } label: {
-                        profileRow(label: session.t(.profileReminders), value: "Amoxicillin")
+                        profileRow(
+                            label: session.t(.profileReminders),
+                            value: treatments.medicineSummaries().first?.name ?? ""
+                        )
                     }
                     .buttonStyle(.plain)
                     Button { path.append(AppRoute.myMedicines) } label: {
@@ -176,11 +186,24 @@ struct MainTabView: View {
     @Environment(SessionStore.self) private var session
 
     var body: some View {
-        TabView {
-            Tab(session.t(.tabHome), systemImage: "house.fill") { HomeView() }
-            Tab(session.t(.tabTreatments), systemImage: "pills.fill") { TreatmentsView() }
-            Tab(session.t(.tabProgress), systemImage: "chart.line.uptrend.xyaxis") { ProgressTabView() }
-            Tab(session.t(.tabProfile), systemImage: "person.fill") { ProfileView() }
+        @Bindable var session = session
+        TabView(selection: $session.selectedMainTab) {
+            HomeView()
+                .tabItem { Label(session.t(.tabHome), systemImage: "house.fill") }
+                .tag(SessionStore.MainTab.home)
+                .accessibilityIdentifier("tab-home")
+            TreatmentsView()
+                .tabItem { Label(session.t(.tabTreatments), systemImage: "pills.fill") }
+                .tag(SessionStore.MainTab.treatments)
+                .accessibilityIdentifier("tab-treatments")
+            ProgressTabView()
+                .tabItem { Label(session.t(.tabProgress), systemImage: "chart.line.uptrend.xyaxis") }
+                .tag(SessionStore.MainTab.progress)
+                .accessibilityIdentifier("tab-progress")
+            ProfileView()
+                .tabItem { Label(session.t(.tabProfile), systemImage: "person.fill") }
+                .tag(SessionStore.MainTab.profile)
+                .accessibilityIdentifier("tab-profile")
         }
         .tint(CheckMedTheme.primaryShadow)
     }

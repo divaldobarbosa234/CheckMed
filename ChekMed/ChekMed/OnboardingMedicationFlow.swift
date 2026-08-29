@@ -1,21 +1,16 @@
+import PhotosUI
 import SwiftUI
+import UIKit
 
 enum OnboardingAddMethod {
     case photo, pdf, manual
 }
 
-struct OnboardingPrescriptionDraft {
+struct OnboardingPrescriptionDraft: Equatable, Sendable {
     var medicine: String
     var dose: String
     var frequency: String
     var duration: String
-
-    static let scanned = OnboardingPrescriptionDraft(
-        medicine: "Amoxicillin 500mg",
-        dose: "1 capsule",
-        frequency: "3× daily",
-        duration: "7 days"
-    )
 
     static let empty = OnboardingPrescriptionDraft(
         medicine: "",
@@ -29,14 +24,20 @@ struct OnboardingPrescriptionDraft {
             && !dose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !frequency.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    var hasMedicineName: Bool {
+        !medicine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 struct OnboardingAddMedicationView: View {
     @Environment(SessionStore.self) private var session
     var onPhoto: () -> Void
+    var onChoosePhotos: () -> Void = {}
     var onPDF: () -> Void
     var onManual: () -> Void
     var onBack: () -> Void
+    var showsChoosePhotos: Bool = true
 
     var body: some View {
         VStack(spacing: 16) {
@@ -49,9 +50,15 @@ struct OnboardingAddMedicationView: View {
                 .multilineTextAlignment(.center)
             Spacer(minLength: 8)
             CheckMedButton(title: session.t(.scanTakePhoto), action: onPhoto)
+            if showsChoosePhotos {
+                CheckMedButton(title: session.t(.scanChoosePhotos), style: .secondary, action: onChoosePhotos)
+                    .keyboardShortcut("p", modifiers: [.command])
+            }
             CheckMedButton(title: session.t(.scanUploadPDF), style: .secondary, action: onPDF)
             CheckMedButton(title: session.t(.scanSetManually), style: .secondary, action: onManual)
             CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+            SafetyCaption()
+                .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
@@ -62,8 +69,16 @@ struct OnboardingAddMedicationView: View {
 
 struct OnboardingCameraView: View {
     @Environment(SessionStore.self) private var session
-    var onCapture: () -> Void
+    var onCaptured: (Data) -> Void
     var onBack: () -> Void
+
+    @State private var showCamera = false
+    @State private var showLibrary = false
+    @State private var photoItem: PhotosPickerItem?
+
+    private var cameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -79,18 +94,47 @@ struct OnboardingCameraView: View {
                 .stroke(CheckMedTheme.ink, style: StrokeStyle(lineWidth: 3, dash: [8, 6]))
                 .frame(height: 220)
                 .overlay {
-                    Text(session.t(.scanViewfinder))
+                    Text(cameraAvailable ? session.t(.scanViewfinder) : session.t(.scanCameraUnavailable))
                         .font(.system(.caption, design: .rounded).weight(.bold))
                         .foregroundStyle(CheckMedTheme.muted)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
                 }
             Spacer(minLength: 8)
-            CheckMedButton(title: session.t(.scanCapture), action: onCapture)
+            if cameraAvailable {
+                CheckMedButton(title: session.t(.scanCapture)) { showCamera = true }
+            }
+            CheckMedButton(
+                title: session.t(.scanChoosePhotos),
+                style: cameraAvailable ? .secondary : .primary
+            ) {
+                showLibrary = true
+            }
             CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraCaptureView { data in
+                showCamera = false
+                if let data {
+                    onCaptured(data)
+                }
+            }
+            .ignoresSafeArea()
+        }
+        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    photoItem = nil
+                    onCaptured(PrescriptionReader.downsampledJPEG(from: data))
+                }
+            }
+        }
     }
 }
 
@@ -108,7 +152,7 @@ struct OnboardingManualEntryView: View {
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .multilineTextAlignment(.center)
-            field(session.t(.manualMedicine), text: $draft.medicine)
+            MedicineNameField(title: session.t(.manualMedicine), text: $draft.medicine)
             field(session.t(.manualDose), text: $draft.dose)
             field(session.t(.manualFrequency), text: $draft.frequency)
             field(session.t(.manualDuration), text: $draft.duration)
@@ -141,6 +185,7 @@ struct OnboardingManualEntryView: View {
 struct OnboardingAnalysingView: View {
     @Environment(SessionStore.self) private var session
     var isShort: Bool
+    var work: (() async -> Void)? = nil
     var onFinished: () -> Void
 
     @State private var pulse = false
@@ -172,8 +217,15 @@ struct OnboardingAnalysingView: View {
             }
         }
         .task {
-            let nanos: UInt64 = isShort ? 800_000_000 : 2_600_000_000
-            try? await Task.sleep(nanoseconds: nanos)
+            let started = Date()
+            if let work {
+                await work()
+            }
+            let minimum = isShort ? 0.7 : 0.9
+            let remaining = minimum - Date().timeIntervalSince(started)
+            if remaining > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+            }
             guard !Task.isCancelled else { return }
             onFinished()
         }
@@ -194,7 +246,13 @@ struct OnboardingConfirmView: View {
                 title: isManual ? session.t(.confirmManualHeadline) : session.t(.confirmEditHeadline)
             )
             PhilView(size: 88, smiling: true)
-            field(session.t(.manualMedicine), text: $draft.medicine)
+            if !isManual, !draft.hasMedicineName {
+                Text(session.t(.scanOCREmptyHint))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .multilineTextAlignment(.center)
+            }
+            MedicineNameField(title: session.t(.manualMedicine), text: $draft.medicine)
             field(session.t(.manualDose), text: $draft.dose)
             field(session.t(.manualFrequency), text: $draft.frequency)
             field(session.t(.manualDuration), text: $draft.duration)
@@ -202,6 +260,8 @@ struct OnboardingConfirmView: View {
             CheckMedButton(title: session.t(.confirmLooksGood), action: onConfirm)
                 .disabled(!draft.isFilled)
             CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+            SafetyCaption()
+                .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)

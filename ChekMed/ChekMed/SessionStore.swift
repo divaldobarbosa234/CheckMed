@@ -8,6 +8,19 @@ final class SessionStore {
         case authenticated
     }
 
+    enum PostAuthKind: Equatable {
+        case undetermined
+        case newAccount
+        case returning
+    }
+
+    enum MainTab: Hashable {
+        case home
+        case treatments
+        case progress
+        case profile
+    }
+
     let auth = AuthManager()
     private var guestUnlocked = false
     private var localDisplayName = "there"
@@ -77,15 +90,26 @@ final class SessionStore {
         if let stored = UserDefaults.standard.string(forKey: Keys.firstTimePhase), !stored.isEmpty {
             localFirstTimePhase = stored
         }
-        auth.onAuthenticated = { [weak self] _ in
-            await self?.handleAuthenticated()
+        auth.onBeforeAuthenticated = { [weak self] isRestore in
+            self?.preparePostAuth(isRestore: isRestore)
+        }
+        auth.onAuthenticated = { [weak self] isRestore in
+            await self?.handleAuthenticated(isRestore: isRestore)
         }
         auth.start()
     }
 
+    private(set) var profileId: UUID?
+    private(set) var isResolvingPostAuth = false
+    private(set) var postAuthKind: PostAuthKind = .undetermined
+    var selectedMainTab: MainTab = .home
+
+    /// Awaits treatment sync and reports whether this owner already has treatments.
+    @ObservationIgnored
+    var onPostAuthSync: (() async -> Bool)?
+
     var kind: Kind {
         if auth.isAuthenticated { return .authenticated }
-        if guestUnlocked || localOnboardingComplete { return .guest }
         return .welcome
     }
 
@@ -106,13 +130,28 @@ final class SessionStore {
     var language: String { locale.displayName }
     var locale: AppLocale { AppLocale.fromStored(localLanguage) }
     var timeZoneName: String { localTimeZone }
+    var foundationTimeZone: TimeZone {
+        TimeZone(identifier: localTimeZone) ?? .current
+    }
+    var foundationCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = foundationTimeZone
+        return calendar
+    }
     var birthDate: Date? { localBirthDate }
     var pronouns: String { localPronouns }
     var gender: String { localGender }
 
     var hasPreferredName: Bool {
-        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         return !name.isEmpty && name != "there" && name != "friend"
+    }
+
+    /// Google/email metadata is not a saved profile. Prefill only.
+    var inferredPreferredName: String? {
+        let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !inferred.isEmpty, inferred != "there", inferred != "friend" else { return nil }
+        return inferred
     }
 
     var needsCallYouScreen: Bool { !hasPreferredName || localBirthDate == nil }
@@ -135,6 +174,9 @@ final class SessionStore {
 
     /// Identity fields collected after sign-in (name, DOB, pronouns, gender). Not language.
     var needsIdentityProfile: Bool { needsCallYouScreen || needsAddressYouScreen }
+
+    /// Saved profile has name, date of birth, pronouns, and gender.
+    var hasCompleteIdentityProfile: Bool { !needsIdentityProfile }
 
     var optionalAnalyticsEnabled: Bool { localOptionalAnalytics }
     var optionalMarketingEnabled: Bool { localOptionalMarketing }
@@ -171,8 +213,15 @@ final class SessionStore {
     func markOnboardingComplete() {
         localOnboardingComplete = true
         UserDefaults.standard.set(true, forKey: Keys.onboardingComplete)
+        if let userId = auth.userId {
+            UserDefaults.standard.set(true, forKey: Self.onboardingCompleteKey(for: userId))
+        }
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         localFirstTimePhase = "language"
+    }
+
+    func showHomeTab() {
+        selectedMainTab = .home
     }
 
     func markOnboardingPaywallOffered() {
@@ -192,7 +241,7 @@ final class SessionStore {
     }
 
     var email: String? { auth.email }
-    var isGuest: Bool { kind != .authenticated }
+    var isGuest: Bool { false }
     var canSync: Bool { kind == .authenticated }
     var supabaseConfigured: Bool { auth.isConfigured }
     var googleConfigured: Bool { auth.isGoogleConfigured }
@@ -203,7 +252,7 @@ final class SessionStore {
 
     func continueAsGuest() {
         auth.clearMessages()
-        guestUnlocked = true
+        guestUnlocked = false
     }
 
     func saveOnboardingNames(displayName: String, companionName: String) {
@@ -309,8 +358,30 @@ final class SessionStore {
     }
 
     func signOut() {
-        guestUnlocked = false
+        resetFirstTimePathAfterLogout()
         Task { await auth.signOut() }
+    }
+
+    /// Splash → language → how it works → privacy → sign-in. Never enables guest.
+    /// Identity returns from Supabase on the next sign-in so a new Google/email
+    /// account cannot inherit the previous user's name, DOB, or pronouns.
+    private func resetFirstTimePathAfterLogout() {
+        guestUnlocked = false
+        localOnboardingComplete = false
+        localOnboardingPaywallOffered = false
+        localPrivacyAcknowledged = false
+        localNotificationsPrompted = false
+        localFirstTimePhase = "language"
+        profileId = nil
+        isResolvingPostAuth = false
+        postAuthKind = .undetermined
+        selectedMainTab = .home
+        clearLocalIdentity()
+        UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
+        UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
+        UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
+        UserDefaults.standard.removeObject(forKey: Keys.notificationsPrompted)
+        UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
     }
 
     func deleteAccount() {
@@ -344,6 +415,13 @@ final class SessionStore {
         localOptionalAnalytics = false
         localOptionalMarketing = false
         guestUnlocked = false
+        profileId = nil
+        isResolvingPostAuth = false
+        postAuthKind = .undetermined
+        selectedMainTab = .home
+        if let userId = auth.userId {
+            UserDefaults.standard.removeObject(forKey: Self.onboardingCompleteKey(for: userId))
+        }
         Task { await auth.signOut() }
     }
 
@@ -382,16 +460,137 @@ final class SessionStore {
         }
     }
 
-    private func handleAuthenticated() async {
-        let pending = UserDefaults.standard.bool(forKey: Keys.pendingUpload)
-        // Guest setup stays local until sign-in. Failed signed-in writes also
-        // stay pending so the next session can retry, then we read back.
-        if pending {
-            await pushProfile()
+    private func preparePostAuth(isRestore: Bool) {
+        isResolvingPostAuth = true
+        postAuthKind = .undetermined
+        if !isRestore {
+            localOnboardingComplete = false
+            UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
+            selectedMainTab = .home
         }
+    }
+
+    /// New vs returning: signed-in Supabase user + `profiles` name/DOB/pronouns/gender
+    /// **and** (per-user `onboardingComplete` or treatments in CheckMedStore/sync).
+    /// Incomplete identity always takes the first-time name/pronouns/… path.
+    private func handleAuthenticated(isRestore: Bool) async {
+        if !isResolvingPostAuth {
+            preparePostAuth(isRestore: isRestore)
+        }
+        defer { isResolvingPostAuth = false }
+
+        let pending = UserDefaults.standard.bool(forKey: Keys.pendingUpload)
         let remote = await pullProfile()
-        if remote == nil {
+        replaceIdentity(from: remote)
+        if remote == nil, pending {
             await pushProfile()
+            if let pushed = await pullProfile() {
+                replaceIdentity(from: pushed)
+            }
+        }
+
+        let hasTreatments = await syncedHasTreatments()
+        let identityComplete = hasCompleteIdentityProfile
+        let userOnboarded = perUserOnboardingComplete
+        let restoredComplete = isRestore && localOnboardingComplete
+        let returning = identityComplete && (userOnboarded || hasTreatments || restoredComplete)
+
+        if returning {
+            if !isRestore {
+                selectedMainTab = .progress
+                markOnboardingPaywallOffered()
+            }
+            markOnboardingComplete()
+            postAuthKind = .returning
+        } else {
+            clearSessionOnboardingFlag()
+            postAuthKind = .newAccount
+            selectedMainTab = .home
+            setFirstTimePhaseRaw(identityComplete ? FirstTimePhase.addMedication.rawValue : FirstTimePhase.profile.rawValue)
+        }
+    }
+
+    private func syncedHasTreatments() async -> Bool {
+        if onPostAuthSync == nil {
+            for _ in 0..<30 {
+                if onPostAuthSync != nil { break }
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+        return await onPostAuthSync?() ?? false
+    }
+
+    private var perUserOnboardingComplete: Bool {
+        guard let userId = auth.userId else { return false }
+        return UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey(for: userId))
+    }
+
+    private func clearSessionOnboardingFlag() {
+        localOnboardingComplete = false
+        UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
+    }
+
+    private static func onboardingCompleteKey(for userId: UUID) -> String {
+        "checkmed.onboardingComplete.\(userId.uuidString)"
+    }
+
+    private func clearLocalIdentity() {
+        localDisplayName = "there"
+        localBirthDate = nil
+        localPronouns = ""
+        localGender = ""
+        UserDefaults.standard.removeObject(forKey: Keys.display)
+        UserDefaults.standard.removeObject(forKey: Keys.birthDate)
+        UserDefaults.standard.removeObject(forKey: Keys.pronouns)
+        UserDefaults.standard.removeObject(forKey: Keys.gender)
+    }
+
+    /// Remote profile is the source of truth after auth. Leftover local identity
+    /// from a previous account must not complete a new Google/email user.
+    private func replaceIdentity(from profile: CheckMedProfile?) {
+        if let name = profile?.displayName?.nilIfEmpty {
+            localDisplayName = name
+            UserDefaults.standard.set(name, forKey: Keys.display)
+        } else {
+            localDisplayName = "there"
+            UserDefaults.standard.removeObject(forKey: Keys.display)
+        }
+        if let companion = profile?.companionName.nilIfEmpty {
+            localCompanionName = companion
+            UserDefaults.standard.set(companion, forKey: Keys.companion)
+        }
+        if let language = profile?.language?.nilIfEmpty {
+            localLanguage = AppLocale.fromStored(language).rawValue
+            UserDefaults.standard.set(localLanguage, forKey: Keys.language)
+        }
+        if let timeZone = profile?.timeZone?.nilIfEmpty {
+            localTimeZone = CheckMedTimeZones.resolved(timeZone)
+            UserDefaults.standard.set(localTimeZone, forKey: Keys.timeZone)
+        }
+        if let raw = profile?.dateOfBirth?.nilIfEmpty,
+           let date = BirthDateWheels.date(fromStamp: raw) {
+            localBirthDate = BirthDateWheels.clampedDate(date)
+            UserDefaults.standard.set(BirthDateWheels.stamp(from: localBirthDate!), forKey: Keys.birthDate)
+        } else {
+            localBirthDate = nil
+            UserDefaults.standard.removeObject(forKey: Keys.birthDate)
+        }
+        if let pronouns = profile?.pronouns?.nilIfEmpty {
+            localPronouns = pronouns
+            UserDefaults.standard.set(pronouns, forKey: Keys.pronouns)
+        } else {
+            localPronouns = ""
+            UserDefaults.standard.removeObject(forKey: Keys.pronouns)
+        }
+        if let gender = profile?.gender?.nilIfEmpty {
+            localGender = gender
+            UserDefaults.standard.set(gender, forKey: Keys.gender)
+        } else {
+            localGender = ""
+            UserDefaults.standard.removeObject(forKey: Keys.gender)
+        }
+        if let id = profile?.id {
+            profileId = id
         }
     }
 
@@ -400,10 +599,12 @@ final class SessionStore {
             UserDefaults.standard.set(true, forKey: Keys.pendingUpload)
             return
         }
-        let name = localDisplayName == "there" ? nil : localDisplayName
+        let savedName = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = (savedName.isEmpty || savedName == "there" || savedName == "friend") ? nil : savedName
         let profile = CheckMedProfile(
+            id: profileId,
             ownerId: userId,
-            displayName: name ?? auth.displayName.nilIfEmpty,
+            displayName: name,
             companionName: localCompanionName,
             dateOfBirth: localBirthDate.map(BirthDateWheels.stamp),
             language: localLanguage,
@@ -418,41 +619,7 @@ final class SessionStore {
     @discardableResult
     private func pullProfile() async -> CheckMedProfile? {
         guard canSync else { return nil }
-        guard let profile = await auth.fetchProfile() else { return nil }
-        applyRemote(profile)
-        return profile
-    }
-
-    private func applyRemote(_ profile: CheckMedProfile) {
-        if let name = profile.displayName?.nilIfEmpty {
-            localDisplayName = name
-            UserDefaults.standard.set(name, forKey: Keys.display)
-        }
-        if let companion = profile.companionName.nilIfEmpty {
-            localCompanionName = companion
-            UserDefaults.standard.set(companion, forKey: Keys.companion)
-        }
-        if let language = profile.language?.nilIfEmpty {
-            localLanguage = AppLocale.fromStored(language).rawValue
-            UserDefaults.standard.set(localLanguage, forKey: Keys.language)
-        }
-        if let timeZone = profile.timeZone?.nilIfEmpty {
-            localTimeZone = CheckMedTimeZones.resolved(timeZone)
-            UserDefaults.standard.set(localTimeZone, forKey: Keys.timeZone)
-        }
-        if let raw = profile.dateOfBirth?.nilIfEmpty,
-           let date = BirthDateWheels.date(fromStamp: raw) {
-            localBirthDate = BirthDateWheels.clampedDate(date)
-            UserDefaults.standard.set(BirthDateWheels.stamp(from: localBirthDate!), forKey: Keys.birthDate)
-        }
-        if let pronouns = profile.pronouns?.nilIfEmpty {
-            localPronouns = pronouns
-            UserDefaults.standard.set(pronouns, forKey: Keys.pronouns)
-        }
-        if let gender = profile.gender?.nilIfEmpty {
-            localGender = gender
-            UserDefaults.standard.set(gender, forKey: Keys.gender)
-        }
+        return await auth.fetchProfile()
     }
 }
 

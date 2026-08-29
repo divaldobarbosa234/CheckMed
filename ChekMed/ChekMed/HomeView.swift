@@ -4,17 +4,22 @@ struct HomeView: View {
     @Environment(SessionStore.self) private var session
     @Environment(TodayPathStore.self) private var path
     @Environment(EntitlementStore.self) private var entitlements
-    @State private var showSignIn = false
+    @Environment(FamilyStore.self) private var family
     @State private var navPath = NavigationPath()
+
+    private var greeting: String {
+        let hour = session.foundationCalendar.component(.hour, from: Date())
+        switch hour {
+        case 5..<12: return session.t(.homeMorning)
+        case 12..<18: return session.t(.homeAfternoon)
+        default: return session.t(.homeEvening)
+        }
+    }
 
     var body: some View {
         NavigationStack(path: $navPath) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if session.isGuest {
-                        GuestBanner { showSignIn = true }
-                    }
-
                     HStack(alignment: .top, spacing: 8) {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(session.t(.homeDashboard))
@@ -22,7 +27,7 @@ struct HomeView: View {
                                 .textCase(.uppercase)
                                 .tracking(0.8)
                                 .foregroundStyle(CheckMedTheme.muted)
-                            Text(session.t(.homeMorning))
+                            Text(greeting)
                                 .font(.system(.caption, design: .rounded).weight(.bold))
                                 .foregroundStyle(CheckMedTheme.muted)
                             Text(session.t(.homeReady))
@@ -37,7 +42,7 @@ struct HomeView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack(spacing: 6) {
                                 Text("🔥")
-                                Text("\(CheckMedDemo.streakDays)")
+                                Text("\(path.streakDays)")
                                     .font(.system(.title, design: .rounded).weight(.black))
                                     .foregroundStyle(CheckMedTheme.streak)
                             }
@@ -52,38 +57,32 @@ struct HomeView: View {
                         )
                     }
 
-                    SpeechBubbleView(
-                        text: session.t(.homePhil)
-                    )
+                    SpeechBubbleView(text: path.bubble)
+
+                    if family.isViewingExtra, let extra = family.extra {
+                        Text(session.t(.familyLookingAt, extra.name))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.superAccent)
+                    }
 
                     Text(session.t(.homeToday))
                         .font(.system(.caption, design: .rounded).weight(.heavy))
                         .tracking(1)
 
-                    ForEach(CheckMedDemo.todayDoses, id: \.time) { dose in
-                        HStack {
-                            Text(dose.time)
-                                .font(.system(.caption, design: .rounded).weight(.bold))
-                                .foregroundStyle(CheckMedTheme.muted)
-                                .frame(width: 52, alignment: .leading)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(dose.name)
-                                    .font(.system(.body, design: .rounded).weight(.heavy))
-                                    .strikethrough(dose.taken)
-                                Text(dose.detail)
-                                    .font(.system(.caption, design: .rounded).weight(.bold))
-                                    .foregroundStyle(CheckMedTheme.muted)
-                            }
-                            Spacer()
-                            if dose.taken {
-                                Text("✓")
-                                    .font(.system(.title3, design: .rounded).weight(.black))
-                                    .foregroundStyle(CheckMedTheme.primary)
-                            }
+                    if path.nodes.isEmpty {
+                        Text(session.t(.todayNothing))
+                            .font(.system(.body, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    } else {
+                        ForEach(Array(path.nodes.enumerated()), id: \.element.id) { index, node in
+                            PathNodeView(
+                                node: node,
+                                offset: TodayPathStore.offsets[index % TodayPathStore.offsets.count],
+                                showConnector: index < path.nodes.count - 1,
+                                onTake: { path.takeCurrent() },
+                                onSkip: { path.skipCurrent() }
+                            )
                         }
-                        .padding(12)
-                        .background(CheckMedTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
 
                     CheckMedButton(title: session.t(.homeScan)) {
@@ -114,9 +113,7 @@ struct HomeView: View {
             .navigationDestination(for: AppRoute.self) { route in
                 AppRouteView(route: route, path: $navPath)
             }
-            .sheet(isPresented: $showSignIn) {
-                NavigationStack { SignInView() }
-            }
+            .onAppear { path.reload() }
             .task {
                 guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
                 try? await Task.sleep(nanoseconds: 3_500_000_000)

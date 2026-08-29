@@ -21,6 +21,7 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
+				GoogleDocumentAI.json,
 			);
 			target = 0122BAF73041035000E4E857 /* ChekMed */;
 		};
@@ -285,6 +286,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ChekMed/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = CheckMed;
+				INFOPLIST_KEY_NSAlarmKitUsageDescription = "CheckMed uses alarms for medication dose times so Phil can wake the device even in Silent or Focus. Taken and Skip cancel or reschedule the next dose.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "CheckMed uses the camera to photograph prescriptions so Phil can help you organize them. You review every field before anything is saved.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "CheckMed can import a prescription photo from your library so Phil can help you organize it. You review every field before anything is saved.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -320,6 +324,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ChekMed/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = CheckMed;
+				INFOPLIST_KEY_NSAlarmKitUsageDescription = "CheckMed uses alarms for medication dose times so Phil can wake the device even in Silent or Focus. Taken and Skip cancel or reschedule the next dose.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "CheckMed uses the camera to photograph prescriptions so Phil can help you organize them. You review every field before anything is saved.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "CheckMed can import a prescription photo from your library so Phil can help you organize it. You review every field before anything is saved.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

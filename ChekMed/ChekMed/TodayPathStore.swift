@@ -8,7 +8,9 @@ struct DoseNode: Identifiable {
     let id: String
     let time: String
     let medicine: String
+    var detail: String = ""
     var status: PathStatus
+    var scheduledAt: Date = Date()
 }
 
 enum CompanionMood: Equatable, Hashable {
@@ -17,24 +19,34 @@ enum CompanionMood: Equatable, Hashable {
 
 @Observable
 final class TodayPathStore {
-    static let streakDays = CheckMedDemo.streakDays
     static let offsets: [CGFloat] = [0, 28, -8]
 
-    var nodes: [DoseNode] = [
-        .init(id: "dose-1", time: "08:00", medicine: "Amoxicillin 500mg", status: .done),
-        .init(id: "dose-2", time: "14:00", medicine: "Ibuprofen 400mg", status: .current),
-        .init(id: "dose-3", time: "20:00", medicine: "Amoxicillin 500mg", status: .locked),
-    ]
+    var nodes: [DoseNode] = []
     var mood: CompanionMood = .idle
 
+    @ObservationIgnored
+    private weak var store: CheckMedStore?
+
     var current: DoseNode? { nodes.first { $0.status == .current } }
-    var completed: Int { nodes.filter { $0.status == .done || $0.status == .skipped }.count }
+    var takenCount: Int { nodes.filter { $0.status == .done }.count }
+    var skippedCount: Int { nodes.filter { $0.status == .skipped }.count }
+    var completed: Int { takenCount + skippedCount }
     var total: Int { nodes.count }
-    var pathComplete: Bool { nodes.allSatisfy { $0.status == .done || $0.status == .skipped } }
+    var pathComplete: Bool { !nodes.isEmpty && nodes.allSatisfy { $0.status == .done || $0.status == .skipped } }
+    var streakDays: Int { store?.adherence().streakDays ?? 0 }
+    var overdue: DoseNode? {
+        nodes.first { node in
+            (node.status == .current || node.status == .locked)
+                && node.scheduledAt.addingTimeInterval(15 * 60) < Date()
+        }
+    }
 
     var displayMood: CompanionMood { pathComplete ? .complete : mood }
 
     var bubble: String {
+        if nodes.isEmpty {
+            return "I'm Phil. Scan a paper when you want me to organize it with you."
+        }
         if pathComplete {
             return "Path complete — that's the loop. I'm Phil, and I'll host tomorrow too."
         }
@@ -50,22 +62,31 @@ final class TodayPathStore {
         return "I'm Phil. Scan a paper when you want me to organize it with you."
     }
 
+    func bind(store: CheckMedStore) {
+        self.store = store
+        reload()
+    }
+
+    func reload() {
+        nodes = store?.todayNodes() ?? []
+        if pathComplete {
+            mood = .complete
+        } else if current != nil, mood == .complete {
+            mood = .idle
+        }
+    }
+
     func takeCurrent() {
-        advance(to: .done)
+        guard let id = current.flatMap({ UUID(uuidString: $0.id) }) else { return }
+        store?.markLog(id: id, status: .taken)
         mood = .celebrate
+        reload()
     }
 
     func skipCurrent() {
-        advance(to: .skipped)
+        guard let id = current.flatMap({ UUID(uuidString: $0.id) }) else { return }
+        store?.markLog(id: id, status: .skipped)
         mood = .skip
-    }
-
-    private func advance(to status: PathStatus) {
-        guard let index = nodes.firstIndex(where: { $0.status == .current }) else { return }
-        nodes[index].status = status
-        let next = index + 1
-        if next < nodes.count, nodes[next].status == .locked {
-            nodes[next].status = .current
-        }
+        reload()
     }
 }

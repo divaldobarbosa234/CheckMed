@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 enum FirstTimePhase: String, Equatable {
@@ -30,10 +31,17 @@ enum FirstTimePhase: String, Equatable {
 
 struct FirstTimeOnboardingView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(TodayPathStore.self) private var path
+    @Environment(EntitlementStore.self) private var entitlements
 
     @State private var phase: FirstTimePhase = .splash
     @State private var addMethod: OnboardingAddMethod = .photo
-    @State private var draft = OnboardingPrescriptionDraft.scanned
+    @State private var draft = OnboardingPrescriptionDraft.empty
+    @State private var pendingImport: PendingPrescriptionImport = .none
+    @State private var showPhotosPicker = false
+    @State private var showPDFImporter = false
+    @State private var photoItem: PhotosPickerItem?
     @State private var afterSplash: FirstTimePhase = .language
 
     var body: some View {
@@ -57,7 +65,7 @@ struct FirstTimeOnboardingView: View {
                     .transition(insert)
             case .signIn:
                 NavigationStack {
-                    SignInView(allowsGuest: false, onAuthenticated: { advance(to: .profile) })
+                    SignInView(allowsGuest: false, onAuthenticated: {})
                 }
                 .transition(insert)
             case .profile:
@@ -69,26 +77,31 @@ struct FirstTimeOnboardingView: View {
             case .addMedication:
                 OnboardingAddMedicationView(
                     onPhoto: {
-                        addMethod = .photo
-                        draft = .scanned
-                        advance(to: .camera)
+                        startImport(.photo) { advance(to: .camera) }
+                    },
+                    onChoosePhotos: {
+                        startImport(.photo) { showPhotosPicker = true }
                     },
                     onPDF: {
-                        addMethod = .pdf
-                        draft = .scanned
-                        advance(to: .analysing)
+                        startImport(.pdf) { showPDFImporter = true }
                     },
                     onManual: {
-                        addMethod = .manual
-                        draft = .empty
-                        advance(to: .manualEntry)
+                        startImport(.manual) {
+                            draft = .empty
+                            pendingImport = .none
+                            advance(to: .manualEntry)
+                        }
                     },
                     onBack: { advance(to: .profile) }
                 )
                 .transition(insert)
             case .camera:
                 OnboardingCameraView(
-                    onCapture: { advance(to: .analysing) },
+                    onCaptured: { data in
+                        pendingImport = .image(data)
+                        draft = .empty
+                        advance(to: .analysing)
+                    },
                     onBack: { advance(to: .addMedication) }
                 )
                 .transition(insert)
@@ -100,7 +113,7 @@ struct FirstTimeOnboardingView: View {
                 )
                 .transition(insert)
             case .analysing:
-                OnboardingAnalysingView(isShort: addMethod == .manual) {
+                OnboardingAnalysingView(isShort: addMethod == .manual, work: runImport) {
                     advance(to: .confirm)
                 }
                 .transition(insert)
@@ -108,7 +121,18 @@ struct FirstTimeOnboardingView: View {
                 OnboardingConfirmView(
                     draft: $draft,
                     isManual: addMethod == .manual,
-                    onConfirm: { advance(to: .organize) },
+                    onConfirm: {
+                        treatments.seedFromDraft(
+                            draft,
+                            ownerId: session.auth.userId,
+                            profileId: session.profileId
+                        )
+                        if addMethod == .photo || addMethod == .pdf {
+                            ImportUsage.incrementPhotoPDF(ownerId: session.auth.userId)
+                        }
+                        path.reload()
+                        advance(to: .organize)
+                    },
                     onBack: { advance(to: addMethod == .manual ? .manualEntry : .addMedication) }
                 )
                 .transition(insert)
@@ -135,16 +159,61 @@ struct FirstTimeOnboardingView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
-        .onAppear {
-            afterSplash = destinationAfterSplash()
-        }
-        .onChange(of: session.kind) { _, kind in
-            if kind == .authenticated, phase == .signIn {
-                advance(to: .profile)
-            } else if kind != .authenticated, phase.requiresAuth {
-                advance(to: .signIn)
+        .photosPicker(isPresented: $showPhotosPicker, selection: $photoItem, matching: .images)
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    pendingImport = .image(PrescriptionReader.downsampledJPEG(from: data))
+                    draft = .empty
+                    photoItem = nil
+                    advance(to: .analysing)
+                }
             }
         }
+        .prescriptionPDFImporter(isPresented: $showPDFImporter) { url in
+            pendingImport = .pdf(url)
+            draft = .empty
+            advance(to: .analysing)
+        }
+        .overlay {
+            if session.isResolvingPostAuth {
+                resolving
+            }
+        }
+        .onAppear {
+            afterSplash = destinationAfterSplash()
+            routeAfterAuthIfNeeded()
+        }
+        .onChange(of: session.kind) { _, kind in
+            if kind != .authenticated, phase != .splash {
+                afterSplash = .language
+                advance(to: .splash, persist: false)
+            }
+        }
+        .onChange(of: session.postAuthKind) { _, _ in
+            routeAfterAuthIfNeeded()
+        }
+    }
+
+    private var resolving: some View {
+        VStack(spacing: 16) {
+            PhilView(size: 120)
+            ProgressView()
+            Text(session.t(.restoring))
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.background.opacity(0.94))
+    }
+
+    private func routeAfterAuthIfNeeded() {
+        guard session.kind == .authenticated else { return }
+        guard session.postAuthKind == .newAccount else { return }
+        guard phase == .signIn || phase == .splash else { return }
+        let next: FirstTimePhase = session.needsIdentityProfile ? .profile : .addMedication
+        advance(to: next)
     }
 
     private var insert: AnyTransition {
@@ -169,13 +238,38 @@ struct FirstTimeOnboardingView: View {
         if session.kind != .authenticated, saved.requiresAuth {
             return .signIn
         }
-        if session.kind == .authenticated, saved == .signIn {
-            return session.needsIdentityProfile ? .profile : .addMedication
-        }
-        if session.kind == .authenticated, saved == .profile, !session.needsIdentityProfile {
-            return .addMedication
+        if session.kind == .authenticated {
+            if !saved.requiresAuth || saved == .signIn {
+                return session.needsIdentityProfile ? .profile : .addMedication
+            }
+            if saved == .profile, !session.needsIdentityProfile {
+                return .addMedication
+            }
         }
         return saved
+    }
+
+    private func startImport(_ next: OnboardingAddMethod, proceed: () -> Void) {
+        guard entitlements.gatePrescriptionAdd(
+            method: next,
+            existingCount: treatments.activeTreatmentCount,
+            photoPDFUsed: ImportUsage.photoPDFCount(ownerId: session.auth.userId)
+        ) else { return }
+        addMethod = next
+        proceed()
+    }
+
+    private func runImport() async {
+        switch pendingImport {
+        case .none:
+            break
+        case .image(let data):
+            draft = await PrescriptionReader.draft(fromImageData: data)
+            pendingImport = .none
+        case .pdf(let url):
+            draft = await PrescriptionReader.draft(fromPDF: url)
+            pendingImport = .none
+        }
     }
 }
 

@@ -57,6 +57,12 @@ struct AddressYouSetupView: View {
         .onAppear {
             pronouns = session.pronouns
             gender = session.gender
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["CHECKMED_UI_SIGNUP"] == "1" {
+                if pronouns.isEmpty { pronouns = ProfilePronoun.theyThem.rawValue }
+                if gender.isEmpty { gender = ProfileGender.preferNot.rawValue }
+            }
+            #endif
         }
     }
 
@@ -121,9 +127,11 @@ struct NotificationsPermissionView: View {
         Task {
             _ = try? await UNUserNotificationCenter.current()
                 .requestAuthorization(options: [.alert, .sound, .badge])
+            _ = await DoseAlarmKit.requestAuthorizationIfNeeded()
             await MainActor.run {
                 session.markNotificationsPrompted()
                 isRequesting = false
+                ReminderScheduler.shared.reschedule()
                 done()
             }
         }
