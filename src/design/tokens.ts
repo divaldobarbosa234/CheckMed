@@ -25,6 +25,8 @@ export const colors = {
   cheek: '#FF8FAB',
   belly: '#E8FFD4',
   beak: '#FF9600',
+  apple: '#000000',
+  facebook: '#1877F2',
 } as const;
 
 export const space = {

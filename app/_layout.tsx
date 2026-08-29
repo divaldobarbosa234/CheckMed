@@ -25,8 +25,15 @@ export default function RootLayout() {
             <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
               <Stack.Screen name="index" />
               <Stack.Screen name="(auth)" />
+              <Stack.Screen name="(onboarding)" />
               <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="auth/callback" />
               <Stack.Screen name="scan" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="review" />
+              <Stack.Screen name="treatment" />
+              <Stack.Screen name="medicine/[id]" />
+              <Stack.Screen name="paywall" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
+              <Stack.Screen name="family" />
             </Stack>
           </PhoneShell>
         </SessionProvider>

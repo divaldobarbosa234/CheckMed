@@ -1,15 +1,38 @@
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/design/Button';
 import { Character } from '@/design/Character';
 import { SpeechBubble } from '@/design/SpeechBubble';
 import { colors, radii, space, type } from '@/design/tokens';
-import { COMPANION_NAME } from '@/features/today/mockPath';
+import { useSession } from '@/features/auth/session';
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const session = useSession();
+  const signedIn = session.kind === 'authenticated';
+
+  function confirmDelete() {
+    const message =
+      'This signs you out now. Wiping the cloud account is Phase 6. You can also delete the user in the Supabase dashboard.';
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete account & data\n\n${message}`)) {
+        void session.deleteAccount().then(() => router.replace('/'));
+      }
+      return;
+    }
+    Alert.alert('Delete account & data', message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign out here',
+        style: 'destructive',
+        onPress: () => {
+          void session.deleteAccount().then(() => router.replace('/'));
+        },
+      },
+    ]);
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -17,30 +40,55 @@ export default function ProfileScreen() {
         <Text style={styles.title}>Profile</Text>
         <View style={styles.host}>
           <Character size={72} />
-          <SpeechBubble text="Guest for now. Create an account and I follow you — not this phone. Super never blocks Taken." />
+          <SpeechBubble
+            text={
+              signedIn
+                ? `You're in, ${session.displayName}. I follow this account — Super never blocks Taken.`
+                : 'Guest for now. Create an account and I follow you — not this phone. Super never blocks Taken.'
+            }
+          />
         </View>
 
         <View style={styles.card}>
           <Text style={styles.eyebrow}>Account</Text>
-          <Text style={styles.cardTitle}>Guest</Text>
+          <Text style={styles.cardTitle}>{signedIn ? session.email ?? session.displayName : 'Guest'}</Text>
           <Text style={styles.cardBody}>
-            Sign out and delete account land with real auth. Cloud scan stays behind an account.
+            {signedIn
+              ? 'Session is real. Sign out anytime. Cloud treatments sync in Phase 3.'
+              : 'Cloud scan stays behind an account. Magic link, Apple, Google, or Facebook.'}
           </Text>
-          <Button label="Create account" onPress={() => router.push('/(auth)/sign-in')} />
+          {signedIn ? (
+            <Button
+              label="Sign out"
+              variant="secondary"
+              onPress={() => {
+                void session.signOut().then(() => router.replace('/'));
+              }}
+            />
+          ) : (
+            <Button label="Create account" onPress={() => router.push('/(auth)/sign-in')} />
+          )}
         </View>
 
-        <Row label="Companion" value={COMPANION_NAME} />
+        <Row label="Companion" value={session.companionName} />
+        <Pressable onPress={() => router.push('/family')} style={styles.row}>
+          <Text style={styles.rowLabel}>Family profiles</Text>
+          <Text style={styles.rowValue}>1 of 1</Text>
+        </Pressable>
+        <Pressable onPress={() => router.push('/paywall')} style={styles.row}>
+          <Text style={styles.rowLabel}>Super CheckMed</Text>
+          <Text style={styles.rowValue}>Free</Text>
+        </Pressable>
         <Row label="Notifications" value="On (preview)" />
         <Row label="Voice & language" value="English" />
-        <Row label="Super CheckMed" value="Free" />
-        <Row label="Family profiles" value="1 of 1" />
 
-        <Pressable disabled style={styles.disabled}>
-          <Text style={styles.disabledLabel}>Sign out</Text>
-        </Pressable>
-        <Pressable disabled style={styles.disabled}>
-          <Text style={[styles.disabledLabel, styles.danger]}>Delete account & data</Text>
-        </Pressable>
+        {signedIn ? (
+          <Pressable onPress={confirmDelete} style={styles.delete}>
+            <Text style={styles.deleteLabel}>Delete account & data</Text>
+          </Pressable>
+        ) : null}
+
+        {session.error ? <Text style={styles.error}>{session.error}</Text> : null}
       </ScrollView>
     </SafeAreaView>
   );
@@ -112,16 +160,17 @@ const styles = StyleSheet.create({
   rowValue: {
     ...type.caption,
   },
-  disabled: {
+  delete: {
     paddingVertical: space.md,
     alignItems: 'center',
   },
-  disabledLabel: {
+  deleteLabel: {
     ...type.caption,
-    opacity: 0.45,
-  },
-  danger: {
     color: colors.danger,
-    opacity: 0.6,
+  },
+  error: {
+    ...type.caption,
+    color: colors.danger,
+    textAlign: 'center',
   },
 });

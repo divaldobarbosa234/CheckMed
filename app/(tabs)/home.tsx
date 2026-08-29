@@ -9,22 +9,25 @@ import { PathNode } from '@/design/PathNode';
 import { SafetyCaption } from '@/design/SafetyCaption';
 import { SpeechBubble } from '@/design/SpeechBubble';
 import { colors, fonts, radii, space, type } from '@/design/tokens';
-import { COMPANION_NAME, GUEST_GREETING, MOCK_STREAK_DAYS, PATH_OFFSETS } from '@/features/today/mockPath';
+import { useSession } from '@/features/auth/session';
+import { MOCK_STREAK_DAYS, PATH_OFFSETS } from '@/features/today/mockPath';
 import { useTodayPath } from '@/features/today/useTodayPath';
 
 export default function HomeScreen() {
   const router = useRouter();
   const path = useTodayPath();
+  const { kind, displayName, companionName } = useSession();
+  const isGuest = kind === 'guest' || kind === 'unknown';
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        <GuestBanner onCreateAccount={() => router.push('/(auth)/sign-in')} />
+        {isGuest ? <GuestBanner onCreateAccount={() => router.push('/(auth)/sign-in')} /> : null}
 
         <View style={styles.topRow}>
           <View>
-            <Text style={styles.greeting}>{GUEST_GREETING}</Text>
-            <Text style={styles.subtitle}>Today{"'"}s path with {COMPANION_NAME}</Text>
+            <Text style={styles.greeting}>Hey {displayName}</Text>
+            <Text style={styles.subtitle}>Today{"'"}s path with {companionName}</Text>
           </View>
           <View style={styles.streak} accessibilityLabel={`${MOCK_STREAK_DAYS} day streak`}>
             <Text style={styles.streakFlame}>🔥</Text>

@@ -1,37 +1,93 @@
 import { useRouter } from 'expo-router';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/design/Button';
 import { Character } from '@/design/Character';
+import { ProviderButton } from '@/design/ProviderButton';
 import { SafetyCaption } from '@/design/SafetyCaption';
 import { SpeechBubble } from '@/design/SpeechBubble';
 import { colors, radii, space, type } from '@/design/tokens';
+import { NATIVE_AUTH_REDIRECT, WEB_AUTH_REDIRECT } from '@/features/auth/config';
 import { useSession } from '@/features/auth/session';
-import { COMPANION_NAME } from '@/features/today/mockPath';
 
 export default function SignInScreen() {
   const router = useRouter();
-  const { continueAsGuest } = useSession();
+  const session = useSession();
+  const [email, setEmail] = useState('');
+  const [busy, setBusy] = useState<'apple' | 'google' | 'facebook' | 'email' | null>(null);
+
+  async function enterAsGuest() {
+    await session.continueAsGuest();
+    router.replace('/home');
+  }
+
+  async function onProvider(provider: 'apple' | 'google' | 'facebook') {
+    setBusy(provider);
+    try {
+      const signedIn = await session.signInWithProvider(provider);
+      if (signedIn) router.replace('/home');
+    } catch {
+      // Error is shown from session.error — keep guest available.
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onMagicLink() {
+    setBusy('email');
+    try {
+      const sentTo = await session.sendMagicLink(email);
+      router.push({ pathname: '/(auth)/check-email', params: { email: sentTo } });
+    } catch {
+      // session.error
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.hero}>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.companionRow}>
           <Character size={88} />
-          <SpeechBubble
-            text={`Accounts keep your path with you. Magic link lands in Phase 1 — until then, I can still host today's mock path.`}
-          />
+          <SpeechBubble text="Save your streak. Magic link, Apple, Google, or Facebook — I follow the account, not this phone." />
         </View>
         <Text style={styles.title}>Sign in to CheckMed</Text>
         <Text style={styles.body}>
-          Magic link on web and iPhone. Sign in with Apple on iPhone. {COMPANION_NAME} stays with the
-          account, not the install.
+          Real session. Guest can still tap Home. An account is required before a prescription photo or PDF
+          syncs to the cloud.
         </Text>
-      </View>
 
-      <View style={styles.form}>
-        <Text style={styles.label}>Email</Text>
+        {session.error ? <Text style={styles.error}>{session.error}</Text> : null}
+        {!session.configured ? (
+          <Text style={styles.warn}>
+            Supabase keys are not in .env yet. Provider buttons stay on screen and explain what to add. Guest
+            still works.
+          </Text>
+        ) : null}
+
+        <ProviderButton
+          provider="apple"
+          disabled={busy !== null}
+          busy={busy === 'apple'}
+          onPress={() => void onProvider('apple')}
+        />
+        <ProviderButton
+          provider="google"
+          disabled={busy !== null}
+          busy={busy === 'google'}
+          onPress={() => void onProvider('google')}
+        />
+        <ProviderButton
+          provider="facebook"
+          disabled={busy !== null}
+          busy={busy === 'facebook'}
+          onPress={() => void onProvider('facebook')}
+        />
+
+        <Text style={styles.label}>Email magic link</Text>
         <TextInput
           accessibilityLabel="Email"
           autoCapitalize="none"
@@ -39,20 +95,25 @@ export default function SignInScreen() {
           keyboardType="email-address"
           placeholder="you@email.com"
           placeholderTextColor={colors.muted}
+          value={email}
+          onChangeText={setEmail}
           style={styles.input}
         />
-        <Button label="Send magic link" onPress={() => router.push('/(auth)/check-email')} />
         <Button
-          label="Continue as guest"
-          variant="secondary"
-          onPress={() => {
-            continueAsGuest();
-            router.replace('/home');
-          }}
+          label="Send magic link"
+          disabled={busy !== null}
+          busy={busy === 'email'}
+          onPress={() => void onMagicLink()}
         />
-        <Button label="Back" variant="ghost" onPress={() => router.back()} />
+        <Button label="Continue as guest" variant="secondary" disabled={busy !== null} onPress={() => void enterAsGuest()} />
+        <Button label="Back" variant="ghost" disabled={busy !== null} onPress={() => router.back()} />
+
+        <Text style={styles.hint}>
+          Redirect this app uses: {session.redirectUri}
+          {'\n'}Also allow {NATIVE_AUTH_REDIRECT} and {WEB_AUTH_REDIRECT} in Supabase.
+        </Text>
         <SafetyCaption />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -61,11 +122,11 @@ const styles = StyleSheet.create({
   safe: {
     flex: 1,
     backgroundColor: colors.background,
-    paddingHorizontal: space.xl,
-    justifyContent: 'space-between',
   },
-  hero: {
-    paddingTop: space.xxl,
+  scroll: {
+    paddingHorizontal: space.xl,
+    paddingTop: space.xl,
+    paddingBottom: space.xxl,
     gap: space.md,
   },
   companionRow: {
@@ -81,14 +142,21 @@ const styles = StyleSheet.create({
     color: colors.muted,
     lineHeight: 22,
   },
-  form: {
-    gap: space.md,
-    paddingBottom: space.xl,
+  error: {
+    ...type.caption,
+    color: colors.danger,
+    lineHeight: 18,
+  },
+  warn: {
+    ...type.caption,
+    color: colors.safety,
+    lineHeight: 18,
   },
   label: {
     ...type.caption,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
+    marginTop: space.sm,
   },
   input: {
     ...type.body,
@@ -98,5 +166,10 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     paddingHorizontal: space.lg,
     paddingVertical: 14,
+  },
+  hint: {
+    ...type.caption,
+    lineHeight: 18,
+    textAlign: 'center',
   },
 });

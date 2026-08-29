@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,23 +10,27 @@ import { useSession } from '@/features/auth/session';
 
 export default function CheckEmailScreen() {
   const router = useRouter();
+  const { email } = useLocalSearchParams<{ email?: string }>();
   const { continueAsGuest } = useSession();
 
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.hero}>
         <Character size={120} />
-        <SpeechBubble text="Check your inbox. I'll keep today's path ready while the magic link is still being wired up." />
+        <SpeechBubble text="I sent a magic link. Open it on this phone or in this browser and I'll keep your path with the account." />
         <Text style={styles.title}>Check your email</Text>
         <Text style={styles.body}>
-          Real magic-link sessions arrive in Phase 1. You can still tap through Home as a guest.
+          {email
+            ? `Tap the link we sent to ${email}. It brings you back into CheckMed.`
+            : 'Tap the magic link in your inbox. It brings you back into CheckMed.'}{' '}
+          You can still continue as a guest while you wait.
         </Text>
       </View>
       <View style={styles.actions}>
         <Button
           label="Continue as guest"
-          onPress={() => {
-            continueAsGuest();
+          onPress={async () => {
+            await continueAsGuest();
             router.replace('/home');
           }}
         />

@@ -2,40 +2,55 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radii, space, type } from './tokens';
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 type ButtonProps = {
   label: string;
   onPress: () => void;
   variant?: ButtonVariant;
   accessibilityHint?: string;
+  disabled?: boolean;
+  busy?: boolean;
 };
 
-export function Button({ label, onPress, variant = 'primary', accessibilityHint }: ButtonProps) {
+export function Button({
+  label,
+  onPress,
+  variant = 'primary',
+  accessibilityHint,
+  disabled = false,
+  busy = false,
+}: ButtonProps) {
   const isPrimary = variant === 'primary';
   const isGhost = variant === 'ghost';
+  const isDanger = variant === 'danger';
+  const locked = disabled || busy;
 
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={accessibilityHint}
+      accessibilityState={{ disabled: locked, busy }}
+      disabled={locked}
       onPress={onPress}
-      style={({ pressed }) => [pressed && !isGhost && styles.pressed]}>
+      style={({ pressed }) => [pressed && !isGhost && !locked && styles.pressed, locked && styles.locked]}>
       <View
         style={[
           styles.base,
           isPrimary && styles.primary,
           variant === 'secondary' && styles.secondary,
           isGhost && styles.ghost,
+          isDanger && styles.danger,
         ]}>
         <Text
           style={[
             styles.label,
             isPrimary && styles.labelPrimary,
-            variant !== 'primary' && styles.labelInk,
+            isDanger && styles.labelPrimary,
+            variant !== 'primary' && variant !== 'danger' && styles.labelInk,
           ]}>
-          {label}
+          {busy ? 'Please wait…' : label}
         </Text>
       </View>
     </Pressable>
@@ -63,6 +78,14 @@ const styles = StyleSheet.create({
   ghost: {
     backgroundColor: 'transparent',
     paddingVertical: 8,
+  },
+  danger: {
+    backgroundColor: colors.danger,
+    borderBottomWidth: 5,
+    borderBottomColor: '#CC2F2F',
+  },
+  locked: {
+    opacity: 0.55,
   },
   label: {
     ...type.button,

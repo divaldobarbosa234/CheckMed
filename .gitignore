@@ -34,8 +34,17 @@ yarn-error.*
 .env
 .env*.local
 
-# leftover Swift demo (not the product)
-ChekMed/
+# iOS local secrets — never commit keys or Google client IDs
+ChekMed/Secrets.xcconfig
+ChekMed/ChekMed/SupabaseConfig.plist
+**/GoogleService-Info.plist
+
+# Nested git leftover inside the SwiftUI app (parent repo tracks ChekMed/)
+ChekMed/.git/
+
+# Xcode user-specific state
+**/xcuserdata/
+*.xcuserstate
 
 # Expo Go simulator binary (download locally; do not commit)
 Expo-Go*.app
@@ -43,6 +52,7 @@ Expo-Go*.app
 
 # local verification captures
 .verify-*.png
+.sim-screenshots/
 
 # typescript
 *.tsbuildinfo

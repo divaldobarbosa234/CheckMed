@@ -1,0 +1,3 @@
+// Optional local secrets. Copy SupabaseConfig.example → Secrets.xcconfig
+// (Secrets.xcconfig is gitignored). The `?` keeps a clean clone buildable.
+#include? "Secrets.xcconfig"

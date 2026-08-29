@@ -7,16 +7,17 @@ import { Character } from '@/design/Character';
 import { SafetyCaption } from '@/design/SafetyCaption';
 import { colors, space, type } from '@/design/tokens';
 import { useSession } from '@/features/auth/session';
-import { COMPANION_NAME } from '@/features/today/mockPath';
 
 export default function WelcomeScreen() {
   const router = useRouter();
-  const { continueAsGuest } = useSession();
+  const { continueAsGuest, kind, displayName } = useSession();
 
-  function enterAsGuest() {
-    continueAsGuest();
+  async function enterAsGuest() {
+    await continueAsGuest();
     router.replace('/home');
   }
+
+  const signedIn = kind === 'authenticated';
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -24,17 +25,25 @@ export default function WelcomeScreen() {
         <Character size={148} />
         <Text style={styles.wordmark}>CheckMed</Text>
         <Text style={styles.tagline}>
-          Hi, I{'\u2019'}m {COMPANION_NAME}. I help you understand, organize, and follow your treatments —
-          one path at a time.
+          Hi, I{'\u2019'}m Phil. I help you understand, organize, and follow your treatments — one path at a
+          time.
         </Text>
       </View>
 
       <View style={styles.actions}>
-        <Button
-          label="Get started"
-          onPress={() => router.push('/(auth)/sign-in')}
-          accessibilityHint="Opens sign in. Account required before cloud sync."
-        />
+        {signedIn ? (
+          <Button
+            label={`Continue, ${displayName}`}
+            onPress={() => router.replace('/home')}
+            accessibilityHint="Opens today's path with your signed-in account."
+          />
+        ) : (
+          <Button
+            label="Get started"
+            onPress={() => router.push('/(onboarding)')}
+            accessibilityHint="Opens a short intro with Phil, then sign in."
+          />
+        )}
         <Button
           label="I already have an account"
           variant="secondary"
@@ -43,7 +52,7 @@ export default function WelcomeScreen() {
         <Button
           label="Continue as guest"
           variant="ghost"
-          onPress={enterAsGuest}
+          onPress={() => void enterAsGuest()}
           accessibilityHint="Opens today's path without an account. Scanning will not sync."
         />
         <SafetyCaption />
