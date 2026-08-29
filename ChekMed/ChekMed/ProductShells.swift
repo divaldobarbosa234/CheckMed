@@ -81,21 +81,9 @@ struct ProductRouteView: View {
                 onPrimary: pop
             )
         case .paywall:
-            PlaceholderScreen(
-                title: "Super CheckMed",
-                bubble: "Super is the analogue of Duolingo Super. Streak freeze, extra looks, one extra family profile. Taken stays free.",
-                bodyText: "Stripe Checkout lands in Phase 6. Core logging and reminders stay free. This screen is the paywall shell from principal screens.",
-                primaryLabel: "Not now",
-                onPrimary: pop
-            )
+            PaywallView()
         case .family:
-            PlaceholderScreen(
-                title: "Family",
-                bubble: "One profile is free. A second slot is Super. I sit beside whoever is active — never mix two people's doses.",
-                bodyText: "Profile switcher shell. Super family slot is Phase 6. You can tap through from Profile.",
-                primaryLabel: "Back to profile",
-                onPrimary: pop
-            )
+            FamilyView()
         }
     }
 

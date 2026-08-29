@@ -3,6 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @Environment(SessionStore.self) private var session
     @Environment(TodayPathStore.self) private var path
+    @Environment(EntitlementStore.self) private var entitlements
     @State private var showSignIn = false
     @State private var showScan = false
 
@@ -13,7 +14,7 @@ struct HomeView: View {
                     if session.isGuest {
                         GuestBanner { showSignIn = true }
                     }
-                    HStack {
+                    HStack(alignment: .center, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Hey \(session.displayName)")
                                 .font(.system(.title2, design: .rounded).weight(.heavy))
@@ -22,17 +23,48 @@ struct HomeView: View {
                                 .foregroundStyle(CheckMedTheme.muted)
                         }
                         Spacer()
-                        HStack(spacing: 4) {
-                            Text("🔥")
-                            Text("\(TodayPathStore.streakDays)")
-                                .font(.system(.title3, design: .rounded).weight(.black))
-                                .foregroundStyle(CheckMedTheme.streak)
+                        HStack(spacing: 8) {
+                            HStack(spacing: 4) {
+                                Text("🔥")
+                                Text("\(TodayPathStore.streakDays)")
+                                    .font(.system(.title3, design: .rounded).weight(.black))
+                                    .foregroundStyle(CheckMedTheme.streak)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(CheckMedTheme.surface, in: Capsule())
+                            .overlay(Capsule().stroke(Color(hex: 0xF3D7A0), lineWidth: 2))
+                            .accessibilityLabel("\(TodayPathStore.streakDays) day streak")
+
+                            Button {
+                                if !entitlements.canUseStreakFreeze {
+                                    entitlements.presentPaywall()
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: entitlements.canUseStreakFreeze ? "snowflake" : "lock.fill")
+                                        .font(.system(size: 12, weight: .bold))
+                                    Text("Freeze")
+                                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                                }
+                                .foregroundStyle(entitlements.canUseStreakFreeze ? CheckMedTheme.superAccent : CheckMedTheme.muted)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 8)
+                                .background(CheckMedTheme.surface, in: Capsule())
+                                .overlay(
+                                    Capsule().stroke(
+                                        entitlements.canUseStreakFreeze ? CheckMedTheme.superAccent : Color(hex: 0xEFEFEF),
+                                        lineWidth: 2
+                                    )
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(
+                                entitlements.canUseStreakFreeze
+                                    ? "Streak freeze is on with Super"
+                                    : "Streak freeze is Super. Taken stays free."
+                            )
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(CheckMedTheme.surface, in: Capsule())
-                        .overlay(Capsule().stroke(Color(hex: 0xF3D7A0), lineWidth: 2))
-                        .accessibilityLabel("\(TodayPathStore.streakDays) day streak")
                     }
 
                     HStack(alignment: .center, spacing: 12) {

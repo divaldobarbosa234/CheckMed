@@ -27,12 +27,14 @@ struct ChekMedApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = SessionStore()
     @State private var path = TodayPathStore()
+    @State private var entitlements = EntitlementStore()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(session)
                 .environment(path)
+                .environment(entitlements)
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }

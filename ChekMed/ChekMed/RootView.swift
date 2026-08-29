@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(EntitlementStore.self) private var entitlements
     @State private var showSignIn = false
     @State private var showOnboarding = false
 
@@ -12,7 +13,6 @@ struct RootView: View {
             } else if session.kind == .welcome && showOnboarding {
                 OnboardingView(
                     onCreateAccount: {
-                        showOnboarding = false
                         showSignIn = true
                     },
                     onGuest: {
@@ -33,6 +33,12 @@ struct RootView: View {
         }
         .sheet(isPresented: $showSignIn) {
             NavigationStack { SignInView() }
+        }
+        .sheet(isPresented: Binding(
+            get: { entitlements.showPaywall },
+            set: { entitlements.showPaywall = $0 }
+        )) {
+            NavigationStack { PaywallView() }
         }
         .onChange(of: session.kind) { _, kind in
             if kind != .welcome {

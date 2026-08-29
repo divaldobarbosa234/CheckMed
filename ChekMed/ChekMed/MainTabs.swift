@@ -55,6 +55,8 @@ struct TreatmentsView: View {
 }
 
 struct HistoryView: View {
+    @Environment(EntitlementStore.self) private var entitlements
+
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -67,6 +69,34 @@ struct HistoryView: View {
                             text: "Taken days count for the streak. Skip does not break it. Missed will — when real logs land."
                         )
                     }
+                    Button {
+                        if !entitlements.isSuper {
+                            entitlements.presentPaywall()
+                        }
+                    } label: {
+                        HStack {
+                            Text("Longer filters")
+                                .font(.system(.body, design: .rounded).weight(.bold))
+                                .foregroundStyle(CheckMedTheme.ink)
+                            Spacer()
+                            Text(entitlements.isSuper ? "Week · Month" : "Super")
+                                .font(.system(.caption, design: .rounded).weight(.bold))
+                                .foregroundStyle(entitlements.isSuper ? CheckMedTheme.superAccent : CheckMedTheme.muted)
+                        }
+                        .padding(16)
+                        .background(CheckMedTheme.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(entitlements.isSuper ? CheckMedTheme.superAccent.opacity(0.45) : Color(hex: 0xEFEFEF), lineWidth: 2)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(
+                        entitlements.isSuper
+                            ? "Longer history filters"
+                            : "Longer history filters are Super"
+                    )
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Today · 08:00")
                             .font(.system(.caption, design: .rounded).weight(.bold))
@@ -103,6 +133,7 @@ struct HistoryView: View {
 
 struct ProfileView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(EntitlementStore.self) private var entitlements
     @State private var showSignIn = false
     @State private var confirmDelete = false
     @State private var path = NavigationPath()
@@ -158,13 +189,19 @@ struct ProfileView: View {
                     Button {
                         path.append(ProductRoute.family)
                     } label: {
-                        profileRow(label: "Family profiles", value: "1 of 1")
+                        profileRow(
+                            label: "Family profiles",
+                            value: "\(entitlements.freeFamilySlots) of \(entitlements.familySlots)"
+                        )
                     }
                     .buttonStyle(.plain)
                     Button {
-                        path.append(ProductRoute.paywall)
+                        entitlements.presentPaywall()
                     } label: {
-                        profileRow(label: "Super CheckMed", value: "Free")
+                        profileRow(
+                            label: "Super CheckMed",
+                            value: entitlements.isSuper ? "Super" : "Free"
+                        )
                     }
                     .buttonStyle(.plain)
                     profileRow(label: "Notifications", value: "On (preview)")
