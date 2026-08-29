@@ -4,136 +4,238 @@ import UIKit
 struct SignInView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.dismiss) private var dismiss
+    var allowsGuest = true
+    var onAuthenticated: (() -> Void)? = nil
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var mode: Mode = .login
     @State private var showAppleComingSoon = false
+    @State private var toast: Banner?
+    @State private var toastTask: Task<Void, Never>?
+    @State private var readyForBanners = false
 
     private enum Mode {
         case login, signUp, reset
     }
 
+    private struct Banner: Equatable {
+        let text: String
+        let isError: Bool
+    }
+
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .center, spacing: 12) {
-                    PhilView(size: 88)
-                    SpeechBubbleView(text: bubbleText)
-                }
-                Text("Sign in to CheckMed")
-                    .font(.system(.title2, design: .rounded).weight(.heavy))
-                Text("Real session. Guest can still tap Home. An account is required before a prescription photo or PDF syncs to the cloud.")
-                    .font(.system(.body, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.muted)
+            VStack(alignment: .leading, spacing: 24) {
+                host
 
-                if let error = session.errorMessage {
-                    Text(error)
-                        .foregroundStyle(CheckMedTheme.danger)
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                }
-                if let note = session.lastAuthNote, note != "sign-in" {
-                    Text(note)
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.safety)
-                }
-                if !session.supabaseConfigured {
-                    Text("Supabase keys are not in this iOS target yet. Copy SupabaseConfig.example to Secrets.xcconfig. Guest still works.")
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.safety)
-                }
-                if session.supabaseConfigured && !session.googleConfigured {
-                    Text("Google needs the iOS Client ID from Google Cloud Console → APIs & Services → Credentials → iOS OAuth 2.0 Client ID → Client ID, pasted into GOOGLE_IOS_CLIENT_ID.")
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.safety)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(session.t(.signInHeadline))
+                        .font(.system(.title2, design: .rounded).weight(.heavy))
+                    Text(allowsGuest ? session.t(.signInBody) : session.t(.signInBodyOnboarding))
+                        .font(.system(.body, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                provider("Continue with Apple", color: .black) {
-                    session.requestProvider(.apple)
-                    showAppleComingSoon = true
+                VStack(spacing: 14) {
+                    field(session.t(.email), text: $email, contentType: .emailAddress, keyboard: .emailAddress, secure: false)
+                    if mode != .reset {
+                        field(
+                            session.t(.password),
+                            text: $password,
+                            contentType: mode == .signUp ? .newPassword : .password,
+                            keyboard: .default,
+                            secure: true
+                        )
+                    }
+                    if mode == .signUp {
+                        field(
+                            session.t(.confirmPassword),
+                            text: $confirmPassword,
+                            contentType: .newPassword,
+                            keyboard: .default,
+                            secure: true
+                        )
+                    }
+                    CheckMedButton(title: primaryTitle, action: submit)
+                        .disabled(session.isLoading)
                 }
-                provider("Continue with Google", color: Color(hex: 0x4285F4)) {
-                    session.requestProvider(.google)
-                }
-                provider("Continue with Facebook", color: CheckMedTheme.facebook) {
-                    session.requestProvider(.facebook)
-                }
-
-                field("Email", text: $email, contentType: .emailAddress, keyboard: .emailAddress, secure: false)
-
-                if mode != .reset {
-                    field("Password", text: $password, contentType: mode == .signUp ? .newPassword : .password, keyboard: .default, secure: true)
-                }
-                if mode == .signUp {
-                    field("Confirm password", text: $confirmPassword, contentType: .newPassword, keyboard: .default, secure: true)
-                }
-
-                CheckMedButton(title: primaryTitle, action: submit)
-                    .disabled(session.isLoading)
 
                 HStack {
                     Button(secondaryTitle) { toggleMode() }
                         .font(.system(.caption, design: .rounded).weight(.heavy))
                     Spacer()
                     if mode != .reset {
-                        Button("Forgot password?") { mode = .reset }
+                        Button(session.t(.forgotPassword)) { mode = .reset }
                             .font(.system(.caption, design: .rounded).weight(.heavy))
                     }
                 }
                 .foregroundStyle(CheckMedTheme.ink)
 
-                if session.isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
+                orEmailDivider
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
+
+                VStack(spacing: 12) {
+                    provider(.google, title: session.t(.continueWithGoogle)) {
+                        session.requestProvider(.google)
+                    }
+                    provider(.facebook, title: session.t(.continueWithFacebook)) {
+                        session.requestProvider(.facebook)
+                    }
+                    provider(.apple, title: session.t(.continueWithApple)) {
+                        session.requestProvider(.apple)
+                        showAppleComingSoon = true
+                    }
                 }
 
-                CheckMedButton(title: session.t(.continueAsGuest), style: .ghost) {
-                    session.continueAsGuest()
-                    dismiss()
+                VStack(spacing: 10) {
+                    if allowsGuest {
+                        CheckMedButton(title: session.t(.continueAsGuest), style: .ghost) {
+                            session.continueAsGuest()
+                            dismiss()
+                        }
+                    }
+                    SafetyCaption()
+                        .frame(maxWidth: .infinity)
                 }
-                SafetyCaption()
+                .padding(.top, 4)
             }
-            .padding(20)
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 32)
         }
+        .scrollDismissesKeyboard(.interactively)
         .background(CheckMedTheme.background)
-        .navigationTitle("Sign in")
+        .navigationTitle(session.t(.signIn))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarBackground(CheckMedTheme.background, for: .navigationBar)
+        .animation(.spring(duration: 0.35), value: toast?.text)
         .disabled(session.isLoading)
+        .overlay(alignment: .top) { toastBanner }
+        .overlay {
+            if session.isLoading {
+                ProgressView()
+                    .tint(CheckMedTheme.primaryShadow)
+                    .scaleEffect(1.15)
+                    .padding(18)
+                    .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .shadow(color: CheckMedTheme.ink.opacity(0.12), radius: 12, y: 4)
+            }
+        }
         .alert(session.t(.appleTitle), isPresented: $showAppleComingSoon) {
-            Button("OK", role: .cancel) {}
+            Button(session.t(.ok), role: .cancel) {}
         } message: {
             Text(session.t(.appleComingSoon))
         }
         .onChange(of: session.kind) { _, kind in
-            if kind == .authenticated { dismiss() }
+            guard kind == .authenticated else { return }
+            if let onAuthenticated {
+                onAuthenticated()
+            } else {
+                dismiss()
+            }
+        }
+        .onChange(of: session.auth.errorMessage) { _, message in
+            guard readyForBanners, let message, !message.isEmpty else { return }
+            showBanner(message, isError: true)
+        }
+        .onChange(of: session.auth.statusMessage) { _, note in
+            guard readyForBanners, let note, !note.isEmpty else { return }
+            showBanner(note, isError: false)
+        }
+        .onAppear {
+            session.auth.clearMessages()
+            toast = nil
+            readyForBanners = true
+        }
+        .onDisappear {
+            toastTask?.cancel()
+            readyForBanners = false
+        }
+    }
+
+    private var host: some View {
+        HStack(alignment: .center, spacing: 14) {
+            PhilView(size: 100)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("CHECKMED")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .tracking(1.8)
+                    .foregroundStyle(CheckMedTheme.primaryShadow)
+                SpeechBubbleView(text: bubbleText)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    @ViewBuilder
+    private var toastBanner: some View {
+        if let toast {
+            Text(toast.text)
+                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                .foregroundStyle(toast.isError ? Color.white : CheckMedTheme.ink)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity)
+                .background(
+                    toast.isError ? CheckMedTheme.danger : CheckMedTheme.guestBg,
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(toast.isError ? Color.clear : CheckMedTheme.guestBorder, lineWidth: 2)
+                )
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+
+    private var orEmailDivider: some View {
+        HStack(spacing: 12) {
+            Rectangle()
+                .fill(CheckMedTheme.locked)
+                .frame(height: 1)
+            Text(session.t(.orEmail))
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.muted)
+                .textCase(.uppercase)
+            Rectangle()
+                .fill(CheckMedTheme.locked)
+                .frame(height: 1)
         }
     }
 
     private var bubbleText: String {
         switch mode {
-        case .login: "Save your streak. Google, email, or guest — I follow the account, not this phone."
-        case .signUp: "Create an account and I’ll keep your path with you."
-        case .reset: "I’ll send a reset link if that email is on file."
+        case .login: session.t(.signInBubbleLogin)
+        case .signUp: session.t(.signInBubbleSignUp)
+        case .reset: session.t(.signInBubbleReset)
         }
     }
 
     private var primaryTitle: String {
         switch mode {
-        case .login: "Log in"
-        case .signUp: "Create account"
-        case .reset: "Send reset link"
+        case .login: session.t(.logIn)
+        case .signUp: session.t(.createAccount)
+        case .reset: session.t(.sendResetLink)
         }
     }
 
     private var secondaryTitle: String {
         switch mode {
-        case .login: "Need an account? Sign up"
-        case .signUp, .reset: "Already have an account? Log in"
+        case .login: session.t(.needAccountSignUp)
+        case .signUp, .reset: session.t(.alreadyHaveAccount)
         }
     }
 
     private func toggleMode() {
         session.auth.clearMessages()
+        toast = nil
         mode = mode == .login ? .signUp : .login
         confirmPassword = ""
     }
@@ -141,28 +243,43 @@ struct SignInView: View {
     private func submit() {
         let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedEmail.contains("@") else {
-            session.auth.presentError("Phil needs a real email.")
+            session.auth.presentError(session.t(.philNeedsEmail))
             return
         }
         switch mode {
         case .login:
             guard !password.isEmpty else {
-                session.auth.presentError("Enter your password.")
+                session.auth.presentError(session.t(.enterYourPassword))
                 return
             }
             Task { await session.signIn(email: trimmedEmail, password: password) }
         case .signUp:
             guard password.count >= 6 else {
-                session.auth.presentError("Password needs at least 6 characters.")
+                session.auth.presentError(session.t(.passwordTooShort))
                 return
             }
             guard password == confirmPassword else {
-                session.auth.presentError("Passwords need to match.")
+                session.auth.presentError(session.t(.passwordsMustMatch))
                 return
             }
             Task { await session.signUp(email: trimmedEmail, password: password) }
         case .reset:
             Task { await session.resetPassword(email: trimmedEmail) }
+        }
+    }
+
+    private func showBanner(_ text: String, isError: Bool) {
+        toastTask?.cancel()
+        withAnimation(.spring(duration: 0.35)) {
+            toast = Banner(text: text, isError: isError)
+        }
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_200_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                toast = nil
+            }
+            session.auth.clearMessages()
         }
     }
 
@@ -185,21 +302,51 @@ struct SignInView: View {
                     .autocorrectionDisabled()
             }
         }
-        .padding(14)
+        .padding(16)
         .background(CheckMedTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.locked, lineWidth: 2))
     }
 
-    private func provider(_ title: String, color: Color, action: @escaping () -> Void) -> some View {
+    private enum ProviderKind {
+        case apple, google, facebook
+    }
+
+    private func provider(_ kind: ProviderKind, title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.system(.body, design: .rounded).weight(.heavy))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(color, in: Capsule())
+            HStack(spacing: 10) {
+                providerMark(kind)
+                Text(title)
+                    .font(.system(.body, design: .rounded).weight(.heavy))
+                    .foregroundStyle(kind == .apple ? Color.white : CheckMedTheme.ink)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(kind == .apple ? Color.black : CheckMedTheme.surface, in: Capsule())
+            .overlay(
+                Capsule().stroke(
+                    kind == .apple ? Color.clear : CheckMedTheme.ink.opacity(0.18),
+                    lineWidth: 2
+                )
+            )
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func providerMark(_ kind: ProviderKind) -> some View {
+        switch kind {
+        case .apple:
+            Image(systemName: "apple.logo")
+                .font(.system(size: 16, weight: .semibold))
+        case .google:
+            Text("G")
+                .font(.system(size: 16, weight: .heavy, design: .rounded))
+                .foregroundStyle(CheckMedTheme.google)
+        case .facebook:
+            Text("f")
+                .font(.system(size: 18, weight: .heavy, design: .rounded))
+                .foregroundStyle(CheckMedTheme.facebook)
+        }
     }
 }

@@ -1,31 +1,45 @@
 import SwiftUI
 
 struct SplashView: View {
-    @Environment(SessionStore.self) private var session
-    var onOpen: () -> Void
+    var seconds: Double = 3
+    var onFinished: () -> Void
+
+    @State private var appeared = false
 
     var body: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            PhilView(size: 180, mood: .celebrate)
-            Text("CHECKMED")
-                .font(.system(size: 34, weight: .black, design: .rounded))
-                .tracking(1)
-            Text(session.t(.splashTagline))
-                .font(.system(.title3, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
-            Spacer()
-            CheckMedButton(title: session.t(.splashOpen), action: onOpen)
-                .padding(.horizontal, 24)
-                .padding(.bottom, 32)
+        ZStack {
+            CheckMedTheme.background
+                .ignoresSafeArea()
+
+            RadialGradient(
+                colors: [
+                    CheckMedTheme.belly.opacity(0.95),
+                    CheckMedTheme.primary.opacity(0.14),
+                    CheckMedTheme.background,
+                ],
+                center: .center,
+                startRadius: 24,
+                endRadius: 420
+            )
+            .ignoresSafeArea()
+
+            PhilView(size: 228, mood: .celebrate)
+                .scaleEffect(appeared ? 1 : 0.88)
+                .opacity(appeared ? 1 : 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CheckMedTheme.background)
-        .task {
-            try? await Task.sleep(nanoseconds: 2_200_000_000)
-            guard !Task.isCancelled else { return }
-            onOpen()
+        .onAppear {
+            withAnimation(.spring(duration: 0.72, bounce: 0.32)) {
+                appeared = true
+            }
         }
-        .accessibilityLabel("Splash")
+        .task {
+            let nanos = UInt64(max(0.4, seconds) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: nanos)
+            guard !Task.isCancelled else { return }
+            onFinished()
+        }
+        .accessibilityLabel("Phil")
+        .accessibilityAddTraits(.isImage)
     }
 }

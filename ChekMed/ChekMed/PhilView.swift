@@ -1,8 +1,17 @@
 import SwiftUI
 
+enum PhilPose: Equatable {
+    case idle
+    case pointingDown
+}
+
 struct PhilView: View {
     var size: CGFloat = 112
     var mood: CompanionMood = .idle
+    var pose: PhilPose = .idle
+    var smiling = false
+
+    private var showSmile: Bool { smiling || pose == .pointingDown }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -23,8 +32,8 @@ struct PhilView: View {
                     }
 
                 HStack(spacing: size * 0.12) {
-                    eye
-                    eye
+                    eye(lookDown: pose == .pointingDown)
+                    eye(lookDown: pose == .pointingDown)
                 }
                 .offset(y: -size * 0.12)
 
@@ -40,6 +49,13 @@ struct PhilView: View {
                 }
                 .padding(.horizontal, size * 0.16)
                 .offset(y: size * 0.08)
+
+                if showSmile {
+                    SmileArc()
+                        .stroke(CheckMedTheme.ink.opacity(0.72), style: StrokeStyle(lineWidth: max(2, size * 0.028), lineCap: .round))
+                        .frame(width: size * 0.22, height: size * 0.1)
+                        .offset(y: size * 0.16)
+                }
             }
             .frame(width: size, height: size)
             .overlay(alignment: .bottom) {
@@ -48,8 +64,13 @@ struct PhilView: View {
                     .frame(height: 6)
             }
             .clipShape(RoundedRectangle(cornerRadius: size / 2.1, style: .continuous))
+
+            if pose == .pointingDown {
+                pointingArm
+            }
         }
-        .frame(width: size, height: size * 1.12)
+        .frame(width: pose == .pointingDown ? size * 1.22 : size, height: size * 1.16)
+        .rotationEffect(.degrees(pose == .pointingDown ? 6 : 0))
         .accessibilityLabel("Phil, the CheckMed companion")
         .phaseAnimator([0.0, -8.0], trigger: mood) { view, value in
             view
@@ -61,7 +82,21 @@ struct PhilView: View {
         }
     }
 
-    private var eye: some View {
+    private var pointingArm: some View {
+        Capsule(style: .continuous)
+            .fill(CheckMedTheme.primary)
+            .frame(width: size * 0.16, height: size * 0.42)
+            .overlay(alignment: .bottom) {
+                Capsule()
+                    .fill(CheckMedTheme.primaryShadow)
+                    .frame(width: size * 0.16, height: size * 0.12)
+            }
+            .rotationEffect(.degrees(42))
+            .offset(x: size * 0.46, y: size * 0.62)
+            .accessibilityHidden(true)
+    }
+
+    private func eye(lookDown: Bool) -> some View {
         Circle()
             .fill(Color.white)
             .frame(width: max(10, size * 0.16), height: max(10, size * 0.16))
@@ -69,6 +104,7 @@ struct PhilView: View {
                 Circle()
                     .fill(CheckMedTheme.ink)
                     .frame(width: max(5, size * 0.07), height: max(5, size * 0.07))
+                    .offset(y: lookDown ? max(2, size * 0.02) : 0)
             }
     }
 }
@@ -84,8 +120,25 @@ private struct Triangle: Shape {
     }
 }
 
+private struct SmileArc: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addArc(
+            center: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.15),
+            radius: rect.width / 2,
+            startAngle: .degrees(22),
+            endAngle: .degrees(158),
+            clockwise: false
+        )
+        return path
+    }
+}
+
 #Preview {
-    PhilView(size: 148)
-        .padding()
-        .background(CheckMedTheme.background)
+    VStack(spacing: 24) {
+        PhilView(size: 148)
+        PhilView(size: 148, pose: .pointingDown, smiling: true)
+    }
+    .padding()
+    .background(CheckMedTheme.background)
 }

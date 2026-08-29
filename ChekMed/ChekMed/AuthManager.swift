@@ -9,11 +9,33 @@ nonisolated struct CheckMedProfile: Codable, Sendable {
     var ownerId: UUID
     var displayName: String?
     var companionName: String
+    var dateOfBirth: String?
+    var language: String?
+    var timeZone: String?
+    var pronouns: String?
+    var gender: String?
 
     enum CodingKeys: String, CodingKey {
         case ownerId = "owner_id"
         case displayName = "display_name"
         case companionName = "companion_name"
+        case dateOfBirth = "date_of_birth"
+        case language
+        case timeZone = "time_zone"
+        case pronouns
+        case gender
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(ownerId, forKey: .ownerId)
+        try container.encode(companionName, forKey: .companionName)
+        try container.encodeIfPresent(displayName, forKey: .displayName)
+        try container.encodeIfPresent(dateOfBirth, forKey: .dateOfBirth)
+        try container.encodeIfPresent(language, forKey: .language)
+        try container.encodeIfPresent(timeZone, forKey: .timeZone)
+        try container.encodeIfPresent(pronouns, forKey: .pronouns)
+        try container.encodeIfPresent(gender, forKey: .gender)
     }
 }
 
@@ -33,6 +55,11 @@ final class AuthManager {
 
     var isConfigured: Bool { client != nil }
     var isGoogleConfigured: Bool { AuthConfig.isGoogleConfigured }
+    var userId: UUID? { client?.auth.currentUser?.id }
+
+    /// Called when a session is restored (`true`) or the user just signed in (`false`).
+    @ObservationIgnored
+    var onAuthenticated: ((_ isRestore: Bool) async -> Void)?
 
     private var client: SupabaseClient?
     private var listenerTask: Task<Void, Never>?
@@ -58,12 +85,13 @@ final class AuthManager {
 
     func presentAppleComingSoon(_ message: String = AuthConfig.appleComingSoonMessage) {
         errorMessage = nil
-        statusMessage = message
+        statusMessage = nil
+        _ = message
     }
 
-    func presentFacebookUnavailable() {
+    func presentFacebookUnavailable(_ message: String = "Facebook sign-in is not enabled yet.") {
         errorMessage = nil
-        statusMessage = "Facebook sign-in is not enabled yet."
+        statusMessage = message
     }
 
     func presentError(_ message: String) {
@@ -128,29 +156,17 @@ final class AuthManager {
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleClientID)
 
         do {
-            let rawNonce = Self.randomNonce()
-            let hashedNonce = Self.sha256Hex(rawNonce)
-            let result = try await GIDSignIn.sharedInstance.signIn(
-                withPresenting: presenter,
-                hint: nil,
-                additionalScopes: nil,
-                nonce: hashedNonce
-            )
-            guard let idToken = result.user.idToken?.tokenString else {
-                throw AuthFlowError.missingGoogleIDToken
-            }
-            _ = try await client.auth.signInWithIdToken(
-                credentials: OpenIDConnectCredentials(
-                    provider: .google,
-                    idToken: idToken,
-                    accessToken: result.user.accessToken.tokenString,
-                    nonce: rawNonce
-                )
+            try await completeGoogleSignIn(
+                client: client,
+                presenter: presenter,
+                retryOnKeychain: true
             )
         } catch {
             if Self.isGoogleCancel(error) {
-                statusMessage = "Google sign-in was canceled."
                 errorMessage = nil
+                statusMessage = nil
+            } else if Self.isGoogleKeychainNoise(error) {
+                errorMessage = "Google sign-in didn't complete. Try again."
             } else {
                 errorMessage = Self.googleMessage(for: error)
             }
@@ -174,25 +190,91 @@ final class AuthManager {
         if let clientID = AuthConfig.googleClientID {
             GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
         }
+        // Interactive Google sign-in does not restore from the keychain. Skip
+        // restorePreviousSignIn — Simulator keychain misses must not become UI errors.
+    }
+
+    private func completeGoogleSignIn(
+        client: SupabaseClient,
+        presenter: UIViewController,
+        retryOnKeychain: Bool
+    ) async throws {
+        let rawNonce = Self.randomNonce()
+        let hashedNonce = Self.sha256Hex(rawNonce)
+        do {
+            let result = try await GIDSignIn.sharedInstance.signIn(
+                withPresenting: presenter,
+                hint: nil,
+                additionalScopes: nil,
+                nonce: hashedNonce
+            )
+            try await exchangeGoogleTokens(
+                idToken: result.user.idToken?.tokenString,
+                accessToken: result.user.accessToken.tokenString,
+                nonce: rawNonce,
+                client: client
+            )
+        } catch {
+            if let tokens = Self.liveGoogleTokens() {
+                try await exchangeGoogleTokens(
+                    idToken: tokens.idToken,
+                    accessToken: tokens.accessToken,
+                    nonce: rawNonce,
+                    client: client
+                )
+                return
+            }
+            guard retryOnKeychain, Self.isGoogleKeychainNoise(error) else { throw error }
+            try await Task.sleep(nanoseconds: 400_000_000)
+            try await completeGoogleSignIn(
+                client: client,
+                presenter: presenter,
+                retryOnKeychain: false
+            )
+        }
+    }
+
+    private func exchangeGoogleTokens(
+        idToken: String?,
+        accessToken: String,
+        nonce: String,
+        client: SupabaseClient
+    ) async throws {
+        guard let idToken else { throw AuthFlowError.missingGoogleIDToken }
+        _ = try await client.auth.signInWithIdToken(
+            credentials: OpenIDConnectCredentials(
+                provider: .google,
+                idToken: idToken,
+                accessToken: accessToken,
+                nonce: nonce
+            )
+        )
     }
 
     private func listen(to client: SupabaseClient) {
         listenerTask?.cancel()
         listenerTask = Task { [weak self] in
-            for await (_, session) in client.auth.authStateChanges {
-                await self?.handleAuthChange(session, client: client)
+            for await (event, session) in client.auth.authStateChanges {
+                await self?.handleAuthChange(event, session)
             }
         }
     }
 
-    private func handleAuthChange(_ session: Session?, client: SupabaseClient) async {
+    private func handleAuthChange(_ event: AuthChangeEvent, _ session: Session?) async {
         apply(session: session)
+        if session != nil {
+            switch event {
+            case .initialSession:
+                await onAuthenticated?(true)
+            case .signedIn:
+                await onAuthenticated?(false)
+            default:
+                break
+            }
+        }
         if !sawInitialSession {
             sawInitialSession = true
             isRestoring = false
-        }
-        if session != nil {
-            await refreshProfile(using: client)
         }
     }
 
@@ -210,12 +292,12 @@ final class AuthManager {
         }
     }
 
-    private func refreshProfile(using client: SupabaseClient) async {
-        guard let userId = client.auth.currentUser?.id else { return }
+    func fetchProfile() async -> CheckMedProfile? {
+        guard let client, let userId else { return nil }
         do {
             let rows: [CheckMedProfile] = try await client
                 .from("profiles")
-                .select()
+                .select("owner_id, display_name, companion_name, date_of_birth, language, time_zone, pronouns, gender")
                 .eq("owner_id", value: userId.uuidString)
                 .limit(1)
                 .execute()
@@ -223,15 +305,31 @@ final class AuthManager {
             if let profile = rows.first {
                 displayName = profile.displayName?.nilIfEmpty ?? displayName
                 companionName = profile.companionName.nilIfEmpty ?? "Phil"
-            } else {
-                let name = displayName
-                try await client
-                    .from("profiles")
-                    .insert(CheckMedProfile(ownerId: userId, displayName: name, companionName: "Phil"))
-                    .execute()
+                return profile
             }
         } catch {
             // Profile is best-effort; a valid session still signs the user in.
+        }
+        return nil
+    }
+
+    @discardableResult
+    func upsertProfile(_ profile: CheckMedProfile) async -> Bool {
+        guard let client else { return false }
+        do {
+            try await client
+                .from("profiles")
+                .upsert(profile, onConflict: "owner_id")
+                .execute()
+            if let name = profile.displayName?.nilIfEmpty {
+                displayName = name
+            }
+            if let companion = profile.companionName.nilIfEmpty {
+                companionName = companion
+            }
+            return true
+        } catch {
+            return false
         }
     }
 
@@ -275,12 +373,10 @@ final class AuthManager {
         let ns = error as NSError
         if ns.domain == kGIDSignInErrorDomain {
             switch ns.code {
-            case GIDSignInError.canceled.rawValue:
-                return "Google sign-in was canceled."
-            case GIDSignInError.keychain.rawValue:
-                return Self.keychainHelpMessage
-            case GIDSignInError.hasNoAuthInKeychain.rawValue:
-                return "No saved Google session on this device. Sign in with Google again."
+            case GIDSignInError.canceled.rawValue,
+                 GIDSignInError.keychain.rawValue,
+                 GIDSignInError.hasNoAuthInKeychain.rawValue:
+                return "Google sign-in didn't complete. Try again."
             case GIDSignInError.EMM.rawValue:
                 return "This Google account is managed by an organization and couldn't sign in here."
             case GIDSignInError.scopesAlreadyGranted.rawValue:
@@ -292,9 +388,6 @@ final class AuthManager {
             }
         }
         let raw = ns.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-        if raw.localizedCaseInsensitiveContains("keychain") {
-            return Self.keychainHelpMessage
-        }
         if raw.localizedCaseInsensitiveContains("nonce") || raw.localizedCaseInsensitiveContains("id_token") {
             return "Google sign-in couldn't be verified. Try again."
         }
@@ -313,15 +406,33 @@ final class AuthManager {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static let keychainHelpMessage =
-        "Couldn't save the Google sign-in on this device. Restart the Simulator and try again."
-
     private static func isGoogleCancel(_ error: Error) -> Bool {
         let ns = error as NSError
         if ns.domain == kGIDSignInErrorDomain && ns.code == GIDSignInError.canceled.rawValue {
             return true
         }
-        return ns.localizedDescription.localizedCaseInsensitiveContains("canceled")
+        let raw = ns.localizedDescription.lowercased()
+        return raw.contains("canceled") || raw.contains("cancelled")
+    }
+
+    /// Keychain save/restore failures are SDK persistence, not a user-facing Sign in error.
+    private static func isGoogleKeychainNoise(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == kGIDSignInErrorDomain {
+            switch ns.code {
+            case GIDSignInError.keychain.rawValue, GIDSignInError.hasNoAuthInKeychain.rawValue:
+                return true
+            default:
+                break
+            }
+        }
+        return ns.localizedDescription.localizedCaseInsensitiveContains("keychain")
+    }
+
+    private static func liveGoogleTokens() -> (idToken: String, accessToken: String)? {
+        guard let user = GIDSignIn.sharedInstance.currentUser,
+              let idToken = user.idToken?.tokenString else { return nil }
+        return (idToken, user.accessToken.tokenString)
     }
 
     private static func topViewController() -> UIViewController? {

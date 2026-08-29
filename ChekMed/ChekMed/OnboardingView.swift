@@ -1,174 +1,339 @@
 import SwiftUI
 
-struct OnboardingView: View {
-    @Environment(SessionStore.self) private var session
-    var onFinished: () -> Void
-    var onCreateAccount: () -> Void
-    var onBack: () -> Void
+enum FirstTimePhase: String, Equatable {
+    case splash
+    case language
+    case howItWorks
+    case privacy
+    case signIn
+    case profile
+    case addMedication
+    case camera
+    case manualEntry
+    case analysing
+    case confirm
+    case organize
+    case notifications
+    case ready
 
-    enum Step: Int {
-        case howItWorks = 0
-        case personalSetup = 1
-        case notifications = 2
+    var requiresAuth: Bool {
+        switch self {
+        case .splash, .language, .howItWorks, .privacy, .signIn:
+            false
+        default:
+            true
+        }
     }
 
-    @State private var step: Step = .howItWorks
-    @State private var name = ""
-    @State private var birthDate: Date?
-    @State private var locale: AppLocale = .english
-    @State private var timeZone = CheckMedTimeZones.preferred
+    var persistable: Bool { self != .splash && self != .analysing }
+}
+
+struct FirstTimeOnboardingView: View {
+    @Environment(SessionStore.self) private var session
+
+    @State private var phase: FirstTimePhase = .splash
+    @State private var addMethod: OnboardingAddMethod = .photo
+    @State private var draft = OnboardingPrescriptionDraft.scanned
+    @State private var afterSplash: FirstTimePhase = .language
 
     var body: some View {
-        Group {
-            switch step {
+        ZStack {
+            switch phase {
+            case .splash:
+                SplashView {
+                    advance(to: afterSplash, persist: afterSplash.persistable)
+                }
+                .transition(.opacity)
+            case .language:
+                LanguageOnboardingView {
+                    advance(to: .howItWorks)
+                }
+                .transition(insert)
             case .howItWorks:
-                howItWorks
-            case .personalSetup:
-                personalSetup
+                HowItWorksView(onGetStarted: { advance(to: .privacy) })
+                    .transition(insert)
+            case .privacy:
+                PrivacyConsentView(onAccept: { advance(to: .signIn) })
+                    .transition(insert)
+            case .signIn:
+                NavigationStack {
+                    SignInView(allowsGuest: false, onAuthenticated: { advance(to: .profile) })
+                }
+                .transition(insert)
+            case .profile:
+                AccountProfileSetupView(
+                    showsSignOut: true,
+                    onFinished: { advance(to: .addMedication) }
+                )
+                .transition(insert)
+            case .addMedication:
+                OnboardingAddMedicationView(
+                    onPhoto: {
+                        addMethod = .photo
+                        draft = .scanned
+                        advance(to: .camera)
+                    },
+                    onPDF: {
+                        addMethod = .pdf
+                        draft = .scanned
+                        advance(to: .analysing)
+                    },
+                    onManual: {
+                        addMethod = .manual
+                        draft = .empty
+                        advance(to: .manualEntry)
+                    },
+                    onBack: { advance(to: .profile) }
+                )
+                .transition(insert)
+            case .camera:
+                OnboardingCameraView(
+                    onCapture: { advance(to: .analysing) },
+                    onBack: { advance(to: .addMedication) }
+                )
+                .transition(insert)
+            case .manualEntry:
+                OnboardingManualEntryView(
+                    draft: $draft,
+                    onContinue: { advance(to: .analysing) },
+                    onBack: { advance(to: .addMedication) }
+                )
+                .transition(insert)
+            case .analysing:
+                OnboardingAnalysingView(isShort: addMethod == .manual) {
+                    advance(to: .confirm)
+                }
+                .transition(insert)
+            case .confirm:
+                OnboardingConfirmView(
+                    draft: $draft,
+                    isManual: addMethod == .manual,
+                    onConfirm: { advance(to: .organize) },
+                    onBack: { advance(to: addMethod == .manual ? .manualEntry : .addMedication) }
+                )
+                .transition(insert)
+            case .organize:
+                OnboardingOrganizeView(
+                    onContinue: { advance(to: .notifications) },
+                    onBack: { advance(to: .confirm) }
+                )
+                .transition(insert)
             case .notifications:
-                notifications
+                NotificationsPermissionView(
+                    secondaryTitle: session.t(.skip),
+                    onEnable: { advance(to: .ready) },
+                    onSecondary: { advance(to: .ready) },
+                    onBack: { advance(to: .organize) }
+                )
+                .transition(insert)
+            case .ready:
+                OnboardingPhilReadyView {
+                    session.markOnboardingComplete()
+                }
+                .transition(insert)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
         .onAppear {
-            if session.displayName != "there" { name = session.displayName }
-            birthDate = session.birthDate
-            locale = session.locale
-            timeZone = session.timeZoneName
+            afterSplash = destinationAfterSplash()
+        }
+        .onChange(of: session.kind) { _, kind in
+            if kind == .authenticated, phase == .signIn {
+                advance(to: .profile)
+            } else if kind != .authenticated, phase.requiresAuth {
+                advance(to: .signIn)
+            }
         }
     }
 
-    private var howItWorks: some View {
-        VStack(spacing: 16) {
-            header(session.t(.howTitle), kicker: session.t(.howKicker))
-            Spacer()
-            Text(session.t(.howHeadline))
-                .font(.system(.title2, design: .rounded).weight(.heavy))
-                .multilineTextAlignment(.center)
-            ForEach(L10n.howSteps(session.locale), id: \.title) { item in
-                HStack(alignment: .center, spacing: 12) {
-                    PhilView(size: 64)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.title)
-                            .font(.system(.title3, design: .rounded).weight(.heavy))
-                        Text(item.body)
-                            .font(.system(.body, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                    }
-                    Spacer()
-                }
-                .padding(12)
-                .background(CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
-            Spacer()
-            CheckMedButton(title: session.t(.continueButton)) { step = .personalSetup }
-            CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
-    }
-
-    private var personalSetup: some View {
-        VStack(spacing: 16) {
-            header(session.t(.setupTitle))
-            Spacer()
-            PhilView(size: 120)
-            Text(session.t(.setupIntro))
-                .font(.system(.title2, design: .rounded).weight(.heavy))
-                .multilineTextAlignment(.center)
-            field(session.t(.name), text: $name, placeholder: "Alex")
-            DateOfBirthSelectField(date: $birthDate) { session.setBirthDate($0) }
-            LanguageSelectField(locale: $locale) { session.setLocale($0) }
-            TimeZoneSelectField(timeZone: $timeZone) { session.setTimeZoneName($0) }
-            Text(session.t(.setupPhoto))
-                .font(.system(.caption, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
-                .multilineTextAlignment(.center)
-            Spacer()
-            CheckMedButton(title: session.t(.continueButton)) {
-                persist()
-                step = .notifications
-            }
-            CheckMedButton(title: session.t(.back), style: .ghost) { step = .howItWorks }
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
-    }
-
-    private var notifications: some View {
-        VStack(spacing: 16) {
-            header(session.t(.notifsTitle))
-            Spacer()
-            PhilView(size: 148)
-            Text(session.t(.notifsHeadline))
-                .font(.system(.title2, design: .rounded).weight(.heavy))
-                .multilineTextAlignment(.center)
-            VStack(alignment: .leading, spacing: 10) {
-                Text(session.t(.notifsMeds))
-                Text(session.t(.notifsTreatment))
-                Text(session.t(.notifsImportant))
-            }
-            .font(.system(.body, design: .rounded).weight(.bold))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer()
-            CheckMedButton(title: session.t(.notifsEnable)) {
-                persist()
-                session.continueAsGuest()
-                onFinished()
-            }
-            CheckMedButton(title: session.t(.createAccount), style: .secondary) {
-                persist()
-                session.continueAsGuest()
-                onCreateAccount()
-            }
-            CheckMedButton(title: session.t(.back), style: .ghost) { step = .personalSetup }
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
-    }
-
-    private func header(_ title: String, kicker: String? = nil) -> some View {
-        VStack(spacing: 6) {
-            Text("0\(step.rawValue + 3)")
-                .font(.system(.caption, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
-                .tracking(1)
-            if let kicker {
-                Text(kicker)
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(CheckMedTheme.muted)
-            }
-            Text(title)
-                .font(.system(.title3, design: .rounded).weight(.heavy))
-        }
-        .padding(.top, 8)
-        .accessibilityLabel(title)
-    }
-
-    private func field(_ title: String, text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(.caption, design: .rounded).weight(.bold))
-                .textCase(.uppercase)
-                .tracking(0.8)
-                .foregroundStyle(CheckMedTheme.muted)
-            TextField(placeholder, text: text)
-                .padding(14)
-                .background(CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.ink, lineWidth: 2))
-        }
-    }
-
-    private func persist() {
-        session.saveOnboardingProfile(
-            displayName: name,
-            language: locale.rawValue,
-            timeZoneName: timeZone,
-            birthDate: birthDate
+    private var insert: AnyTransition {
+        .asymmetric(
+            insertion: .opacity.combined(with: .offset(y: 16)),
+            removal: .opacity
         )
+    }
+
+    private func advance(to next: FirstTimePhase, persist: Bool = true) {
+        withAnimation(.easeInOut(duration: 0.45)) {
+            phase = next
+        }
+        if persist, next.persistable {
+            session.setFirstTimePhaseRaw(next.rawValue)
+        }
+    }
+
+    private func destinationAfterSplash() -> FirstTimePhase {
+        var saved = FirstTimePhase(rawValue: session.firstTimePhaseRaw) ?? .language
+        if saved == .splash || saved == .analysing { saved = .language }
+        if session.kind != .authenticated, saved.requiresAuth {
+            return .signIn
+        }
+        if session.kind == .authenticated, saved == .signIn {
+            return session.needsIdentityProfile ? .profile : .addMedication
+        }
+        if session.kind == .authenticated, saved == .profile, !session.needsIdentityProfile {
+            return .addMedication
+        }
+        return saved
+    }
+}
+
+struct LanguageOnboardingView: View {
+    @Environment(SessionStore.self) private var session
+    var onContinue: () -> Void
+
+    @State private var locale: AppLocale = .english
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Spacer(minLength: 8)
+            PhilView(size: 128, mood: .idle, pose: .pointingDown, smiling: true)
+            Text(session.t(.languageHeadline))
+                .font(.system(.title2, design: .rounded).weight(.heavy))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(CheckMedTheme.ink)
+            Text(session.t(.languageSubhead))
+                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .multilineTextAlignment(.center)
+            LanguageWheelPicker(locale: $locale) { session.setLocale($0) }
+            Spacer(minLength: 8)
+            CheckMedButton(title: session.t(.continueButton)) {
+                session.setLocale(locale)
+                onContinue()
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.background)
+        .onAppear { locale = session.locale }
+        .accessibilityLabel(session.t(.language))
+    }
+}
+
+struct HowItWorksView: View {
+    @Environment(SessionStore.self) private var session
+    var onGetStarted: () -> Void
+
+    @State private var beat = 0
+    @State private var appeared = false
+
+    private var features: [L10n.HowFeature] { L10n.howFeatures(session.locale) }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 18) {
+                PhilView(
+                    size: 112,
+                    mood: beat == features.count - 1 ? .celebrate : .idle,
+                    pose: beat == 0 ? .pointingDown : .idle,
+                    smiling: true
+                )
+                .padding(.top, 8)
+
+                Text(session.t(.howHeadline))
+                    .font(.system(.title3, design: .rounded).weight(.heavy))
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(CheckMedTheme.ink)
+
+                if features.indices.contains(beat) {
+                    beatCard(features[beat])
+                        .id(beat)
+                }
+
+                HStack(spacing: 8) {
+                    ForEach(features.indices, id: \.self) { index in
+                        Capsule()
+                            .fill(index == beat ? CheckMedTheme.primary : CheckMedTheme.locked)
+                            .frame(width: index == beat ? 22 : 8, height: 8)
+                            .animation(.spring(duration: 0.35), value: beat)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture { advanceBeat() }
+            .gesture(
+                DragGesture(minimumDistance: 24).onEnded { value in
+                    if value.translation.width < -20 { advanceBeat() }
+                    if value.translation.width > 20 { retreatBeat() }
+                }
+            )
+
+            CheckMedButton(title: session.t(.letsGetStarted), action: onGetStarted)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+                .padding(.top, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.background)
+        .accessibilityLabel(session.t(.howTitle))
+        .onAppear { playEntrance() }
+        .onChange(of: beat) { _, _ in playEntrance() }
+        .task(id: beat) {
+            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            guard !Task.isCancelled else { return }
+            advanceBeat()
+        }
+    }
+
+    private func beatCard(_ item: L10n.HowFeature) -> some View {
+        VStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(CheckMedTheme.belly)
+                    .frame(width: 88, height: 88)
+                Image(systemName: item.icon)
+                    .font(.system(size: 36, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.primaryShadow)
+                    .symbolRenderingMode(.hierarchical)
+                    .symbolEffect(.bounce, value: beat)
+                    .symbolEffect(.pulse, value: beat)
+            }
+            .opacity(appeared ? 1 : 0)
+            .offset(y: appeared ? 0 : 16)
+            .scaleEffect(appeared ? 1 : 0.86)
+
+            Text(item.short)
+                .font(.system(.title2, design: .rounded).weight(.heavy))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(CheckMedTheme.ink)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 10)
+
+            Text(item.body)
+                .font(.system(.body, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 8)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    private func playEntrance() {
+        appeared = false
+        withAnimation(.spring(duration: 0.55, bounce: 0.28)) {
+            appeared = true
+        }
+    }
+
+    private func advanceBeat() {
+        guard beat < features.count - 1 else { return }
+        withAnimation(.easeInOut(duration: 0.35)) {
+            beat += 1
+        }
+    }
+
+    private func retreatBeat() {
+        guard beat > 0 else { return }
+        withAnimation(.easeInOut(duration: 0.35)) {
+            beat -= 1
+        }
     }
 }

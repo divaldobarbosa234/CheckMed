@@ -15,6 +15,15 @@ final class SessionStore {
     private var localLanguage = AppLocale.english.rawValue
     private var localTimeZone = CheckMedTimeZones.preferred
     private var localBirthDate: Date?
+    private var localPronouns = ""
+    private var localGender = ""
+    private var localNotificationsPrompted = false
+    private var localPrivacyAcknowledged = false
+    private var localOptionalAnalytics = false
+    private var localOptionalMarketing = false
+    private var localOnboardingComplete = false
+    private var localOnboardingPaywallOffered = false
+    private var localFirstTimePhase = "language"
 
     private enum Keys {
         static let display = "checkmed.displayName"
@@ -22,6 +31,16 @@ final class SessionStore {
         static let language = "checkmed.language"
         static let timeZone = "checkmed.timeZone"
         static let birthDate = "checkmed.birthDate"
+        static let pronouns = "checkmed.pronouns"
+        static let gender = "checkmed.gender"
+        static let notificationsPrompted = "checkmed.notificationsPrompted"
+        static let pendingUpload = "checkmed.profilePendingUpload"
+        static let privacyAcknowledged = "checkmed.privacyAcknowledged"
+        static let optionalAnalytics = "checkmed.optionalAnalytics"
+        static let optionalMarketing = "checkmed.optionalMarketing"
+        static let onboardingComplete = "checkmed.onboardingComplete"
+        static let onboardingPaywallOffered = "checkmed.onboardingPaywallOffered"
+        static let firstTimePhase = "checkmed.firstTimePhase"
     }
 
     init() {
@@ -40,15 +59,33 @@ final class SessionStore {
             localTimeZone = CheckMedTimeZones.preferred
         }
         if let stored = UserDefaults.standard.string(forKey: Keys.birthDate),
-           let date = SessionStore.birthStamp.date(from: stored) {
-            localBirthDate = date
+           let date = BirthDateWheels.date(fromStamp: stored) {
+            localBirthDate = BirthDateWheels.clampedDate(date)
+        }
+        if let stored = UserDefaults.standard.string(forKey: Keys.pronouns) {
+            localPronouns = stored
+        }
+        if let stored = UserDefaults.standard.string(forKey: Keys.gender) {
+            localGender = stored
+        }
+        localNotificationsPrompted = UserDefaults.standard.bool(forKey: Keys.notificationsPrompted)
+        localPrivacyAcknowledged = UserDefaults.standard.bool(forKey: Keys.privacyAcknowledged)
+        localOptionalAnalytics = UserDefaults.standard.bool(forKey: Keys.optionalAnalytics)
+        localOptionalMarketing = UserDefaults.standard.bool(forKey: Keys.optionalMarketing)
+        localOnboardingComplete = UserDefaults.standard.bool(forKey: Keys.onboardingComplete)
+        localOnboardingPaywallOffered = UserDefaults.standard.bool(forKey: Keys.onboardingPaywallOffered)
+        if let stored = UserDefaults.standard.string(forKey: Keys.firstTimePhase), !stored.isEmpty {
+            localFirstTimePhase = stored
+        }
+        auth.onAuthenticated = { [weak self] _ in
+            await self?.handleAuthenticated()
         }
         auth.start()
     }
 
     var kind: Kind {
         if auth.isAuthenticated { return .authenticated }
-        if guestUnlocked { return .guest }
+        if guestUnlocked || localOnboardingComplete { return .guest }
         return .welcome
     }
 
@@ -70,15 +107,85 @@ final class SessionStore {
     var locale: AppLocale { AppLocale.fromStored(localLanguage) }
     var timeZoneName: String { localTimeZone }
     var birthDate: Date? { localBirthDate }
+    var pronouns: String { localPronouns }
+    var gender: String { localGender }
 
-    private static let birthStamp: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
+    var hasPreferredName: Bool {
+        let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !name.isEmpty && name != "there" && name != "friend"
+    }
+
+    var needsCallYouScreen: Bool { !hasPreferredName || localBirthDate == nil }
+    var needsAddressYouScreen: Bool {
+        localPronouns.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || localGender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var needsNotificationsPrompt: Bool { !localNotificationsPrompted }
+
+    /// Policy/terms acknowledgement from Accept. Does not imply analytics or marketing.
+    var hasAcknowledgedPrivacy: Bool { localPrivacyAcknowledged }
+    var needsPrivacyAcknowledgement: Bool { !localPrivacyAcknowledged }
+
+    var hasCompletedOnboarding: Bool { localOnboardingComplete }
+    var firstTimePhaseRaw: String { localFirstTimePhase }
+    var shouldOfferOnboardingPaywall: Bool {
+        localOnboardingComplete && !localOnboardingPaywallOffered
+    }
+
+    /// Identity fields collected after sign-in (name, DOB, pronouns, gender). Not language.
+    var needsIdentityProfile: Bool { needsCallYouScreen || needsAddressYouScreen }
+
+    var optionalAnalyticsEnabled: Bool { localOptionalAnalytics }
+    var optionalMarketingEnabled: Bool { localOptionalMarketing }
+
+    /// Stores Privacy Policy / Terms acknowledgement only. Never enables advertising, analytics, or marketing.
+    func acknowledgePrivacy() {
+        guard !localPrivacyAcknowledged else { return }
+        localPrivacyAcknowledged = true
+        UserDefaults.standard.set(true, forKey: Keys.privacyAcknowledged)
+    }
+
+    func setOptionalAnalyticsEnabled(_ enabled: Bool) {
+        guard enabled != localOptionalAnalytics else { return }
+        localOptionalAnalytics = enabled
+        UserDefaults.standard.set(enabled, forKey: Keys.optionalAnalytics)
+    }
+
+    func setOptionalMarketingEnabled(_ enabled: Bool) {
+        guard enabled != localOptionalMarketing else { return }
+        localOptionalMarketing = enabled
+        UserDefaults.standard.set(enabled, forKey: Keys.optionalMarketing)
+    }
+
+    var needsAccountProfile: Bool {
+        kind == .authenticated && hasCompletedOnboarding && needsIdentityProfile
+    }
+
+    func setFirstTimePhaseRaw(_ raw: String) {
+        guard raw != localFirstTimePhase else { return }
+        localFirstTimePhase = raw
+        UserDefaults.standard.set(raw, forKey: Keys.firstTimePhase)
+    }
+
+    func markOnboardingComplete() {
+        localOnboardingComplete = true
+        UserDefaults.standard.set(true, forKey: Keys.onboardingComplete)
+        UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
+        localFirstTimePhase = "language"
+    }
+
+    func markOnboardingPaywallOffered() {
+        guard !localOnboardingPaywallOffered else { return }
+        localOnboardingPaywallOffered = true
+        UserDefaults.standard.set(true, forKey: Keys.onboardingPaywallOffered)
+    }
+
+    func markNotificationsPrompted() {
+        guard !localNotificationsPrompted else { return }
+        localNotificationsPrompted = true
+        UserDefaults.standard.set(true, forKey: Keys.notificationsPrompted)
+    }
 
     func t(_ key: L10n.Key, _ args: CVarArg...) -> String {
         L10n.string(key, locale: locale, args: args)
@@ -109,11 +216,23 @@ final class SessionStore {
         let companion = companionName.trimmingCharacters(in: .whitespacesAndNewlines)
         localCompanionName = companion.isEmpty ? "Phil" : companion
         UserDefaults.standard.set(localCompanionName, forKey: Keys.companion)
+        queueProfileSync()
+    }
+
+    func setDisplayName(_ name: String) {
+        let display = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let next = display.isEmpty ? "there" : display
+        guard next != localDisplayName else { return }
+        localDisplayName = next
+        UserDefaults.standard.set(localDisplayName, forKey: Keys.display)
+        queueProfileSync()
     }
 
     func setLocale(_ locale: AppLocale) {
+        guard locale.rawValue != localLanguage else { return }
         localLanguage = locale.rawValue
         UserDefaults.standard.set(locale.rawValue, forKey: Keys.language)
+        queueProfileSync()
     }
 
     func setLanguage(_ language: String) {
@@ -121,17 +240,49 @@ final class SessionStore {
     }
 
     func setTimeZoneName(_ timeZoneName: String) {
-        localTimeZone = CheckMedTimeZones.resolved(timeZoneName)
+        let next = CheckMedTimeZones.resolved(timeZoneName)
+        guard next != localTimeZone else { return }
+        localTimeZone = next
         UserDefaults.standard.set(localTimeZone, forKey: Keys.timeZone)
+        queueProfileSync()
     }
 
     func setBirthDate(_ date: Date?) {
-        localBirthDate = date
-        if let date {
-            UserDefaults.standard.set(SessionStore.birthStamp.string(from: date), forKey: Keys.birthDate)
+        let next = date.map(BirthDateWheels.clampedDate)
+        let nextStamp = next.map(BirthDateWheels.stamp)
+        let currentStamp = localBirthDate.map(BirthDateWheels.stamp)
+        guard nextStamp != currentStamp else { return }
+        localBirthDate = next
+        if let nextStamp {
+            UserDefaults.standard.set(nextStamp, forKey: Keys.birthDate)
         } else {
             UserDefaults.standard.removeObject(forKey: Keys.birthDate)
         }
+        queueProfileSync()
+    }
+
+    func setPronouns(_ value: String) {
+        let next = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard next != localPronouns else { return }
+        localPronouns = next
+        UserDefaults.standard.set(localPronouns, forKey: Keys.pronouns)
+        queueProfileSync()
+    }
+
+    func setGender(_ value: String) {
+        let next = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard next != localGender else { return }
+        localGender = next
+        UserDefaults.standard.set(localGender, forKey: Keys.gender)
+        queueProfileSync()
+    }
+
+    func saveAddressing(pronouns: String, gender: String) {
+        localPronouns = pronouns.trimmingCharacters(in: .whitespacesAndNewlines)
+        localGender = gender.trimmingCharacters(in: .whitespacesAndNewlines)
+        UserDefaults.standard.set(localPronouns, forKey: Keys.pronouns)
+        UserDefaults.standard.set(localGender, forKey: Keys.gender)
+        queueProfileSync()
     }
 
     func saveOnboardingProfile(
@@ -144,16 +295,17 @@ final class SessionStore {
         localDisplayName = display.isEmpty ? "there" : display
         localLanguage = AppLocale.fromStored(language).rawValue
         localTimeZone = CheckMedTimeZones.resolved(timeZoneName)
-        localBirthDate = birthDate
+        localBirthDate = birthDate.map(BirthDateWheels.clampedDate)
         UserDefaults.standard.set(localDisplayName, forKey: Keys.display)
         UserDefaults.standard.set(localLanguage, forKey: Keys.language)
         UserDefaults.standard.set(localTimeZone, forKey: Keys.timeZone)
         UserDefaults.standard.set(localCompanionName, forKey: Keys.companion)
-        if let birthDate {
-            UserDefaults.standard.set(SessionStore.birthStamp.string(from: birthDate), forKey: Keys.birthDate)
+        if let localBirthDate {
+            UserDefaults.standard.set(BirthDateWheels.stamp(from: localBirthDate), forKey: Keys.birthDate)
         } else {
             UserDefaults.standard.removeObject(forKey: Keys.birthDate)
         }
+        queueProfileSync()
     }
 
     func signOut() {
@@ -172,6 +324,25 @@ final class SessionStore {
         UserDefaults.standard.removeObject(forKey: Keys.language)
         UserDefaults.standard.removeObject(forKey: Keys.timeZone)
         UserDefaults.standard.removeObject(forKey: Keys.birthDate)
+        UserDefaults.standard.removeObject(forKey: Keys.pronouns)
+        UserDefaults.standard.removeObject(forKey: Keys.gender)
+        UserDefaults.standard.removeObject(forKey: Keys.notificationsPrompted)
+        UserDefaults.standard.removeObject(forKey: Keys.pendingUpload)
+        UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
+        UserDefaults.standard.removeObject(forKey: Keys.optionalAnalytics)
+        UserDefaults.standard.removeObject(forKey: Keys.optionalMarketing)
+        UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
+        UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
+        UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
+        localOnboardingComplete = false
+        localOnboardingPaywallOffered = false
+        localFirstTimePhase = "language"
+        localPronouns = ""
+        localGender = ""
+        localNotificationsPrompted = false
+        localPrivacyAcknowledged = false
+        localOptionalAnalytics = false
+        localOptionalMarketing = false
         guestUnlocked = false
         Task { await auth.signOut() }
     }
@@ -184,7 +355,7 @@ final class SessionStore {
             Task { await auth.signInWithGoogle() }
         case .facebook:
             auth.clearMessages()
-            auth.presentFacebookUnavailable()
+            auth.presentFacebookUnavailable(t(.facebookUnavailable))
         case .email:
             break
         }
@@ -201,6 +372,88 @@ final class SessionStore {
     func resetPassword(email: String) async {
         await auth.resetPassword(email: email)
     }
+
+    private func queueProfileSync() {
+        if canSync {
+            UserDefaults.standard.set(false, forKey: Keys.pendingUpload)
+            Task { await pushProfile() }
+        } else {
+            UserDefaults.standard.set(true, forKey: Keys.pendingUpload)
+        }
+    }
+
+    private func handleAuthenticated() async {
+        let pending = UserDefaults.standard.bool(forKey: Keys.pendingUpload)
+        // Guest setup stays local until sign-in. Failed signed-in writes also
+        // stay pending so the next session can retry, then we read back.
+        if pending {
+            await pushProfile()
+        }
+        let remote = await pullProfile()
+        if remote == nil {
+            await pushProfile()
+        }
+    }
+
+    private func pushProfile() async {
+        guard canSync, let userId = auth.userId else {
+            UserDefaults.standard.set(true, forKey: Keys.pendingUpload)
+            return
+        }
+        let name = localDisplayName == "there" ? nil : localDisplayName
+        let profile = CheckMedProfile(
+            ownerId: userId,
+            displayName: name ?? auth.displayName.nilIfEmpty,
+            companionName: localCompanionName,
+            dateOfBirth: localBirthDate.map(BirthDateWheels.stamp),
+            language: localLanguage,
+            timeZone: localTimeZone,
+            pronouns: localPronouns.nilIfEmpty,
+            gender: localGender.nilIfEmpty
+        )
+        let ok = await auth.upsertProfile(profile)
+        UserDefaults.standard.set(!ok, forKey: Keys.pendingUpload)
+    }
+
+    @discardableResult
+    private func pullProfile() async -> CheckMedProfile? {
+        guard canSync else { return nil }
+        guard let profile = await auth.fetchProfile() else { return nil }
+        applyRemote(profile)
+        return profile
+    }
+
+    private func applyRemote(_ profile: CheckMedProfile) {
+        if let name = profile.displayName?.nilIfEmpty {
+            localDisplayName = name
+            UserDefaults.standard.set(name, forKey: Keys.display)
+        }
+        if let companion = profile.companionName.nilIfEmpty {
+            localCompanionName = companion
+            UserDefaults.standard.set(companion, forKey: Keys.companion)
+        }
+        if let language = profile.language?.nilIfEmpty {
+            localLanguage = AppLocale.fromStored(language).rawValue
+            UserDefaults.standard.set(localLanguage, forKey: Keys.language)
+        }
+        if let timeZone = profile.timeZone?.nilIfEmpty {
+            localTimeZone = CheckMedTimeZones.resolved(timeZone)
+            UserDefaults.standard.set(localTimeZone, forKey: Keys.timeZone)
+        }
+        if let raw = profile.dateOfBirth?.nilIfEmpty,
+           let date = BirthDateWheels.date(fromStamp: raw) {
+            localBirthDate = BirthDateWheels.clampedDate(date)
+            UserDefaults.standard.set(BirthDateWheels.stamp(from: localBirthDate!), forKey: Keys.birthDate)
+        }
+        if let pronouns = profile.pronouns?.nilIfEmpty {
+            localPronouns = pronouns
+            UserDefaults.standard.set(pronouns, forKey: Keys.pronouns)
+        }
+        if let gender = profile.gender?.nilIfEmpty {
+            localGender = gender
+            UserDefaults.standard.set(gender, forKey: Keys.gender)
+        }
+    }
 }
 
 enum AuthProvider: String {
@@ -213,5 +466,12 @@ enum AuthProvider: String {
         case .facebook: "Facebook"
         case .email: "Email"
         }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

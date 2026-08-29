@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Destinations for the principal-screen IA (06–40). Launch 01–05 are root flow, not stack routes.
+/// Destinations for the principal-screen IA (06–40).
+/// Launch (root flow, not stack routes): splash → language → how it works → privacy → sign in → profile → add medication → analyse → confirm → organize → notifications → Phil ready → home.
 enum AppRoute: Hashable {
     case todayTreatment
     case upcoming
@@ -35,6 +36,9 @@ enum AppRoute: Hashable {
     case medicineHistory
     case notificationPrefs
     case settings
+    case privacySettings
+    case privacyPolicy
+    case termsOfUse
     case paywall
     case family
 }
@@ -99,9 +103,10 @@ enum CheckMedDemo {
     static let food = "Can usually be taken with or without food. Alcohol is not a substitute for medical advice — ask your pharmacist if unsure."
 
     static let howSteps: [(title: String, body: String)] = [
-        ("Scan", "Photograph or import your prescription."),
-        ("Understand", "CheckMed structures what was written so you can verify it."),
-        ("Stay on track", "Phil reminds you — you confirm every dose."),
+        ("Take a photo", "Take a picture of your prescription and let CheckMed help read and organize the information."),
+        ("Know what you’re taking", "See your medicines, dosage, frequency, and important information in one simple place."),
+        ("Get reminders", "Create a personalized medication schedule and receive reminders when it’s time to take each medicine."),
+        ("Hear it explained", "Use AI voice assistance to listen to your medication instructions and explanations."),
     ]
 }
 
@@ -157,7 +162,10 @@ struct AppRouteView: View {
         case .myMedicines: MyMedicinesScreen(go: nav.go)
         case .medicineHistory: MedicineHistoryScreen()
         case .notificationPrefs: NotificationPrefsScreen()
-        case .settings: SettingsScreen()
+        case .settings: SettingsScreen(go: nav.go)
+        case .privacySettings: PrivacySettingsView()
+        case .privacyPolicy: LegalDocumentView(kind: .privacyPolicy)
+        case .termsOfUse: LegalDocumentView(kind: .termsOfUse)
         case .paywall: PaywallView()
         case .family: FamilyView()
         }

@@ -796,23 +796,96 @@ struct NotificationPrefsScreen: View {
 
 struct SettingsScreen: View {
     @Environment(SessionStore.self) private var session
+    var go: (AppRoute) -> Void
+    @State private var nameDraft = ""
 
     var body: some View {
         ScreenScaffold(title: session.t(.settingsTitle), bubble: session.t(.settingsBubble)) {
+            nameField
+            DateOfBirthSelectField(
+                date: Binding(
+                    get: { session.birthDate },
+                    set: { session.setBirthDate($0) }
+                )
+            )
             LanguageSelectField(
                 locale: Binding(
                     get: { session.locale },
                     set: { session.setLocale($0) }
                 )
             )
+            TimeZoneSelectField(
+                timeZone: Binding(
+                    get: { session.timeZoneName },
+                    set: { session.setTimeZoneName($0) }
+                )
+            )
+            PronounSelectField(
+                value: Binding(
+                    get: { session.pronouns },
+                    set: { session.setPronouns($0) }
+                )
+            )
+            GenderSelectField(
+                value: Binding(
+                    get: { session.gender },
+                    set: { session.setGender($0) }
+                )
+            )
             ForEach(L10n.settingsItems(session.locale), id: \.self) { item in
-                Text(item)
-                    .font(.system(.body, design: .rounded).weight(.bold))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-                    .background(CheckMedTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                if item == session.t(.settingsPrivacy) {
+                    Button {
+                        go(.privacySettings)
+                    } label: {
+                        settingsItemRow(item, tappable: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint(session.t(.privacySettingsHint))
+                } else {
+                    settingsItemRow(item, tappable: false)
+                }
             }
         }
+        .onAppear {
+            nameDraft = session.hasPreferredName ? session.displayName : ""
+        }
+        .onDisappear {
+            session.setDisplayName(nameDraft)
+        }
+    }
+
+    private var nameField: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(session.t(.preferredName))
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .textCase(.uppercase)
+                .tracking(0.8)
+                .foregroundStyle(CheckMedTheme.muted)
+            TextField("Alex", text: $nameDraft)
+                .padding(14)
+                .background(CheckMedTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.ink, lineWidth: 2))
+                .onSubmit { session.setDisplayName(nameDraft) }
+        }
+    }
+
+    private func settingsItemRow(_ item: String, tappable: Bool) -> some View {
+        HStack {
+            Text(item)
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.ink)
+            Spacer()
+            if tappable {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }

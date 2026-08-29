@@ -117,6 +117,14 @@ struct HomeView: View {
             .sheet(isPresented: $showSignIn) {
                 NavigationStack { SignInView() }
             }
+            .task {
+                guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
+                try? await Task.sleep(nanoseconds: 3_500_000_000)
+                guard !Task.isCancelled else { return }
+                guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
+                session.markOnboardingPaywallOffered()
+                entitlements.presentPaywall()
+            }
         }
     }
 
