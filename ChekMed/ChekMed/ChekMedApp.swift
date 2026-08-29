@@ -35,6 +35,7 @@ struct ChekMedApp: App {
                 .environment(session)
                 .environment(path)
                 .environment(entitlements)
+                .environment(\.locale, session.locale.foundationLocale)
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
                 }

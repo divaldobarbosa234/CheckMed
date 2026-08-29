@@ -56,9 +56,9 @@ final class AuthManager {
         statusMessage = nil
     }
 
-    func presentAppleComingSoon() {
+    func presentAppleComingSoon(_ message: String = AuthConfig.appleComingSoonMessage) {
         errorMessage = nil
-        statusMessage = AuthConfig.appleComingSoonMessage
+        statusMessage = message
     }
 
     func presentFacebookUnavailable() {

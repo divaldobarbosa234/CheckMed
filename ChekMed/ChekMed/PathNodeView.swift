@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct PathNodeView: View {
+    @Environment(SessionStore.self) private var session
     let node: DoseNode
     var offset: CGFloat
     var showConnector: Bool
@@ -37,13 +38,13 @@ struct PathNodeView: View {
                     .foregroundStyle(CheckMedTheme.ink)
                 if node.status == .current {
                     HStack {
-                        Button("Taken", action: onTake)
+                        Button(session.t(.taken), action: onTake)
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
                             .background(CheckMedTheme.primary, in: Capsule())
-                        Button("Skip", action: onSkip)
+                        Button(session.t(.skip), action: onSkip)
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
                             .foregroundStyle(CheckMedTheme.ink)
                             .padding(.horizontal, 16)
@@ -89,9 +90,9 @@ struct PathNodeView: View {
 
     private var statusLabel: String {
         switch node.status {
-        case .done: "Logged"
-        case .skipped: "Skipped"
-        case .locked: "Locked"
+        case .done: session.t(.logged)
+        case .skipped: session.t(.skipped)
+        case .locked: session.t(.locked)
         case .current: ""
         }
     }

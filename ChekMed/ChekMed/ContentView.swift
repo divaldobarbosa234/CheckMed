@@ -10,4 +10,5 @@ struct ContentView: View {
     RootView()
         .environment(SessionStore())
         .environment(TodayPathStore())
+        .environment(EntitlementStore())
 }

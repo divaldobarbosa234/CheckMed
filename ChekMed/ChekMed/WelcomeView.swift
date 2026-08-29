@@ -7,13 +7,19 @@ struct WelcomeView: View {
 
     var body: some View {
         VStack {
+            Text(session.t(.welcomeKicker))
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .textCase(.uppercase)
+                .tracking(1)
+                .foregroundStyle(CheckMedTheme.muted)
+                .padding(.top, 12)
             Spacer()
             VStack(spacing: 16) {
                 PhilView(size: 148)
-                Text("CheckMed")
-                    .font(.system(size: 34, weight: .black, design: .rounded))
+                Text(session.t(.welcomeHi))
+                    .font(.system(size: 32, weight: .black, design: .rounded))
                     .foregroundStyle(CheckMedTheme.ink)
-                Text("Hi, I’m Phil. I help you understand, organize, and follow your treatments — one path at a time.")
+                Text(session.t(.welcomeHelp))
                     .font(.system(.body, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.muted)
                     .multilineTextAlignment(.center)
@@ -21,9 +27,9 @@ struct WelcomeView: View {
             }
             Spacer()
             VStack(spacing: 12) {
-                CheckMedButton(title: "Get started", action: onGetStarted)
-                CheckMedButton(title: "I already have an account", style: .secondary, action: onSignIn)
-                CheckMedButton(title: "Continue as guest", style: .ghost) {
+                CheckMedButton(title: session.t(.getStarted), action: onGetStarted)
+                CheckMedButton(title: session.t(.haveAccount), style: .secondary, action: onSignIn)
+                CheckMedButton(title: session.t(.continueAsGuest), style: .ghost) {
                     session.continueAsGuest()
                 }
                 SafetyCaption()
@@ -33,5 +39,6 @@ struct WelcomeView: View {
         .padding(.horizontal, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
+        .accessibilityLabel(session.t(.welcomeKicker))
     }
 }

@@ -5,128 +5,23 @@ struct TreatmentsView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Treatments")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                    HStack(alignment: .center, spacing: 12) {
-                        PhilView(size: 72)
-                        SpeechBubbleView(
-                            text: "This is where we organize what you verified. One mock treatment lives here until scan and editor land."
-                        )
-                    }
-                    Button {
-                        path.append(ProductRoute.treatment)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Active")
-                                .font(.system(.caption, design: .rounded).weight(.bold))
-                                .textCase(.uppercase)
-                                .tracking(0.8)
-                                .foregroundStyle(CheckMedTheme.primaryShadow)
-                            Text("Morning + evening routine")
-                                .font(.system(.title3, design: .rounded).weight(.heavy))
-                                .foregroundStyle(CheckMedTheme.ink)
-                            Text("Vitamin D · Metformin · Atorvastatin. Remaining days and the original document arrive with import. Phil will keep the path in order.")
-                                .font(.system(.body, design: .rounded).weight(.bold))
-                                .foregroundStyle(CheckMedTheme.muted)
-                        }
-                        .padding(16)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(CheckMedTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open treatment editor placeholder")
+            TreatmentOverviewScreen(go: { path.append($0) })
+                .navigationDestination(for: AppRoute.self) { route in
+                    AppRouteView(route: route, path: $path)
                 }
-                .padding(16)
-            }
-            .background(CheckMedTheme.background)
-            .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: ProductRoute.self) { route in
-                ProductRouteView(route: route, path: $path)
-            }
         }
     }
 }
 
-struct HistoryView: View {
-    @Environment(EntitlementStore.self) private var entitlements
+struct ProgressTabView: View {
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("History")
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                    HStack(alignment: .center, spacing: 12) {
-                        PhilView(size: 72)
-                        SpeechBubbleView(
-                            text: "Taken days count for the streak. Skip does not break it. Missed will — when real logs land."
-                        )
-                    }
-                    Button {
-                        if !entitlements.isSuper {
-                            entitlements.presentPaywall()
-                        }
-                    } label: {
-                        HStack {
-                            Text("Longer filters")
-                                .font(.system(.body, design: .rounded).weight(.bold))
-                                .foregroundStyle(CheckMedTheme.ink)
-                            Spacer()
-                            Text(entitlements.isSuper ? "Week · Month" : "Super")
-                                .font(.system(.caption, design: .rounded).weight(.bold))
-                                .foregroundStyle(entitlements.isSuper ? CheckMedTheme.superAccent : CheckMedTheme.muted)
-                        }
-                        .padding(16)
-                        .background(CheckMedTheme.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(entitlements.isSuper ? CheckMedTheme.superAccent.opacity(0.45) : Color(hex: 0xEFEFEF), lineWidth: 2)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(
-                        entitlements.isSuper
-                            ? "Longer history filters"
-                            : "Longer history filters are Super"
-                    )
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Today · 08:00")
-                            .font(.system(.caption, design: .rounded).weight(.bold))
-                            .textCase(.uppercase)
-                            .tracking(0.6)
-                            .foregroundStyle(CheckMedTheme.muted)
-                        Text("Vitamin D 1000 IU")
-                            .font(.system(.title3, design: .rounded).weight(.heavy))
-                        Text("Taken")
-                            .font(.system(.body, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.primaryShadow)
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(CheckMedTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
-                    )
-                    Text("Later doses appear here after you tap Taken or Skip on Home.")
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                    SafetyCaption()
-                        .frame(maxWidth: .infinity)
+        NavigationStack(path: $path) {
+            ProgressDashboardScreen(go: { path.append($0) })
+                .navigationDestination(for: AppRoute.self) { route in
+                    AppRouteView(route: route, path: $path)
                 }
-                .padding(16)
-            }
-            .background(CheckMedTheme.background)
-            .toolbar(.hidden, for: .navigationBar)
         }
     }
 }
@@ -142,36 +37,37 @@ struct ProfileView: View {
         NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Profile")
+                    Text(session.t(.profileTitle))
                         .font(.system(size: 28, weight: .black, design: .rounded))
                     HStack(alignment: .center, spacing: 12) {
-                        PhilView(size: 72)
-                        SpeechBubbleView(
-                            text: session.isGuest
-                                ? "Guest for now. Create an account and I follow you — not this phone. Super never blocks Taken."
-                                : "You're in, \(session.displayName). I follow this account — Super never blocks Taken."
-                        )
+                        PhilView(size: 96)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(session.displayName == "there" ? "Alex" : session.displayName)
+                                .font(.system(.title2, design: .rounded).weight(.heavy))
+                            Text(session.language)
+                            Text(session.timeZoneName)
+                                .font(.system(.caption, design: .rounded).weight(.bold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                        }
                     }
+                    SpeechBubbleView(
+                        text: session.isGuest
+                            ? session.t(.profileGuestBubble)
+                            : session.t(.profileSignedBubble, session.displayName)
+                    )
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Text("Account")
+                        Text(session.t(.profileAccount))
                             .font(.system(.caption, design: .rounded).weight(.bold))
                             .textCase(.uppercase)
                             .tracking(0.8)
                             .foregroundStyle(CheckMedTheme.muted)
-                        Text(session.isGuest ? "Guest" : (session.email ?? session.displayName))
+                        Text(session.isGuest ? session.t(.profileGuest) : (session.email ?? session.displayName))
                             .font(.system(.title3, design: .rounded).weight(.heavy))
-                        Text(
-                            session.isGuest
-                                ? "Cloud scan stays behind an account. Google, email, or guest until Apple ships."
-                                : "Session is real. Sign out anytime. Cloud treatments sync in Phase 3."
-                        )
-                        .font(.system(.body, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
                         if session.isGuest {
-                            CheckMedButton(title: "Create account") { showSignIn = true }
+                            CheckMedButton(title: session.t(.createAccount)) { showSignIn = true }
                         } else {
-                            CheckMedButton(title: "Sign out", style: .secondary) {
+                            CheckMedButton(title: session.t(.profileSignOut), style: .secondary) {
                                 session.signOut()
                             }
                         }
@@ -185,30 +81,45 @@ struct ProfileView: View {
                             .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
                     )
 
-                    profileRow(label: "Companion", value: session.companionName)
-                    Button {
-                        path.append(ProductRoute.family)
-                    } label: {
+                    Button { path.append(AppRoute.notificationPrefs) } label: {
+                        profileRow(label: session.t(.profileNotifs), value: session.t(.profileOn))
+                    }
+                    .buttonStyle(.plain)
+                    Button { path.append(AppRoute.settings) } label: {
+                        profileRow(label: session.t(.profileSettings), value: "")
+                    }
+                    .buttonStyle(.plain)
+                    LanguageSelectField(
+                        locale: Binding(
+                            get: { session.locale },
+                            set: { session.setLocale($0) }
+                        )
+                    )
+                    Button { path.append(AppRoute.family) } label: {
                         profileRow(
-                            label: "Family profiles",
-                            value: "\(entitlements.freeFamilySlots) of \(entitlements.familySlots)"
+                            label: session.t(.profileFamily),
+                            value: session.t(.profileFamilyCount, entitlements.freeFamilySlots, entitlements.familySlots)
                         )
                     }
                     .buttonStyle(.plain)
-                    Button {
-                        entitlements.presentPaywall()
-                    } label: {
+                    Button { entitlements.presentPaywall() } label: {
                         profileRow(
-                            label: "Super CheckMed",
-                            value: entitlements.isSuper ? "Super" : "Free"
+                            label: session.t(.profileSuper),
+                            value: entitlements.isSuper ? session.t(.paywallSuper) : session.t(.profileFree)
                         )
                     }
                     .buttonStyle(.plain)
-                    profileRow(label: "Notifications", value: "On (preview)")
-                    profileRow(label: "Voice & language", value: "English")
+                    Button { path.append(AppRoute.reminderSettings) } label: {
+                        profileRow(label: session.t(.profileReminders), value: "Amoxicillin")
+                    }
+                    .buttonStyle(.plain)
+                    Button { path.append(AppRoute.myMedicines) } label: {
+                        profileRow(label: session.t(.profileMedicines), value: session.t(.profileLibrary))
+                    }
+                    .buttonStyle(.plain)
 
                     if !session.isGuest {
-                        Button("Delete account & data") { confirmDelete = true }
+                        Button(session.t(.profileDelete)) { confirmDelete = true }
                             .font(.system(.caption, design: .rounded).weight(.bold))
                             .foregroundStyle(CheckMedTheme.danger)
                             .frame(maxWidth: .infinity)
@@ -225,18 +136,19 @@ struct ProfileView: View {
                 .padding(16)
             }
             .background(CheckMedTheme.background)
-            .toolbar(.hidden, for: .navigationBar)
-            .navigationDestination(for: ProductRoute.self) { route in
-                ProductRouteView(route: route, path: $path)
+            .navigationTitle(session.t(.profileTitle))
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: AppRoute.self) { route in
+                AppRouteView(route: route, path: $path)
             }
             .sheet(isPresented: $showSignIn) {
                 NavigationStack { SignInView() }
             }
-            .alert("Delete account & data", isPresented: $confirmDelete) {
-                Button("Sign out here", role: .destructive) { session.deleteAccount() }
-                Button("Cancel", role: .cancel) {}
+            .alert(session.t(.profileDeleteTitle), isPresented: $confirmDelete) {
+                Button(session.t(.profileSignOutHere), role: .destructive) { session.deleteAccount() }
+                Button(session.t(.cancel), role: .cancel) {}
             } message: {
-                Text("This signs you out now. Wiping the cloud account is Phase 6. You can also delete the user in the Supabase dashboard.")
+                Text(session.t(.profileDeleteBody))
             }
         }
     }
@@ -261,12 +173,14 @@ struct ProfileView: View {
 }
 
 struct MainTabView: View {
+    @Environment(SessionStore.self) private var session
+
     var body: some View {
         TabView {
-            Tab("Home", systemImage: "house.fill") { HomeView() }
-            Tab("Treatments", systemImage: "pills.fill") { TreatmentsView() }
-            Tab("History", systemImage: "clock.fill") { HistoryView() }
-            Tab("Profile", systemImage: "person.fill") { ProfileView() }
+            Tab(session.t(.tabHome), systemImage: "house.fill") { HomeView() }
+            Tab(session.t(.tabTreatments), systemImage: "pills.fill") { TreatmentsView() }
+            Tab(session.t(.tabProgress), systemImage: "chart.line.uptrend.xyaxis") { ProgressTabView() }
+            Tab(session.t(.tabProfile), systemImage: "person.fill") { ProfileView() }
         }
         .tint(CheckMedTheme.primaryShadow)
     }

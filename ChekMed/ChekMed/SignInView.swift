@@ -87,7 +87,7 @@ struct SignInView: View {
                         .frame(maxWidth: .infinity)
                 }
 
-                CheckMedButton(title: "Continue as guest", style: .ghost) {
+                CheckMedButton(title: session.t(.continueAsGuest), style: .ghost) {
                     session.continueAsGuest()
                     dismiss()
                 }
@@ -99,10 +99,10 @@ struct SignInView: View {
         .navigationTitle("Sign in")
         .navigationBarTitleDisplayMode(.inline)
         .disabled(session.isLoading)
-        .alert("Sign in with Apple", isPresented: $showAppleComingSoon) {
+        .alert(session.t(.appleTitle), isPresented: $showAppleComingSoon) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text("We'll have this section before launch")
+            Text(session.t(.appleComingSoon))
         }
         .onChange(of: session.kind) { _, kind in
             if kind == .authenticated { dismiss() }

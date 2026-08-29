@@ -4,29 +4,32 @@ struct RootView: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
     @State private var showSignIn = false
-    @State private var showOnboarding = false
+    @State private var launch: LaunchPhase = .splash
+
+    private enum LaunchPhase {
+        case splash, welcome, onboarding
+    }
 
     var body: some View {
         Group {
             if session.isRestoring {
                 restoring
-            } else if session.kind == .welcome && showOnboarding {
-                OnboardingView(
-                    onCreateAccount: {
-                        showSignIn = true
-                    },
-                    onGuest: {
-                        showOnboarding = false
-                    },
-                    onBack: {
-                        showOnboarding = false
-                    }
-                )
             } else if session.kind == .welcome {
-                WelcomeView(
-                    onSignIn: { showSignIn = true },
-                    onGetStarted: { showOnboarding = true }
-                )
+                switch launch {
+                case .splash:
+                    SplashView { launch = .welcome }
+                case .welcome:
+                    WelcomeView(
+                        onSignIn: { showSignIn = true },
+                        onGetStarted: { launch = .onboarding }
+                    )
+                case .onboarding:
+                    OnboardingView(
+                        onFinished: {},
+                        onCreateAccount: { showSignIn = true },
+                        onBack: { launch = .welcome }
+                    )
+                }
             } else {
                 MainTabView()
             }
@@ -40,9 +43,10 @@ struct RootView: View {
         )) {
             NavigationStack { PaywallView() }
         }
+        .environment(\.locale, session.locale.foundationLocale)
         .onChange(of: session.kind) { _, kind in
             if kind != .welcome {
-                showOnboarding = false
+                launch = .splash
             }
         }
     }
@@ -51,7 +55,7 @@ struct RootView: View {
         VStack(spacing: 16) {
             PhilView(size: 120)
             ProgressView()
-            Text("Checking your session")
+            Text(session.t(.restoring))
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
         }

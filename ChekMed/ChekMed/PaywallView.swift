@@ -2,6 +2,7 @@ import StoreKit
 import SwiftUI
 
 struct PaywallView: View {
+    @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(\.dismiss) private var dismiss
 
@@ -12,51 +13,51 @@ struct PaywallView: View {
                     PhilView(size: 96)
                     SpeechBubbleView(
                         text: entitlements.isSuper
-                            ? "Super is on. Streak freeze and a second family seat are yours. Taken was always free."
-                            : "Super is like Duolingo Super. Streak freeze, extra looks, one extra family profile. Taken stays free."
+                            ? session.t(.paywallOnBubble)
+                            : session.t(.paywallOffBubble)
                     )
                 }
 
-                Text("Super CheckMed")
+                Text(session.t(.paywallTitle))
                     .font(.system(size: 28, weight: .black, design: .rounded))
 
-                Text("Core logging and reminders stay free. Super never locks Taken or creating your first treatment.")
+                Text(session.t(.paywallBody))
                     .font(.system(.body, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.muted)
 
                 planCard(
-                    title: "Free",
+                    title: session.t(.paywallFree),
                     tint: CheckMedTheme.primary,
                     items: [
-                        "Account, one profile, scan, today's path",
-                        "Reminders and tracking",
-                        "One companion look",
-                        "Taken is always free",
-                        "First treatment editor is always free",
+                        session.t(.paywallFree1),
+                        session.t(.paywallFree2),
+                        session.t(.paywallFree3),
+                        session.t(.paywallFree4),
+                        session.t(.paywallFree5),
                     ]
                 )
 
                 planCard(
-                    title: "Super",
+                    title: session.t(.paywallSuper),
                     tint: CheckMedTheme.superAccent,
                     items: [
-                        "Streak freeze",
-                        "Extra companion looks",
-                        "Extra alarm sounds",
-                        "One extra family profile",
-                        "Voice-read polish",
-                        "Longer history filters",
+                        session.t(.paywallSuper1),
+                        session.t(.paywallSuper2),
+                        session.t(.paywallSuper3),
+                        session.t(.paywallSuper4),
+                        session.t(.paywallSuper5),
+                        session.t(.paywallSuper6),
                     ]
                 )
 
                 if entitlements.isSuper {
                     Text(entitlements.usedDebugUnlock
-                         ? "Super is unlocked on this debug/simulator install — not an App Store charge."
-                         : "Super is active on this Apple ID.")
+                         ? session.t(.paywallDebugNote)
+                         : session.t(.paywallActive))
                         .font(.system(.caption, design: .rounded).weight(.bold))
                         .foregroundStyle(CheckMedTheme.superAccent)
                 } else if entitlements.products.isEmpty {
-                    Text("App Store products are not connected yet (com.checkmed.super.monthly / yearly). Restore still checks this Apple ID. Nothing here charges Apple until those products exist.")
+                    Text(session.t(.paywallProductsMissing))
                         .font(.system(.caption, design: .rounded).weight(.bold))
                         .foregroundStyle(CheckMedTheme.safety)
                 }
@@ -79,14 +80,14 @@ struct PaywallView: View {
                     .disabled(entitlements.isLoading || entitlements.isSuper)
                 }
 
-                CheckMedButton(title: "Restore purchases", style: .secondary) {
+                CheckMedButton(title: session.t(.paywallRestore), style: .secondary) {
                     Task { await entitlements.restore() }
                 }
                 .disabled(entitlements.isLoading)
 
                 if entitlements.allowsDebugUnlock {
                     CheckMedButton(
-                        title: entitlements.usedDebugUnlock ? "Clear simulator unlock" : "Unlock Super (simulator / debug only)",
+                        title: entitlements.usedDebugUnlock ? session.t(.paywallClearDebug) : session.t(.paywallUnlockDebug),
                         style: .ghost
                     ) {
                         if entitlements.usedDebugUnlock {
@@ -97,7 +98,7 @@ struct PaywallView: View {
                     }
                 }
 
-                CheckMedButton(title: "Not now", style: .ghost, action: dismiss.callAsFunction)
+                CheckMedButton(title: session.t(.paywallNotNow), style: .ghost, action: dismiss.callAsFunction)
 
                 SafetyCaption()
                     .frame(maxWidth: .infinity)
@@ -105,11 +106,11 @@ struct PaywallView: View {
             .padding(20)
         }
         .background(CheckMedTheme.background)
-        .navigationTitle("Super")
+        .navigationTitle(session.t(.paywallSuper))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Close", action: dismiss.callAsFunction)
+                Button(session.t(.paywallClose), action: dismiss.callAsFunction)
             }
         }
         .task { await entitlements.refresh() }
@@ -121,8 +122,8 @@ struct PaywallView: View {
 
     private func period(for product: Product) -> String {
         switch product.subscription?.subscriptionPeriod.unit {
-        case .year: "per year"
-        case .month: "per month"
+        case .year: session.t(.paywallPerYear)
+        case .month: session.t(.paywallPerMonth)
         default: ""
         }
     }

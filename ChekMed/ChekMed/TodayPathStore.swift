@@ -17,13 +17,13 @@ enum CompanionMood: Equatable, Hashable {
 
 @Observable
 final class TodayPathStore {
-    static let streakDays = 3
+    static let streakDays = CheckMedDemo.streakDays
     static let offsets: [CGFloat] = [0, 28, -8]
 
     var nodes: [DoseNode] = [
-        .init(id: "dose-1", time: "08:00", medicine: "Vitamin D 1000 IU", status: .done),
-        .init(id: "dose-2", time: "13:00", medicine: "Metformin 500 mg", status: .current),
-        .init(id: "dose-3", time: "21:00", medicine: "Atorvastatin 20 mg", status: .locked),
+        .init(id: "dose-1", time: "08:00", medicine: "Amoxicillin 500mg", status: .done),
+        .init(id: "dose-2", time: "14:00", medicine: "Ibuprofen 400mg", status: .current),
+        .init(id: "dose-3", time: "20:00", medicine: "Amoxicillin 500mg", status: .locked),
     ]
     var mood: CompanionMood = .idle
 
