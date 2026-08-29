@@ -20,7 +20,6 @@
 		0122BB173041035800E4E857 /* Exceptions for "ChekMed" folder in "ChekMed" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				ChekMed.entitlements,
 				Info.plist,
 			);
 			target = 0122BAF73041035000E4E857 /* ChekMed */;

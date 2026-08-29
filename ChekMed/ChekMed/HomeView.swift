@@ -90,7 +90,7 @@ struct HomeView: View {
                 .padding(16)
             }
             .background(CheckMedTheme.background)
-            .navigationBarHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showSignIn) {
                 NavigationStack { SignInView() }
             }

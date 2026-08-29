@@ -19,6 +19,7 @@ enum CheckMedTheme {
     static let cheek = Color(hex: 0xFF8FAB)
     static let beak = Color(hex: 0xFF9600)
     static let facebook = Color(hex: 0x1877F2)
+    static let superAccent = Color(hex: 0xCE82FF)
 }
 
 extension Color {

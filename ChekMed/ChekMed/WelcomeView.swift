@@ -3,6 +3,7 @@ import SwiftUI
 struct WelcomeView: View {
     @Environment(SessionStore.self) private var session
     var onSignIn: () -> Void
+    var onGetStarted: () -> Void
 
     var body: some View {
         VStack {
@@ -20,9 +21,7 @@ struct WelcomeView: View {
             }
             Spacer()
             VStack(spacing: 12) {
-                CheckMedButton(title: "Get started") {
-                    session.continueAsGuest()
-                }
+                CheckMedButton(title: "Get started", action: onGetStarted)
                 CheckMedButton(title: "I already have an account", style: .secondary, action: onSignIn)
                 CheckMedButton(title: "Continue as guest", style: .ghost) {
                     session.continueAsGuest()

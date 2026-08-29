@@ -5,9 +5,10 @@ struct ScanView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showGate = false
     @State private var showSignIn = false
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             VStack(spacing: 16) {
                 Spacer()
                 PhilView(size: 112)
@@ -32,21 +33,32 @@ struct ScanView: View {
             .background(CheckMedTheme.background)
             .navigationTitle("Scan")
             .navigationBarTitleDisplayMode(.inline)
-            .alert("Account required", isPresented: $showGate) {
-                Button("Sign in") { showSignIn = true }
-                Button("Not now", role: .cancel) {}
-            } message: {
-                Text("Phil can host today’s path as a guest. Cloud scan waits for a real CheckMed account.")
+            .navigationDestination(for: ProductRoute.self) { route in
+                ProductRouteView(route: route, path: $path)
+            }
+            .overlay {
+                if showGate {
+                    AccountGateView(
+                        onCreateAccount: {
+                            showGate = false
+                            showSignIn = true
+                        },
+                        onDismiss: { showGate = false }
+                    )
+                }
             }
             .sheet(isPresented: $showSignIn) {
                 NavigationStack { SignInView() }
             }
         }
+        .onChange(of: session.canSync) { _, canSync in
+            if canSync { showGate = false }
+        }
     }
 
     private func requestCloudScan() {
         if session.canSync {
-            dismiss()
+            path.append(ProductRoute.review)
         } else {
             showGate = true
         }

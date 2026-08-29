@@ -27,6 +27,7 @@ final class AuthManager {
     private(set) var isAuthenticated = false
     private(set) var displayName = "friend"
     private(set) var companionName = "Phil"
+    private(set) var email: String?
     private(set) var errorMessage: String?
     private(set) var statusMessage: String?
 
@@ -197,6 +198,7 @@ final class AuthManager {
 
     private func apply(session: Session?) {
         isAuthenticated = session != nil
+        email = session?.user.email
         if let user = session?.user {
             displayName = Self.inferredDisplayName(from: user)
         } else {

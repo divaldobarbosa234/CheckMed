@@ -10,8 +10,21 @@ final class SessionStore {
 
     let auth = AuthManager()
     private var guestUnlocked = false
+    private var localDisplayName = "there"
+    private var localCompanionName = "Phil"
+
+    private enum Keys {
+        static let display = "checkmed.displayName"
+        static let companion = "checkmed.companionName"
+    }
 
     init() {
+        if let stored = UserDefaults.standard.string(forKey: Keys.display), !stored.isEmpty {
+            localDisplayName = stored
+        }
+        if let stored = UserDefaults.standard.string(forKey: Keys.companion), !stored.isEmpty {
+            localCompanionName = stored
+        }
         auth.start()
     }
 
@@ -22,13 +35,20 @@ final class SessionStore {
     }
 
     var displayName: String {
-        switch kind {
-        case .welcome, .guest: "there"
-        case .authenticated: auth.displayName
+        if kind == .authenticated, localDisplayName == "there" {
+            return auth.displayName
         }
+        return localDisplayName
     }
 
-    var companionName: String { auth.companionName }
+    var companionName: String {
+        if kind == .authenticated, localCompanionName == "Phil" {
+            return auth.companionName
+        }
+        return localCompanionName
+    }
+
+    var email: String? { auth.email }
     var isGuest: Bool { kind != .authenticated }
     var canSync: Bool { kind == .authenticated }
     var supabaseConfigured: Bool { auth.isConfigured }
@@ -43,7 +63,25 @@ final class SessionStore {
         guestUnlocked = true
     }
 
+    func saveOnboardingNames(displayName: String, companionName: String) {
+        let display = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let companion = companionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        localDisplayName = display.isEmpty ? "there" : display
+        localCompanionName = companion.isEmpty ? "Phil" : companion
+        UserDefaults.standard.set(localDisplayName, forKey: Keys.display)
+        UserDefaults.standard.set(localCompanionName, forKey: Keys.companion)
+    }
+
     func signOut() {
+        guestUnlocked = false
+        Task { await auth.signOut() }
+    }
+
+    func deleteAccount() {
+        localDisplayName = "there"
+        localCompanionName = "Phil"
+        UserDefaults.standard.removeObject(forKey: Keys.display)
+        UserDefaults.standard.removeObject(forKey: Keys.companion)
         guestUnlocked = false
         Task { await auth.signOut() }
     }
