@@ -146,17 +146,23 @@ struct SignInView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 250)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(formTitle)
-                            .font(.system(.title, design: .rounded).weight(.heavy))
-                            .foregroundStyle(CheckMedTheme.ink)
-                        Text(formSubhead)
-                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(formTitle)
+                        .font(.system(.title, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(formSubhead)
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 36)
+                .padding(.bottom, 12)
 
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
                     iconField(
                         session.t(.emailAddress),
                         text: $email,
@@ -228,9 +234,6 @@ struct SignInView: View {
                             provider(.google, title: session.t(.continueWithGoogle), identifier: "auth-google-form") {
                                 session.requestProvider(.google)
                             }
-                            provider(.facebook, title: session.t(.continueWithFacebook)) {
-                                session.requestProvider(.facebook)
-                            }
                         }
                     }
 
@@ -247,13 +250,23 @@ struct SignInView: View {
                     }
                     .padding(.top, 4)
                     .padding(.bottom, 24)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 28)
+                .scrollClipDisabled()
             }
             .background(
                 CheckMedTheme.surface
-                    .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
+                    .clipShape(
+                        UnevenRoundedRectangle(
+                            topLeadingRadius: 36,
+                            bottomLeadingRadius: 0,
+                            bottomTrailingRadius: 0,
+                            topTrailingRadius: 36,
+                            style: .continuous
+                        )
+                    )
                     .ignoresSafeArea(edges: .bottom)
             )
         }
@@ -456,7 +469,7 @@ struct SignInView: View {
     }
 
     private enum ProviderKind {
-        case apple, google, facebook
+        case apple, google
     }
 
     private func provider(_ kind: ProviderKind, title: String, identifier: String? = nil, action: @escaping () -> Void) -> some View {
@@ -494,10 +507,6 @@ struct SignInView: View {
             Text("G")
                 .font(.system(size: 16, weight: .heavy, design: .rounded))
                 .foregroundStyle(CheckMedTheme.google)
-        case .facebook:
-            Text("f")
-                .font(.system(size: 18, weight: .heavy, design: .rounded))
-                .foregroundStyle(CheckMedTheme.facebook)
         }
     }
 }

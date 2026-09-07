@@ -696,6 +696,46 @@ struct ReminderSettingsScreen: View {
 
 // MARK: - 07 Progress (32–35)
 
+struct NoTreatmentInProgressScreen: View {
+    var go: (AppRoute) -> Void
+    @Environment(SessionStore.self) private var session
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            PhilView(size: 148, mood: .idle, smiling: true)
+                .padding(.bottom, 20)
+            Text(session.t(.noTreatmentInProgressHeadline))
+                .font(.system(.title2, design: .rounded).weight(.heavy))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(CheckMedTheme.ink)
+            Text(session.t(.noTreatmentInProgressBody))
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .multilineTextAlignment(.center)
+                .padding(.top, 10)
+            Spacer(minLength: 24)
+            VStack(spacing: 12) {
+                CheckMedButton(title: session.t(.scanAddTitle)) {
+                    go(.addPrescription)
+                }
+                CheckMedButton(title: session.t(.todayBackHome), style: .secondary) {
+                    session.showHomeTab()
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 28)
+        }
+        .padding(.horizontal, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.background)
+        .navigationTitle(session.t(.progressTitle))
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(session.t(.noTreatmentInProgressHeadline))
+    }
+}
+
 struct ProgressDashboardScreen: View {
     var go: (AppRoute) -> Void
     @Environment(SessionStore.self) private var session
@@ -704,6 +744,14 @@ struct ProgressDashboardScreen: View {
     private var stats: AdherenceSnapshot { treatments.adherence() }
 
     var body: some View {
+        if treatments.activeTreatmentCount == 0 {
+            NoTreatmentInProgressScreen(go: go)
+        } else {
+            populated
+        }
+    }
+
+    private var populated: some View {
         ScreenScaffold(
             title: session.t(.progressTitle),
             philSize: 120,

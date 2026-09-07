@@ -127,6 +127,7 @@ enum L10n {
         case todayGlance, todayNothing, todayBackHome, backToDashboard
         case morning, afternoon, evening, night
         case progressTitle, progressOnARoll, progressEmptyBubble, progressEmptyBody
+        case noTreatmentInProgressHeadline, noTreatmentInProgressBody
         case progressTakenAsPlanned, progressDosesLabel, progressTreatmentsLabel, progressCalendar, progressHistory
         case familyYou, familyYouActive, familyEmptySeat, familyAddProfile, familyAddLockedSubtitle
         case familyNamePlaceholder, familySaveMember, familyRemove, familyNeverMixOn, familyNeverMixOff
@@ -294,7 +295,7 @@ enum L10n {
         .customGenderPlaceholder: "How you describe it",
         .signInHeadline: "Sign in to CheckMed",
         .signInBody: "Google, email, or guest — I’ll keep your path with you.",
-        .signInBodyOnboarding: "Email, create an account, Google, Facebook, or Apple — I’ll keep your path with you.",
+        .signInBodyOnboarding: "Email, create an account, Google, or Apple — I’ll keep your path with you.",
         .signInBubbleLogin: "Save your streak. I follow the account, not this phone.",
         .signInBubbleSignUp: "Create an account and I’ll keep your path with you.",
         .signInBubbleReset: "I’ll send a reset link if that email is on file.",
@@ -565,6 +566,8 @@ enum L10n {
         .progressOnARoll: "You're on a roll",
         .progressEmptyBubble: "Phil: Start a treatment and I'll keep the streak honest — no demo numbers.",
         .progressEmptyBody: "Taken days will count here once you log a dose. Skip does not break the streak.",
+        .noTreatmentInProgressHeadline: "You don't have any treatment in progress",
+        .noTreatmentInProgressBody: "Add a prescription and I'll keep your path with you — taken days will show up here.",
         .progressTakenAsPlanned: "taken as planned",
         .progressDosesLabel: "doses",
         .progressTreatmentsLabel: "treatments",
@@ -721,7 +724,7 @@ enum L10n {
         .customGenderPlaceholder: "Como você descreve",
         .signInHeadline: "Entre no CheckMed",
         .signInBody: "Google, e-mail ou convidado — eu sigo o caminho com você.",
-        .signInBodyOnboarding: "E-mail, criar conta, Google, Facebook ou Apple — eu sigo o caminho com você.",
+        .signInBodyOnboarding: "E-mail, criar conta, Google ou Apple — eu sigo o caminho com você.",
         .signInBubbleLogin: "Guardo sua sequência. Eu sigo a conta, não este telefone.",
         .signInBubbleSignUp: "Crie uma conta e eu sigo o caminho com você.",
         .signInBubbleReset: "Envio um link de redefinição se esse e-mail estiver cadastrado.",
@@ -991,6 +994,8 @@ enum L10n {
         .progressOnARoll: "Você está numa boa",
         .progressEmptyBubble: "Phil: Comece um tratamento e eu mantenho a sequência honesta — sem números de demonstração.",
         .progressEmptyBody: "Os dias em que você tomou vão aparecer aqui depois de registrar uma dose. Pular não quebra a sequência.",
+        .noTreatmentInProgressHeadline: "Você não tem nenhum tratamento em andamento",
+        .noTreatmentInProgressBody: "Adicione uma receita e eu mantenho seu caminho com você — os dias em que você tomou aparecem aqui.",
         .progressTakenAsPlanned: "tomado como planejado",
         .progressDosesLabel: "doses",
         .progressTreatmentsLabel: "tratamentos",
@@ -1147,7 +1152,7 @@ enum L10n {
         .customGenderPlaceholder: "Cómo lo describes",
         .signInHeadline: "Entra en CheckMed",
         .signInBody: "Google, correo o invitado — sigo el camino contigo.",
-        .signInBodyOnboarding: "Correo, crear cuenta, Google, Facebook o Apple — sigo el camino contigo.",
+        .signInBodyOnboarding: "Correo, crear cuenta, Google o Apple — sigo el camino contigo.",
         .signInBubbleLogin: "Guardo tu racha. Sigo la cuenta, no este teléfono.",
         .signInBubbleSignUp: "Crea una cuenta y sigo el camino contigo.",
         .signInBubbleReset: "Enviaré un enlace de restablecimiento si ese correo está registrado.",
@@ -1417,6 +1422,8 @@ enum L10n {
         .progressOnARoll: "Vas de bien en mejor",
         .progressEmptyBubble: "Phil: Empieza un tratamiento y mantendré la racha honesta — sin números de demostración.",
         .progressEmptyBody: "Los días tomados aparecerán aquí cuando registres una dosis. Omitir no rompe la racha.",
+        .noTreatmentInProgressHeadline: "No tienes ningún tratamiento en curso",
+        .noTreatmentInProgressBody: "Añade una receta y yo sigo tu camino contigo — los días tomados aparecerán aquí.",
         .progressTakenAsPlanned: "tomado según el plan",
         .progressDosesLabel: "dosis",
         .progressTreatmentsLabel: "tratamientos",
@@ -1573,7 +1580,7 @@ enum L10n {
         .customGenderPlaceholder: "Comment vous le décrivez",
         .signInHeadline: "Connexion à CheckMed",
         .signInBody: "Google, e-mail ou invité — je garde le parcours avec vous.",
-        .signInBodyOnboarding: "E-mail, créer un compte, Google, Facebook ou Apple — je garde le parcours avec vous.",
+        .signInBodyOnboarding: "E-mail, créer un compte, Google ou Apple — je garde le parcours avec vous.",
         .signInBubbleLogin: "Je garde votre série. Je suis le compte, pas ce téléphone.",
         .signInBubbleSignUp: "Créez un compte et je garde le parcours avec vous.",
         .signInBubbleReset: "J’enverrai un lien de réinitialisation si cet e-mail est enregistré.",
@@ -1843,6 +1850,8 @@ enum L10n {
         .progressOnARoll: "Vous êtes lancé",
         .progressEmptyBubble: "Phil : Commencez un traitement et je garderai la série honnête — pas de chiffres de démo.",
         .progressEmptyBody: "Les jours pris apparaîtront ici après l’enregistrement d’une dose. Passer ne casse pas la série.",
+        .noTreatmentInProgressHeadline: "Vous n’avez aucun traitement en cours",
+        .noTreatmentInProgressBody: "Ajoutez une ordonnance et je garderai votre chemin avec vous — les jours pris apparaîtront ici.",
         .progressTakenAsPlanned: "pris comme prévu",
         .progressDosesLabel: "doses",
         .progressTreatmentsLabel: "traitements",

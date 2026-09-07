@@ -62,7 +62,6 @@ enum CheckMedTheme {
     static let belly = Color(hex: 0xFFF3C4)
     static let cheek = Color(hex: 0xFF8FAB)
     static let beak = Color(hex: 0xFF8A00)
-    static let facebook = Color(hex: 0x1877F2)
     static let google = Color(hex: 0x4285F4)
     static let superAccent = Color(hex: 0xE86A1A)
 }

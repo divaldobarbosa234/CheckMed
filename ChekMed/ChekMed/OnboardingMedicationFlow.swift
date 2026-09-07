@@ -498,8 +498,6 @@ struct OnboardingConfirmView: View {
     }
 }
 
-}
-
 struct DurationRangeField: View {
     @Environment(SessionStore.self) private var session
     @Binding var duration: String
