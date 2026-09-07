@@ -155,9 +155,7 @@ struct AddPrescriptionScreen: View {
             title: session.t(.scanAddTitle),
             kicker: session.t(.scanKicker),
             philSize: 128,
-            bubble: session.canSync
-                ? session.t(.scanBubbleSync)
-                : session.t(.scanBubbleGuest)
+            bubble: session.t(.scanBubbleSync)
         ) {
             CheckMedButton(title: session.t(.scanTakePhoto)) { go(.cameraScanner) }
             CheckMedButton(title: session.t(.scanChoosePhotos), style: .secondary) { go(.cameraScanner) }
@@ -298,6 +296,9 @@ struct TreatmentOverviewScreen: View {
     @Environment(SessionStore.self) private var session
 
     private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
+    private var activeTreatmentIds: [UUID] {
+        Array(Set(medicines.filter { $0.treatmentStatus == "active" }.map(\.treatmentId)))
+    }
 
     var body: some View {
         ScreenScaffold(
@@ -327,11 +328,17 @@ struct TreatmentOverviewScreen: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                            .stroke(CheckMedTheme.hairline, lineWidth: 2)
                     )
                 }
                 CheckMedButton(title: session.t(.homeScan), style: .secondary) { go(.addPrescription) }
                 CheckMedButton(title: session.t(.profileMedicines), style: .ghost) { go(.medicationList) }
+                ForEach(activeTreatmentIds, id: \.self) { treatmentId in
+                    CheckMedButton(title: session.t(.completeTreatment), style: .ghost) {
+                        treatments.completeTreatment(id: treatmentId)
+                        go(.journeyReport)
+                    }
+                }
             }
         }
     }
@@ -371,7 +378,7 @@ struct MedicationListScreen: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                            .stroke(CheckMedTheme.hairline, lineWidth: 2)
                     )
                 }
             }
@@ -381,35 +388,52 @@ struct MedicationListScreen: View {
 
 struct MedicationDetailScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
+
+    private var medicine: CheckMedStore.MedicineSummary? { treatments.medicineSummaries().first }
 
     var body: some View {
-        ScreenScaffold(title: "Medication detail", bubble: "Littmann Phil explains the record — not new medical advice.") {
-            Text("Amoxicillin 500mg")
-                .font(.system(.title2, design: .rounded).weight(.heavy))
-            FactBlock(label: "What it is", value: "Penicillin-class antibiotic (from the medication record).")
-            FactBlock(label: "Why taking", value: "As written on this 7-day prescription.")
-            FactBlock(label: "Dosage", value: "1 capsule")
-            FactBlock(label: "Schedule", value: "3× daily")
-            FactBlock(label: "Duration", value: "7 days (Aug 24–30)")
-            SourceNote()
-            CheckMedButton(title: "How to take it") { go(.howToTake) }
-            CheckMedButton(title: "Full explanation", style: .secondary) { go(.medicineExplanation) }
+        ScreenScaffold(
+            title: session.t(.profileMedicines),
+            bubble: session.t(.planOnlyBubble)
+        ) {
+            if let medicine {
+                Text(medicine.name)
+                    .font(.system(.title2, design: .rounded).weight(.heavy))
+                FactBlock(label: session.t(.manualDose), value: medicine.doseLabel)
+                FactBlock(label: session.t(.manualFrequency), value: medicine.frequency)
+                FactBlock(label: session.t(.manualDuration), value: medicine.duration)
+            } else {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+            }
+            Text(session.t(.planOnlyDisclaimer))
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.safety)
+            CheckMedButton(title: session.t(.howYouTakeIt)) { go(.howToTake) }
         }
     }
 }
 
 struct HowToTakeScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
+
+    private var medicine: CheckMedStore.MedicineSummary? { treatments.medicineSummaries().first }
 
     var body: some View {
-        ScreenScaffold(title: "How to take it", bubble: "Visual from your saved plan. If the label differs, follow the prescription.") {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("1. 1 capsule")
-                Text("2. With water")
-                Text("3. Every 8 hours")
+        ScreenScaffold(title: session.t(.howYouTakeIt), bubble: session.t(.planOnlyBubble)) {
+            if let medicine {
+                Text("\(medicine.doseLabel) · \(medicine.frequency)")
+                    .font(.system(.title3, design: .rounded).weight(.heavy))
+                Text(medicine.duration)
+                    .font(.system(.body, design: .rounded).weight(.bold))
             }
-            .font(.system(.title3, design: .rounded).weight(.heavy))
-            CheckMedButton(title: "Back", style: .ghost) { go(.medicationDetail) }
+            Text(session.t(.planOnlyDisclaimer))
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.safety)
         }
     }
 }
@@ -670,99 +694,11 @@ struct ReminderSettingsScreen: View {
     }
 }
 
-// MARK: - 06 Medication knowledge (28–31)
-
-struct MedicineExplanationScreen: View {
-    var go: (AppRoute) -> Void
-
-    var body: some View {
-        ScreenScaffold(
-            title: "Medicine explanation",
-            kicker: "Littmann · medication record",
-            bubble: "What is Amoxicillin 500mg?"
-        ) {
-            Text(CheckMedDemo.classLabel)
-                .font(.system(.caption, design: .rounded).weight(.heavy))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(CheckMedTheme.belly, in: Capsule())
-            FactBlock(label: "What it does", value: CheckMedDemo.whatItDoes)
-            FactBlock(label: "Why prescribed", value: CheckMedDemo.whyPrescribed)
-            FactBlock(label: "How normally taken", value: CheckMedDemo.howTaken)
-            SourceNote()
-            CheckMedButton(title: "Side effects", style: .secondary) { go(.sideEffects) }
-            CheckMedButton(title: "Warnings", style: .secondary) { go(.warningsInteractions) }
-        }
-    }
-}
-
-struct SideEffectsScreen: View {
-    var go: (AppRoute) -> Void
-
-    var body: some View {
-        ScreenScaffold(title: "Side effects", kicker: "Littmann · safety information") {
-            Text("Common").font(.system(.caption, design: .rounded).weight(.bold)).foregroundStyle(CheckMedTheme.muted)
-            ForEach(CheckMedDemo.common, id: \.self) { Text("• \($0)").font(.system(.body, design: .rounded).weight(.bold)) }
-            Text("Less common").font(.system(.caption, design: .rounded).weight(.bold)).foregroundStyle(CheckMedTheme.muted)
-            ForEach(CheckMedDemo.lessCommon, id: \.self) { Text("• \($0)").font(.system(.body, design: .rounded).weight(.bold)) }
-            Text("Seek medical attention")
-                .font(.system(.caption, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.danger)
-            ForEach(CheckMedDemo.serious, id: \.self) {
-                Text("• \($0)")
-                    .font(.system(.body, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.danger)
-            }
-            SourceNote()
-            CheckMedButton(title: "Back", style: .ghost) { go(.medicineExplanation) }
-        }
-    }
-}
-
-struct WarningsScreen: View {
-    var go: (AppRoute) -> Void
-
-    var body: some View {
-        ScreenScaffold(title: "Warnings & interactions", kicker: "Littmann · safety information") {
-            FactBlock(label: "Interactions", value: CheckMedDemo.interactions)
-            FactBlock(label: "Allergies", value: CheckMedDemo.allergies)
-            FactBlock(label: "Contraindications", value: CheckMedDemo.contraindications)
-            FactBlock(label: "Food / alcohol", value: CheckMedDemo.food)
-            SourceNote()
-            CheckMedButton(title: "Questions for your doctor", style: .secondary) { go(.questionsForDoctor) }
-        }
-    }
-}
-
-struct QuestionsForDoctorScreen: View {
-    @State private var question = "How long until I should feel better?"
-
-    var body: some View {
-        ScreenScaffold(
-            title: "Questions for doctor",
-            bubble: "Phil: Want to remember something for your next appointment?"
-        ) {
-            Text("Add a question")
-                .font(.system(.caption, design: .rounded).weight(.bold))
-                .textCase(.uppercase)
-                .foregroundStyle(CheckMedTheme.muted)
-            TextField("Your question", text: $question)
-                .padding(14)
-                .background(CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.ink, lineWidth: 2))
-            Text("• \(question.isEmpty ? "Your question will show here" : question)")
-                .font(.system(.body, design: .rounded).weight(.bold))
-        }
-    }
-}
-
 // MARK: - 07 Progress (32–35)
 
 struct ProgressDashboardScreen: View {
     var go: (AppRoute) -> Void
     @Environment(SessionStore.self) private var session
-    @Environment(EntitlementStore.self) private var entitlements
     @Environment(CheckMedStore.self) private var treatments
 
     private var stats: AdherenceSnapshot { treatments.adherence() }
@@ -796,26 +732,7 @@ struct ProgressDashboardScreen: View {
             }
             CheckMedButton(title: session.t(.progressCalendar), style: .secondary) { go(.adherence) }
             CheckMedButton(title: session.t(.progressHistory), style: .secondary) { go(.treatmentHistory) }
-            Button {
-                if !entitlements.isSuper {
-                    entitlements.presentPaywall()
-                } else {
-                    go(.treatmentHistory)
-                }
-            } label: {
-                HStack {
-                    Text(session.t(.longerFilters))
-                        .font(.system(.body, design: .rounded).weight(.bold))
-                    Spacer()
-                    Text(entitlements.isSuper ? "Week · Month" : session.t(.paywallSuper))
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(entitlements.isSuper ? CheckMedTheme.superAccent : CheckMedTheme.muted)
-                }
-                .padding(16)
-                .background(CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            }
-            .buttonStyle(.plain)
+            CheckMedButton(title: session.t(.journeyTitle), style: .secondary) { go(.journeyReport) }
         }
     }
 
@@ -913,6 +830,7 @@ struct TreatmentCompleteScreen: View {
                     .foregroundStyle(CheckMedTheme.muted)
             }
             CheckMedButton(title: session.t(.progressTitle)) { go(.progressDashboard) }
+            CheckMedButton(title: session.t(.journeyTitle), style: .secondary) { go(.journeyReport) }
         }
     }
 }
@@ -1025,6 +943,31 @@ struct NotificationPrefsScreen: View {
                     .foregroundStyle(CheckMedTheme.muted)
             }
             AlarmThemePicker(theme: $theme)
+            Toggle(session.t(.advanceHourToggle), isOn: Binding(
+                get: { entitlements.canUseAdvanceReminder && ReminderPreferences.advanceHourEnabled },
+                set: { value in
+                    if entitlements.canUseAdvanceReminder {
+                        ReminderPreferences.advanceHourEnabled = value
+                        ReminderScheduler.shared.reschedule()
+                    } else {
+                        entitlements.presentPaywall()
+                    }
+                }
+            ))
+            .font(.system(.body, design: .rounded).weight(.bold))
+            if !entitlements.canUseAdvanceReminder {
+                Text(session.t(.advanceHourLocked))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            Toggle(session.t(.winBackToggle), isOn: Binding(
+                get: { ReminderPreferences.winBackEnabled },
+                set: { value in
+                    ReminderPreferences.winBackEnabled = value
+                    ReminderScheduler.shared.reschedule()
+                }
+            ))
+            .font(.system(.body, design: .rounded).weight(.bold))
         }
         .task {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
@@ -1074,6 +1017,7 @@ struct SettingsScreen: View {
                     set: { session.setGender($0) }
                 )
             )
+            // Appearance stays locked to the pastel light theme.
             ForEach(L10n.settingsItems(session.locale), id: \.self) { item in
                 if item == session.t(.settingsPrivacy) {
                     Button {

@@ -31,7 +31,6 @@ struct ProfileView: View {
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(CheckMedStore.self) private var treatments
     @Environment(FamilyStore.self) private var family
-    @State private var showSignIn = false
     @State private var confirmDelete = false
     @State private var path = NavigationPath()
 
@@ -52,11 +51,7 @@ struct ProfileView: View {
                                 .foregroundStyle(CheckMedTheme.muted)
                         }
                     }
-                    SpeechBubbleView(
-                        text: session.isGuest
-                            ? session.t(.profileGuestBubble)
-                            : session.t(.profileSignedBubble, session.displayName)
-                    )
+                    SpeechBubbleView(text: session.t(.profileSignedBubble, session.displayName))
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text(session.t(.profileAccount))
@@ -64,16 +59,12 @@ struct ProfileView: View {
                             .textCase(.uppercase)
                             .tracking(0.8)
                             .foregroundStyle(CheckMedTheme.muted)
-                        Text(session.isGuest ? session.t(.profileGuest) : (session.email ?? session.displayName))
+                        Text(session.email ?? session.displayName)
                             .font(.system(.title3, design: .rounded).weight(.heavy))
-                        if session.isGuest {
-                            CheckMedButton(title: session.t(.createAccount)) { showSignIn = true }
-                        } else {
-                            CheckMedButton(title: session.t(.profileSignOut), style: .secondary) {
-                                session.signOut()
-                            }
-                            .accessibilityIdentifier("profile-sign-out")
+                        CheckMedButton(title: session.t(.profileSignOut), style: .secondary) {
+                            session.signOut()
                         }
+                        .accessibilityIdentifier("profile-sign-out")
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -81,7 +72,7 @@ struct ProfileView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                            .stroke(CheckMedTheme.hairline, lineWidth: 2)
                     )
 
                     Button { path.append(AppRoute.notificationPrefs) } label: {
@@ -127,6 +118,18 @@ struct ProfileView: View {
                         profileRow(label: session.t(.profileMedicines), value: session.t(.profileLibrary))
                     }
                     .buttonStyle(.plain)
+                    Button { path.append(AppRoute.journeyReport) } label: {
+                        profileRow(label: session.t(.journeyTitle), value: "")
+                    }
+                    .buttonStyle(.plain)
+                    Button { path.append(AppRoute.community) } label: {
+                        profileRow(label: session.t(.notesOnDevice), value: "")
+                    }
+                    .buttonStyle(.plain)
+                    Button { path.append(AppRoute.pharmacySearch) } label: {
+                        profileRow(label: session.t(.pharmacyTitle), value: "")
+                    }
+                    .buttonStyle(.plain)
 
                     if !session.isGuest {
                         Button(session.t(.profileDelete)) { confirmDelete = true }
@@ -151,9 +154,6 @@ struct ProfileView: View {
             .navigationDestination(for: AppRoute.self) { route in
                 AppRouteView(route: route, path: $path)
             }
-            .sheet(isPresented: $showSignIn) {
-                NavigationStack { SignInView() }
-            }
             .alert(session.t(.profileDeleteTitle), isPresented: $confirmDelete) {
                 Button(session.t(.profileSignOutHere), role: .destructive) { session.deleteAccount() }
                 Button(session.t(.cancel), role: .cancel) {}
@@ -177,34 +177,65 @@ struct ProfileView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                .stroke(CheckMedTheme.hairline, lineWidth: 2)
         )
     }
 }
 
 struct MainTabView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(CheckMedStore.self) private var treatments
+    @State private var showUnfinishedPrompt = false
 
     var body: some View {
         @Bindable var session = session
-        TabView(selection: $session.selectedMainTab) {
-            HomeView()
-                .tabItem { Label(session.t(.tabHome), systemImage: "house.fill") }
-                .tag(SessionStore.MainTab.home)
-                .accessibilityIdentifier("tab-home")
-            TreatmentsView()
-                .tabItem { Label(session.t(.tabTreatments), systemImage: "pills.fill") }
-                .tag(SessionStore.MainTab.treatments)
-                .accessibilityIdentifier("tab-treatments")
-            ProgressTabView()
-                .tabItem { Label(session.t(.tabProgress), systemImage: "chart.line.uptrend.xyaxis") }
-                .tag(SessionStore.MainTab.progress)
-                .accessibilityIdentifier("tab-progress")
-            ProfileView()
-                .tabItem { Label(session.t(.tabProfile), systemImage: "person.fill") }
-                .tag(SessionStore.MainTab.profile)
-                .accessibilityIdentifier("tab-profile")
+        ZStack {
+            TabView(selection: $session.selectedMainTab) {
+                HomeView()
+                    .tabItem { Label(session.t(.tabHome), systemImage: "house.fill") }
+                    .tag(SessionStore.MainTab.home)
+                    .accessibilityIdentifier("tab-home")
+                TreatmentsView()
+                    .tabItem { Label(session.t(.tabTreatments), systemImage: "pills.fill") }
+                    .tag(SessionStore.MainTab.treatments)
+                    .accessibilityIdentifier("tab-treatments")
+                ProgressTabView()
+                    .tabItem { Label(session.t(.tabProgress), systemImage: "chart.line.uptrend.xyaxis") }
+                    .tag(SessionStore.MainTab.progress)
+                    .accessibilityIdentifier("tab-progress")
+                ProfileView()
+                    .tabItem { Label(session.t(.tabProfile), systemImage: "person.fill") }
+                    .tag(SessionStore.MainTab.profile)
+                    .accessibilityIdentifier("tab-profile")
+            }
+            .tint(CheckMedTheme.primaryShadow)
+
+            if showUnfinishedPrompt {
+                UnfinishedPlanPromptView(kind: .afterReturn)
+                    .transition(.opacity)
+            }
         }
-        .tint(CheckMedTheme.primaryShadow)
+        .animation(.easeInOut(duration: 0.35), value: showUnfinishedPrompt)
+        .task(id: "\(session.selectedMainTab)-\(session.needsUnfinishedPlan(treatments: treatments))") {
+            await offerUnfinishedPlanIfNeeded()
+        }
+    }
+
+    private func offerUnfinishedPlanIfNeeded() async {
+        guard session.selectedMainTab == .home || session.selectedMainTab == .progress else {
+            showUnfinishedPrompt = false
+            return
+        }
+        guard session.needsUnfinishedPlan(treatments: treatments) else {
+            showUnfinishedPrompt = false
+            return
+        }
+        guard !session.didOfferUnfinishedPlanThisSession else { return }
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+        guard !Task.isCancelled else { return }
+        guard session.selectedMainTab == .home || session.selectedMainTab == .progress else { return }
+        guard session.needsUnfinishedPlan(treatments: treatments) else { return }
+        session.didOfferUnfinishedPlanThisSession = true
+        showUnfinishedPrompt = true
     }
 }

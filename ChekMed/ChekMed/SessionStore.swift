@@ -37,6 +37,9 @@ final class SessionStore {
     private var localOnboardingComplete = false
     private var localOnboardingPaywallOffered = false
     private var localFirstTimePhase = "language"
+    private var localAppearance = AppearanceMode.light
+    private var localIntroSplashSeen = false
+    private var localShowWelcomeBack = false
 
     private enum Keys {
         static let display = "checkmed.displayName"
@@ -54,6 +57,9 @@ final class SessionStore {
         static let onboardingComplete = "checkmed.onboardingComplete"
         static let onboardingPaywallOffered = "checkmed.onboardingPaywallOffered"
         static let firstTimePhase = "checkmed.firstTimePhase"
+        static let appearance = "checkmed.appearanceMode"
+        static let introSplashSeen = "checkmed.introSplashSeen"
+        static let showWelcomeBack = "checkmed.showWelcomeBack"
     }
 
     init() {
@@ -90,12 +96,19 @@ final class SessionStore {
         if let stored = UserDefaults.standard.string(forKey: Keys.firstTimePhase), !stored.isEmpty {
             localFirstTimePhase = stored
         }
+        localAppearance = .light
+        UserDefaults.standard.set(AppearanceMode.light.rawValue, forKey: Keys.appearance)
+        localIntroSplashSeen = UserDefaults.standard.bool(forKey: Keys.introSplashSeen)
+        localShowWelcomeBack = UserDefaults.standard.bool(forKey: Keys.showWelcomeBack)
         auth.onBeforeAuthenticated = { [weak self] isRestore in
             self?.preparePostAuth(isRestore: isRestore)
         }
         auth.onAuthenticated = { [weak self] isRestore in
             await self?.handleAuthenticated(isRestore: isRestore)
         }
+    }
+
+    func startAuthIfNeeded() {
         auth.start()
     }
 
@@ -103,6 +116,13 @@ final class SessionStore {
     private(set) var isResolvingPostAuth = false
     private(set) var postAuthKind: PostAuthKind = .undetermined
     var selectedMainTab: MainTab = .home
+    /// Returning sign-in (not a session restore): miss-you screen before tabs.
+    var showReturningWelcome = false
+    var showResumeSetup = false
+    var startFreshPrescription = false
+    var showLeaveHealthWarning = false
+    var didOfferUnfinishedPlanThisSession = false
+    private var didBackgroundIncompleteSetup = false
 
     /// Awaits treatment sync and reports whether this owner already has treatments.
     @ObservationIgnored
@@ -141,6 +161,22 @@ final class SessionStore {
     var birthDate: Date? { localBirthDate }
     var pronouns: String { localPronouns }
     var gender: String { localGender }
+    var appearance: AppearanceMode { .light }
+
+    /// Pastel light theme is locked so the app does not flip to black or stark white.
+    func setAppearance(_ mode: AppearanceMode) {
+        localAppearance = .light
+        UserDefaults.standard.set(AppearanceMode.light.rawValue, forKey: Keys.appearance)
+        _ = mode
+    }
+
+    /// Email form title after the user has signed out of an account.
+    var showWelcomeBack: Bool { localShowWelcomeBack }
+
+    func markSignedOutForWelcomeBack() {
+        localShowWelcomeBack = true
+        UserDefaults.standard.set(true, forKey: Keys.showWelcomeBack)
+    }
 
     var hasPreferredName: Bool {
         let name = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -166,8 +202,15 @@ final class SessionStore {
     var hasAcknowledgedPrivacy: Bool { localPrivacyAcknowledged }
     var needsPrivacyAcknowledgement: Bool { !localPrivacyAcknowledged }
 
-    var hasCompletedOnboarding: Bool { localOnboardingComplete }
+    var hasCompletedOnboarding: Bool { localOnboardingComplete || perUserOnboardingComplete }
     var firstTimePhaseRaw: String { localFirstTimePhase }
+    var shouldPlayIntroSplash: Bool { !localIntroSplashSeen }
+
+    func markIntroSplashSeen() {
+        guard !localIntroSplashSeen else { return }
+        localIntroSplashSeen = true
+        UserDefaults.standard.set(true, forKey: Keys.introSplashSeen)
+    }
     var shouldOfferOnboardingPaywall: Bool {
         localOnboardingComplete && !localOnboardingPaywallOffered
     }
@@ -210,6 +253,30 @@ final class SessionStore {
         UserDefaults.standard.set(raw, forKey: Keys.firstTimePhase)
     }
 
+    /// Unsigned users always replay splash → language → how it works → privacy → sign-in.
+    /// Language and appearance stay. Do not call while a provider sheet is in progress.
+    func restartPreAuthOnboarding() {
+        guard kind != .authenticated, !auth.isRestoring else { return }
+        guestUnlocked = false
+        localOnboardingComplete = false
+        localOnboardingPaywallOffered = false
+        localPrivacyAcknowledged = false
+        localFirstTimePhase = "language"
+        localIntroSplashSeen = false
+        isResolvingPostAuth = false
+        postAuthKind = .undetermined
+        showReturningWelcome = false
+        showResumeSetup = false
+        startFreshPrescription = false
+        didOfferUnfinishedPlanThisSession = false
+        didBackgroundIncompleteSetup = false
+        UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
+        UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
+        UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
+        UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
+        UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
+    }
+
     func markOnboardingComplete() {
         localOnboardingComplete = true
         UserDefaults.standard.set(true, forKey: Keys.onboardingComplete)
@@ -218,6 +285,55 @@ final class SessionStore {
         }
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         localFirstTimePhase = "language"
+    }
+
+    func finishReturningWelcome(select tab: MainTab) {
+        showReturningWelcome = false
+        selectedMainTab = tab
+        didOfferUnfinishedPlanThisSession = false
+    }
+
+    func needsUnfinishedPlan(treatments: CheckMedStore) -> Bool {
+        kind == .authenticated
+            && treatments.activeTreatmentCount > 0
+            && (needsNotificationsPrompt || !treatments.hasMedicationDaysSet)
+    }
+
+    func beginResumeSetup() {
+        showReturningWelcome = false
+        startFreshPrescription = false
+        showResumeSetup = true
+        didOfferUnfinishedPlanThisSession = true
+    }
+
+    func beginFreshPlan() {
+        showReturningWelcome = false
+        showResumeSetup = false
+        startFreshPrescription = true
+        didOfferUnfinishedPlanThisSession = true
+    }
+
+    func finishFreshPlan(select tab: MainTab) {
+        startFreshPrescription = false
+        showResumeSetup = false
+        selectedMainTab = tab
+    }
+
+    func finishResumeSetup() {
+        showResumeSetup = false
+        markNotificationsPrompted()
+        markOnboardingComplete()
+    }
+
+    func noteIncompleteSetupBackground() {
+        guard !didBackgroundIncompleteSetup else { return }
+        didBackgroundIncompleteSetup = true
+        showLeaveHealthWarning = true
+        ReminderScheduler.shared.nudgeUnfinishedSetup(locale: locale)
+    }
+
+    func clearLeaveHealthWarning() {
+        showLeaveHealthWarning = false
     }
 
     func showHomeTab() {
@@ -358,6 +474,7 @@ final class SessionStore {
     }
 
     func signOut() {
+        markSignedOutForWelcomeBack()
         resetFirstTimePathAfterLogout()
         Task { await auth.signOut() }
     }
@@ -376,12 +493,19 @@ final class SessionStore {
         isResolvingPostAuth = false
         postAuthKind = .undetermined
         selectedMainTab = .home
+        showReturningWelcome = false
+        showResumeSetup = false
+        startFreshPrescription = false
+        didOfferUnfinishedPlanThisSession = false
+        didBackgroundIncompleteSetup = false
         clearLocalIdentity()
         UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
         UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
         UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
         UserDefaults.standard.removeObject(forKey: Keys.notificationsPrompted)
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
+        UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
+        localIntroSplashSeen = false
     }
 
     func deleteAccount() {
@@ -405,9 +529,11 @@ final class SessionStore {
         UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
         UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
+        UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
         localOnboardingComplete = false
         localOnboardingPaywallOffered = false
         localFirstTimePhase = "language"
+        localIntroSplashSeen = false
         localPronouns = ""
         localGender = ""
         localNotificationsPrompted = false
@@ -419,6 +545,11 @@ final class SessionStore {
         isResolvingPostAuth = false
         postAuthKind = .undetermined
         selectedMainTab = .home
+        showReturningWelcome = false
+        showResumeSetup = false
+        startFreshPrescription = false
+        didOfferUnfinishedPlanThisSession = false
+        didBackgroundIncompleteSetup = false
         if let userId = auth.userId {
             UserDefaults.standard.removeObject(forKey: Self.onboardingCompleteKey(for: userId))
         }
@@ -428,7 +559,7 @@ final class SessionStore {
     func requestProvider(_ provider: AuthProvider) {
         switch provider {
         case .apple:
-            auth.presentAppleComingSoon(t(.appleComingSoon))
+            Task { await auth.signInWithApple() }
         case .google:
             Task { await auth.signInWithGoogle() }
         case .facebook:
@@ -463,6 +594,9 @@ final class SessionStore {
     private func preparePostAuth(isRestore: Bool) {
         isResolvingPostAuth = true
         postAuthKind = .undetermined
+        showReturningWelcome = false
+        showResumeSetup = false
+        startFreshPrescription = false
         if !isRestore {
             localOnboardingComplete = false
             UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
@@ -481,12 +615,20 @@ final class SessionStore {
 
         let pending = UserDefaults.standard.bool(forKey: Keys.pendingUpload)
         let remote = await pullProfile()
-        replaceIdentity(from: remote)
+        replaceIdentity(from: remote, overwriteEmpty: !isRestore)
+        if !hasPreferredName {
+            let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !inferred.isEmpty, inferred != "friend", inferred != "there" {
+                setDisplayName(inferred)
+            }
+        }
         if remote == nil, pending {
             await pushProfile()
             if let pushed = await pullProfile() {
-                replaceIdentity(from: pushed)
+                replaceIdentity(from: pushed, overwriteEmpty: !isRestore)
             }
+        } else if isRestore, remote == nil || remoteNeedsPush(remote) {
+            await pushProfile()
         }
 
         let hasTreatments = await syncedHasTreatments()
@@ -499,14 +641,21 @@ final class SessionStore {
             if !isRestore {
                 selectedMainTab = .progress
                 markOnboardingPaywallOffered()
+                showReturningWelcome = true
             }
             markOnboardingComplete()
             postAuthKind = .returning
         } else {
-            clearSessionOnboardingFlag()
             postAuthKind = .newAccount
             selectedMainTab = .home
-            setFirstTimePhaseRaw(identityComplete ? FirstTimePhase.addMedication.rawValue : FirstTimePhase.profile.rawValue)
+            if isRestore {
+                if !identityComplete {
+                    setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
+                }
+            } else {
+                clearSessionOnboardingFlag()
+                setFirstTimePhaseRaw(identityComplete ? FirstTimePhase.addMedication.rawValue : FirstTimePhase.profile.rawValue)
+            }
         }
     }
 
@@ -545,13 +694,15 @@ final class SessionStore {
         UserDefaults.standard.removeObject(forKey: Keys.gender)
     }
 
-    /// Remote profile is the source of truth after auth. Leftover local identity
-    /// from a previous account must not complete a new Google/email user.
-    private func replaceIdentity(from profile: CheckMedProfile?) {
+    /// Remote profile is the source of truth after a fresh sign-in. On session
+    /// restore, keep name/DOB/pronouns already saved on this iPhone if the
+    /// network row is missing or incomplete — otherwise every relaunch wipes
+    /// identity and sends the user back to “How should we call you”.
+    private func replaceIdentity(from profile: CheckMedProfile?, overwriteEmpty: Bool) {
         if let name = profile?.displayName?.nilIfEmpty {
             localDisplayName = name
             UserDefaults.standard.set(name, forKey: Keys.display)
-        } else {
+        } else if overwriteEmpty {
             localDisplayName = "there"
             UserDefaults.standard.removeObject(forKey: Keys.display)
         }
@@ -571,27 +722,37 @@ final class SessionStore {
            let date = BirthDateWheels.date(fromStamp: raw) {
             localBirthDate = BirthDateWheels.clampedDate(date)
             UserDefaults.standard.set(BirthDateWheels.stamp(from: localBirthDate!), forKey: Keys.birthDate)
-        } else {
+        } else if overwriteEmpty {
             localBirthDate = nil
             UserDefaults.standard.removeObject(forKey: Keys.birthDate)
         }
         if let pronouns = profile?.pronouns?.nilIfEmpty {
             localPronouns = pronouns
             UserDefaults.standard.set(pronouns, forKey: Keys.pronouns)
-        } else {
+        } else if overwriteEmpty {
             localPronouns = ""
             UserDefaults.standard.removeObject(forKey: Keys.pronouns)
         }
         if let gender = profile?.gender?.nilIfEmpty {
             localGender = gender
             UserDefaults.standard.set(gender, forKey: Keys.gender)
-        } else {
+        } else if overwriteEmpty {
             localGender = ""
             UserDefaults.standard.removeObject(forKey: Keys.gender)
         }
         if let id = profile?.id {
             profileId = id
         }
+    }
+
+    private func remoteNeedsPush(_ profile: CheckMedProfile?) -> Bool {
+        guard hasCompleteIdentityProfile else { return false }
+        guard let profile else { return true }
+        let nameMissing = profile.displayName?.nilIfEmpty == nil
+        let dobMissing = profile.dateOfBirth?.nilIfEmpty == nil
+        let pronounsMissing = profile.pronouns?.nilIfEmpty == nil
+        let genderMissing = profile.gender?.nilIfEmpty == nil
+        return nameMissing || dobMissing || pronounsMissing || genderMissing
     }
 
     private func pushProfile() async {

@@ -1,7 +1,6 @@
 import Foundation
 
 enum AuthConfig {
-    static let appleComingSoonMessage = "We'll have this section before launch"
 
     static var supabaseURL: URL? {
         guard let raw = string("SUPABASE_URL"), raw.hasPrefix("https://") else { return nil }

@@ -21,9 +21,12 @@ final class EntitlementStore {
     var freeFamilySlots: Int { 1 }
     var familySlots: Int { isSuper ? 2 : freeFamilySlots }
     var extraFamilySlotUnlocked: Bool { isSuper }
-    var canUseStreakFreeze: Bool { isSuper }
     var canChooseAlarmTheme: Bool { isSuper }
     var canUseVoiceReading: Bool { isSuper }
+    var canUseAdvanceReminder: Bool { isSuper }
+    var canViewJourneyReport: Bool { isSuper }
+    var canSearchPharmacies: Bool { isSuper }
+    var canUseRefillReminder: Bool { isSuper }
 
     var allowsDebugUnlock: Bool {
         #if targetEnvironment(simulator)
@@ -99,7 +102,7 @@ final class EntitlementStore {
         } else if usedDebugUnlock {
             statusMessage = "Simulator unlock is on. That is not an App Store charge."
         } else {
-            statusMessage = "No Super subscription on this Apple ID yet. Products still need App Store Connect."
+            statusMessage = "No Super on this Apple ID yet. In Xcode, select Products.storekit on the scheme to try monthly/yearly. For TestFlight or the store, create those products in App Store Connect."
         }
         isLoading = false
     }

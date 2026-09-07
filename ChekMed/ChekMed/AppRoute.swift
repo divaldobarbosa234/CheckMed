@@ -24,10 +24,6 @@ enum AppRoute: Hashable {
     case doseCompleted
     case missedDose
     case reminderSettings
-    case medicineExplanation
-    case sideEffects
-    case warningsInteractions
-    case questionsForDoctor
     case progressDashboard
     case adherence
     case treatmentHistory
@@ -41,6 +37,9 @@ enum AppRoute: Hashable {
     case termsOfUse
     case paywall
     case family
+    case journeyReport
+    case community
+    case pharmacySearch
 }
 
 enum CheckMedDemo {
@@ -133,7 +132,7 @@ struct AppRouteView: View {
         case .todayTreatment: TodayTreatmentScreen(go: nav.go)
         case .upcoming: UpcomingScreen()
         case .dailySummary: DailySummaryScreen()
-        case .addPrescription: AddPrescriptionIntakeHost()
+        case .addPrescription: AddPrescriptionGateHost()
         case .cameraScanner: CameraScannerScreen(go: nav.go)
         case .scanning: ScanningScreen(go: nav.go)
         case .extractionResults: ExtractionResultsScreen(go: nav.go)
@@ -151,10 +150,6 @@ struct AppRouteView: View {
         case .doseCompleted: DoseCompletedScreen(go: nav.go)
         case .missedDose: MissedDoseScreen(go: nav.go)
         case .reminderSettings: ReminderSettingsScreen(go: nav.go)
-        case .medicineExplanation: MedicineExplanationScreen(go: nav.go)
-        case .sideEffects: SideEffectsScreen(go: nav.go)
-        case .warningsInteractions: WarningsScreen(go: nav.go)
-        case .questionsForDoctor: QuestionsForDoctorScreen()
         case .progressDashboard: ProgressDashboardScreen(go: nav.go)
         case .adherence: AdherenceScreen()
         case .treatmentHistory: TreatmentHistoryScreen(go: nav.go)
@@ -168,6 +163,9 @@ struct AppRouteView: View {
         case .termsOfUse: LegalDocumentView(kind: .termsOfUse)
         case .paywall: PaywallView()
         case .family: FamilyView()
+        case .journeyReport: JourneyReportScreen(go: nav.go)
+        case .community: CommunityScreen()
+        case .pharmacySearch: PharmacySearchScreen()
         }
     }
 }
@@ -231,7 +229,7 @@ struct FactBlock: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                .stroke(CheckMedTheme.hairline, lineWidth: 2)
         )
     }
 }
@@ -256,7 +254,7 @@ struct CardBlock: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                .stroke(CheckMedTheme.hairline, lineWidth: 2)
         )
     }
 }

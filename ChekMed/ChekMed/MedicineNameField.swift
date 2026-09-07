@@ -25,7 +25,10 @@ struct MedicineNameField: View {
                 .padding(14)
                 .background(CheckMedTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.ink, lineWidth: 2))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+                )
                 .accessibilityHint(session.t(.medicineSuggestHint))
             if focused, showsChrome {
                 suggestionChrome
@@ -84,7 +87,7 @@ struct MedicineNameField: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(CheckMedTheme.ink, lineWidth: 2)
+                    .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
             )
         }
     }

@@ -47,6 +47,11 @@ enum DoseAlarmKit {
     static func syncDoseAlarms(drafts: [ReminderDraft], locale: AppLocale, theme: AlarmTheme) async -> Set<UUID> {
         guard #available(iOS 26.0, *) else { return [] }
         #if canImport(AlarmKit)
+        let upcoming = Array(
+            drafts.filter { $0.kind == .dose && $0.fireDate > Date().addingTimeInterval(8) }.prefix(16)
+        )
+        guard !upcoming.isEmpty else { return [] }
+
         var scheduled = Set<UUID>()
         let manager = AlarmManager.shared
         if let existing = try? manager.alarms {
@@ -59,7 +64,6 @@ enum DoseAlarmKit {
         }
         guard manager.authorizationState == .authorized else { return [] }
 
-        let upcoming = drafts.filter { $0.kind == .dose && $0.fireDate > Date().addingTimeInterval(8) }.prefix(16)
         for draft in upcoming {
             do {
                 try await schedule(draft: draft, locale: locale, theme: theme)

@@ -9,6 +9,8 @@ final class SyncEngine {
     private weak var store: CheckMedStore?
     @ObservationIgnored
     private weak var session: SessionStore?
+    @ObservationIgnored
+    private weak var family: FamilyStore?
     private var isSyncing = false
     private var queued = false
 
@@ -48,8 +50,53 @@ final class SyncEngine {
         store.bindIdentity(ownerId: ownerId, profileId: profileId)
 
         await pull(client: client, ownerId: ownerId, into: store)
+        await pullFamily(client: client, ownerId: ownerId)
         await push(client: client, ownerId: ownerId, profileId: profileId, from: store)
+        await pushFamily(client: client, ownerId: ownerId)
         store.saveAfterSync()
+    }
+
+    func bindFamily(_ family: FamilyStore) {
+        self.family = family
+        family.onCloudSync = { [weak self] in
+            await self?.syncIfSignedIn()
+        }
+    }
+
+    private func pullFamily(client: SupabaseClient, ownerId: UUID) async {
+        struct Row: Decodable {
+            var extraFamilyId: UUID?
+            var extraFamilyName: String?
+            enum CodingKeys: String, CodingKey {
+                case extraFamilyId = "extra_family_id"
+                case extraFamilyName = "extra_family_name"
+            }
+        }
+        guard let family else { return }
+        let rows: [Row] = (try? await client
+            .from("profiles")
+            .select("extra_family_id, extra_family_name")
+            .eq("owner_id", value: ownerId.uuidString)
+            .limit(1)
+            .execute()
+            .value) ?? []
+        guard let row = rows.first else { return }
+        if let name = row.extraFamilyName, !name.isEmpty {
+            family.applyRemote(id: row.extraFamilyId ?? family.extra?.id ?? UUID(), name: name)
+        }
+    }
+
+    private func pushFamily(client: SupabaseClient, ownerId: UUID) async {
+        struct Patch: Encodable {
+            var extra_family_id: UUID?
+            var extra_family_name: String?
+        }
+        let extra = family?.extra
+        _ = try? await client
+            .from("profiles")
+            .update(Patch(extra_family_id: extra?.id, extra_family_name: extra?.name))
+            .eq("owner_id", value: ownerId.uuidString)
+            .execute()
     }
 
     private func fetchProfileId(client: SupabaseClient, ownerId: UUID) async -> UUID? {

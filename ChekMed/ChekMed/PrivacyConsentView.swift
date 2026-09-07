@@ -42,9 +42,8 @@ struct PrivacyConsentView: View {
 
     private var privacyMain: some View {
         VStack(spacing: 12) {
-            PhilView(size: 80, mood: .idle, pose: .pointingDown, smiling: true)
+            PhilDoctor2DImage(size: 80)
                 .padding(.top, 2)
-                .accessibilityHidden(true)
 
             VStack(spacing: 4) {
                 Text(session.t(.privacyHeadline))
@@ -172,7 +171,7 @@ private struct PrivacyInfoCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                .stroke(CheckMedTheme.hairline, lineWidth: 2)
         )
         .accessibilityElement(children: .combine)
     }
@@ -249,8 +248,7 @@ struct PrivacySettingsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .center, spacing: 12) {
-                    PhilView(size: 72, pose: .idle, smiling: true)
-                        .accessibilityHidden(true)
+                    PhilDoctor2DImage(size: 64)
                     Text(session.t(.privacySettingsIntro))
                         .font(.system(.subheadline, design: .rounded).weight(.bold))
                         .foregroundStyle(CheckMedTheme.muted)
@@ -366,7 +364,7 @@ struct PrivacySettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                .stroke(CheckMedTheme.hairline, lineWidth: 2)
         )
         .accessibilityElement(children: .contain)
     }
@@ -388,7 +386,7 @@ struct PrivacySettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                .stroke(CheckMedTheme.hairline, lineWidth: 2)
         )
     }
 }

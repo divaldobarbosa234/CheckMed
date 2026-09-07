@@ -14,7 +14,7 @@ struct DoseNode: Identifiable {
 }
 
 enum CompanionMood: Equatable, Hashable {
-    case idle, celebrate, skip, complete
+    case idle, celebrate, skip, complete, sad
 }
 
 @Observable
@@ -43,25 +43,6 @@ final class TodayPathStore {
 
     var displayMood: CompanionMood { pathComplete ? .complete : mood }
 
-    var bubble: String {
-        if nodes.isEmpty {
-            return "I'm Phil. Scan a paper when you want me to organize it with you."
-        }
-        if pathComplete {
-            return "Path complete — that's the loop. I'm Phil, and I'll host tomorrow too."
-        }
-        if mood == .celebrate, let current {
-            return "Logged. That's how we keep the streak warm. Next up: \(current.medicine) at \(current.time)."
-        }
-        if mood == .skip, let current {
-            return "No sweat. We'll try the next one together — \(current.medicine) at \(current.time)."
-        }
-        if let current {
-            return "I'm Phil. Today is a path, not a table. Ready for \(current.medicine) at \(current.time)?"
-        }
-        return "I'm Phil. Scan a paper when you want me to organize it with you."
-    }
-
     func bind(store: CheckMedStore) {
         self.store = store
         reload()
@@ -76,11 +57,18 @@ final class TodayPathStore {
         }
     }
 
+    var pendingFeeling: (logId: UUID, medicine: String)?
+
     func takeCurrent() {
-        guard let id = current.flatMap({ UUID(uuidString: $0.id) }) else { return }
+        guard let current, let id = UUID(uuidString: current.id) else { return }
         store?.markLog(id: id, status: .taken)
+        pendingFeeling = (id, current.medicine)
         mood = .celebrate
         reload()
+    }
+
+    func clearPendingFeeling() {
+        pendingFeeling = nil
     }
 
     func skipCurrent() {

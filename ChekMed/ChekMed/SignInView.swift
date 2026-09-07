@@ -4,13 +4,13 @@ import UIKit
 struct SignInView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.dismiss) private var dismiss
-    var allowsGuest = false
     var onAuthenticated: (() -> Void)? = nil
     @State private var email = ""
     @State private var password = ""
     @State private var confirmPassword = ""
     @State private var mode: Mode = .login
-    @State private var showAppleComingSoon = false
+    @State private var page: Page = .landing
+    @State private var showPassword = false
     @State private var toast: Banner?
     @State private var toastTask: Task<Void, Never>?
     @State private var readyForBanners = false
@@ -19,112 +19,29 @@ struct SignInView: View {
         case login, signUp, reset
     }
 
+    private enum Page {
+        case landing, form
+    }
+
     private struct Banner: Equatable {
         let text: String
         let isError: Bool
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                host
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(session.t(.signInHeadline))
-                        .font(.system(.title2, design: .rounded).weight(.heavy))
-                    Text(allowsGuest ? session.t(.signInBody) : session.t(.signInBodyOnboarding))
-                        .font(.system(.body, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                VStack(spacing: 14) {
-                    field(
-                        session.t(.email),
-                        text: $email,
-                        contentType: .emailAddress,
-                        keyboard: .emailAddress,
-                        secure: false,
-                        identifier: "auth-email"
-                    )
-                    if mode != .reset {
-                        field(
-                            session.t(.password),
-                            text: $password,
-                            contentType: mode == .signUp ? .newPassword : .password,
-                            keyboard: .default,
-                            secure: true,
-                            identifier: "auth-password"
-                        )
-                    }
-                    if mode == .signUp {
-                        field(
-                            session.t(.confirmPassword),
-                            text: $confirmPassword,
-                            contentType: .newPassword,
-                            keyboard: .default,
-                            secure: true,
-                            identifier: "auth-confirm-password"
-                        )
-                    }
-                    CheckMedButton(title: primaryTitle, action: submit)
-                        .disabled(session.isLoading)
-                        .accessibilityIdentifier("auth-submit")
-                }
-
-                HStack {
-                    Button(secondaryTitle) { toggleMode() }
-                        .font(.system(.caption, design: .rounded).weight(.heavy))
-                        .accessibilityIdentifier("auth-toggle-mode")
-                        .keyboardShortcut("u", modifiers: [.command])
-                    Spacer()
-                    if mode != .reset {
-                        Button(session.t(.forgotPassword)) { mode = .reset }
-                            .font(.system(.caption, design: .rounded).weight(.heavy))
-                    }
-                }
-                .foregroundStyle(CheckMedTheme.ink)
-
-                orEmailDivider
-                    .padding(.top, 6)
-                    .padding(.bottom, 8)
-
-                VStack(spacing: 12) {
-                    provider(.google, title: session.t(.continueWithGoogle), identifier: "auth-google") {
-                        session.requestProvider(.google)
-                    }
-                    .keyboardShortcut("g", modifiers: [.command])
-                    provider(.facebook, title: session.t(.continueWithFacebook)) {
-                        session.requestProvider(.facebook)
-                    }
-                    provider(.apple, title: session.t(.continueWithApple)) {
-                        session.requestProvider(.apple)
-                        showAppleComingSoon = true
-                    }
-                }
-
-                VStack(spacing: 10) {
-                    if allowsGuest {
-                        CheckMedButton(title: session.t(.continueAsGuest), style: .ghost) {
-                            session.continueAsGuest()
-                            dismiss()
-                        }
-                    }
-                    SafetyCaption()
-                        .frame(maxWidth: .infinity)
-                }
-                .padding(.top, 4)
+        ZStack {
+            CheckMedTheme.philFlowCanvas.ignoresSafeArea()
+            if page == .landing {
+                landing
+                    .transition(.opacity.combined(with: .offset(y: 12)))
+            } else {
+                form
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 32)
         }
+        .animation(.spring(duration: 0.4), value: page)
+        .toolbar(.hidden, for: .navigationBar)
         .scrollDismissesKeyboard(.interactively)
-        .background(CheckMedTheme.background)
-        .navigationTitle(session.t(.signIn))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbarBackground(CheckMedTheme.background, for: .navigationBar)
         .animation(.spring(duration: 0.35), value: toast?.text)
         .disabled(session.isLoading)
         .overlay(alignment: .top) { toastBanner }
@@ -137,11 +54,6 @@ struct SignInView: View {
                     .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(color: CheckMedTheme.ink.opacity(0.12), radius: 12, y: 4)
             }
-        }
-        .alert(session.t(.appleTitle), isPresented: $showAppleComingSoon) {
-            Button(session.t(.ok), role: .cancel) {}
-        } message: {
-            Text(session.t(.appleComingSoon))
         }
         .onChange(of: session.kind) { _, kind in
             guard kind == .authenticated else { return }
@@ -171,18 +83,198 @@ struct SignInView: View {
         }
     }
 
-    private var host: some View {
-        HStack(alignment: .center, spacing: 14) {
-            PhilView(size: 100)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("CHECKMED")
-                    .font(.system(size: 12, weight: .black, design: .rounded))
-                    .tracking(1.8)
-                    .foregroundStyle(CheckMedTheme.primaryShadow)
-                SpeechBubbleView(text: bubbleText)
+    private var landing: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 8) {
+                Text("checkmed")
+                    .font(.system(size: 34, weight: .heavy, design: .rounded))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .padding(.top, 12)
+                PhilWelcomeCluster()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .padding(.horizontal, 8)
+
+            VStack(spacing: 16) {
+                Text(session.t(.signInToGetStarted))
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                provider(.apple, title: session.t(.signInWithApple), identifier: "auth-apple") {
+                    session.requestProvider(.apple)
+                }
+                provider(.google, title: session.t(.signInWithGoogle), identifier: "auth-google") {
+                    session.requestProvider(.google)
+                }
+                Button(session.t(.continueWithEmail)) {
+                    page = .form
+                    mode = .login
+                }
+                .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.ink)
+                .padding(.top, 4)
+                .accessibilityIdentifier("auth-continue-email")
+            }
+            .padding(.horizontal, 28)
+            .padding(.top, 28)
+            .padding(.bottom, 36)
+            .frame(maxWidth: .infinity)
+            .background(CheckMedTheme.surface)
         }
-        .padding(.top, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var form: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .topLeading) {
+                PhilWelcomeCluster(compact: true)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 28)
+                Button {
+                    page = .landing
+                    mode = .login
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .padding(10)
+                        .background(.white.opacity(0.7), in: Circle())
+                }
+                .padding(.leading, 16)
+                .padding(.top, 8)
+                .accessibilityLabel(session.t(.back))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 250)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(formTitle)
+                            .font(.system(.title, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.ink)
+                        Text(formSubhead)
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+
+                    iconField(
+                        session.t(.emailAddress),
+                        text: $email,
+                        systemImage: "envelope",
+                        contentType: .emailAddress,
+                        keyboard: .emailAddress,
+                        secure: false,
+                        identifier: "auth-email"
+                    )
+                    if mode != .reset {
+                        iconField(
+                            session.t(.password),
+                            text: $password,
+                            systemImage: "lock",
+                            contentType: mode == .signUp ? .newPassword : .password,
+                            keyboard: .default,
+                            secure: !showPassword,
+                            identifier: "auth-password",
+                            trailing: {
+                                Button {
+                                    showPassword.toggle()
+                                } label: {
+                                    Image(systemName: showPassword ? "eye.slash" : "eye")
+                                        .foregroundStyle(CheckMedTheme.muted)
+                                }
+                                .accessibilityLabel(session.t(.password))
+                            }
+                        )
+                    }
+                    if mode == .signUp {
+                        iconField(
+                            session.t(.confirmPassword),
+                            text: $confirmPassword,
+                            systemImage: "lock",
+                            contentType: .newPassword,
+                            keyboard: .default,
+                            secure: true,
+                            identifier: "auth-confirm-password"
+                        )
+                    }
+
+                    if mode == .login {
+                        HStack {
+                            Spacer()
+                            Button(session.t(.forgotPassword)) { mode = .reset }
+                                .font(.system(.footnote, design: .rounded).weight(.heavy))
+                                .foregroundStyle(CheckMedTheme.primaryShadow)
+                        }
+                    }
+
+                    Button(action: submit) {
+                        Text(primaryTitle)
+                            .font(.system(.body, design: .rounded).weight(.heavy))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(Color.black, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(session.isLoading)
+                    .accessibilityIdentifier("auth-submit")
+
+                    if mode != .reset {
+                        orContinueDivider
+                        VStack(spacing: 12) {
+                            provider(.apple, title: session.t(.continueWithApple), identifier: "auth-apple-form") {
+                                session.requestProvider(.apple)
+                            }
+                            provider(.google, title: session.t(.continueWithGoogle), identifier: "auth-google-form") {
+                                session.requestProvider(.google)
+                            }
+                            provider(.facebook, title: session.t(.continueWithFacebook)) {
+                                session.requestProvider(.facebook)
+                            }
+                        }
+                    }
+
+                    HStack(spacing: 4) {
+                        Spacer()
+                        Text(mode == .login ? session.t(.noAccountPrompt) : session.t(.alreadyHaveAccount))
+                            .font(.system(.footnote, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                        Button(mode == .login ? session.t(.signUpShort) : session.t(.logIn)) { toggleMode() }
+                            .font(.system(.footnote, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.primaryShadow)
+                            .accessibilityIdentifier("auth-toggle-mode")
+                        Spacer()
+                    }
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 28)
+            }
+            .background(
+                CheckMedTheme.surface
+                    .clipShape(RoundedRectangle(cornerRadius: 36, style: .continuous))
+                    .ignoresSafeArea(edges: .bottom)
+            )
+        }
+    }
+
+    private var formTitle: String {
+        switch mode {
+        case .login:
+            session.showWelcomeBack ? session.t(.welcomeBack) : session.t(.signInHeadline)
+        case .signUp: session.t(.createAccount)
+        case .reset: session.t(.forgotPassword)
+        }
+    }
+
+    private var formSubhead: String {
+        switch mode {
+        case .login:
+            session.showWelcomeBack ? session.t(.signInToContinue) : session.t(.signInBodyOnboarding)
+        case .signUp: session.t(.signInBubbleSignUp)
+        case .reset: session.t(.signInBubbleReset)
+        }
     }
 
     @ViewBuilder
@@ -209,41 +301,26 @@ struct SignInView: View {
         }
     }
 
-    private var orEmailDivider: some View {
+    private var orContinueDivider: some View {
         HStack(spacing: 12) {
             Rectangle()
                 .fill(CheckMedTheme.locked)
                 .frame(height: 1)
-            Text(session.t(.orEmail))
+            Text(session.t(.orContinueWith))
                 .font(.system(.caption, design: .rounded).weight(.heavy))
                 .foregroundStyle(CheckMedTheme.muted)
-                .textCase(.uppercase)
             Rectangle()
                 .fill(CheckMedTheme.locked)
                 .frame(height: 1)
         }
-    }
-
-    private var bubbleText: String {
-        switch mode {
-        case .login: session.t(.signInBubbleLogin)
-        case .signUp: session.t(.signInBubbleSignUp)
-        case .reset: session.t(.signInBubbleReset)
-        }
+        .padding(.vertical, 4)
     }
 
     private var primaryTitle: String {
         switch mode {
-        case .login: session.t(.logIn)
+        case .login: session.t(.signIn)
         case .signUp: session.t(.createAccount)
         case .reset: session.t(.sendResetLink)
-        }
-    }
-
-    private var secondaryTitle: String {
-        switch mode {
-        case .login: session.t(.needAccountSignUp)
-        case .signUp, .reset: session.t(.alreadyHaveAccount)
         }
     }
 
@@ -258,6 +335,7 @@ struct SignInView: View {
             confirmPassword = value
         }
         if env["CHECKMED_UI_SIGNUP"] == "1" {
+            page = .form
             mode = .signUp
         }
         if env["CHECKMED_UI_GOOGLE"] == "1" {
@@ -316,32 +394,65 @@ struct SignInView: View {
         }
     }
 
-    private func field(
+    private func iconField<Trailing: View>(
         _ title: String,
         text: Binding<String>,
+        systemImage: String,
+        contentType: UITextContentType,
+        keyboard: UIKeyboardType,
+        secure: Bool,
+        identifier: String,
+        @ViewBuilder trailing: () -> Trailing
+    ) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(CheckMedTheme.muted)
+                .frame(width: 18)
+            Group {
+                if secure {
+                    SecureField(title, text: text)
+                        .textContentType(contentType)
+                } else {
+                    TextField(title, text: text)
+                        .textContentType(contentType)
+                        .keyboardType(keyboard)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+            }
+            trailing()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(CheckMedTheme.locked, lineWidth: 1.5)
+        )
+        .accessibilityIdentifier(identifier)
+        .accessibilityLabel(title)
+    }
+
+    private func iconField(
+        _ title: String,
+        text: Binding<String>,
+        systemImage: String,
         contentType: UITextContentType,
         keyboard: UIKeyboardType,
         secure: Bool,
         identifier: String
     ) -> some View {
-        Group {
-            if secure {
-                SecureField(title, text: text)
-                    .textContentType(contentType)
-            } else {
-                TextField(title, text: text)
-                    .textContentType(contentType)
-                    .keyboardType(keyboard)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-            }
-        }
-        .padding(16)
-        .background(CheckMedTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.locked, lineWidth: 2))
-        .accessibilityIdentifier(identifier)
-        .accessibilityLabel(title)
+        iconField(
+            title,
+            text: text,
+            systemImage: systemImage,
+            contentType: contentType,
+            keyboard: keyboard,
+            secure: secure,
+            identifier: identifier,
+            trailing: { EmptyView() }
+        )
     }
 
     private enum ProviderKind {
@@ -357,14 +468,15 @@ struct SignInView: View {
                     .foregroundStyle(kind == .apple ? Color.white : CheckMedTheme.ink)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(kind == .apple ? Color.black : CheckMedTheme.surface, in: Capsule())
+            .padding(.vertical, 15)
+            .background(kind == .apple ? Color.black : Color.white, in: Capsule())
             .overlay(
                 Capsule().stroke(
-                    kind == .apple ? Color.clear : CheckMedTheme.ink.opacity(0.18),
-                    lineWidth: 2
+                    kind == .apple ? Color.clear : CheckMedTheme.ink.opacity(0.12),
+                    lineWidth: 1.5
                 )
             )
+            .shadow(color: .black.opacity(kind == .apple ? 0 : 0.06), radius: 8, y: 3)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(identifier ?? title)
@@ -377,6 +489,7 @@ struct SignInView: View {
         case .apple:
             Image(systemName: "apple.logo")
                 .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
         case .google:
             Text("G")
                 .font(.system(size: 16, weight: .heavy, design: .rounded))

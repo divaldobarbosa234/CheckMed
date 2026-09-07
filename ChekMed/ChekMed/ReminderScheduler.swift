@@ -54,6 +54,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
     }
 
     func reschedule() {
+        guard session?.hasCompletedOnboarding == true else { return }
         rescheduleTask?.cancel()
         rescheduleTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 350_000_000)
@@ -86,7 +87,13 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
     private func rebuild() async {
         guard let store, let session else { return }
 
-        let drafts = store.reminderDrafts()
+        let drafts = store.reminderDrafts().filter { draft in
+            if draft.kind == .advance {
+                return entitlements?.canUseAdvanceReminder == true && ReminderPreferences.advanceHourEnabled
+            }
+            if draft.kind == .refill { return false }
+            return true
+        } + (entitlements?.canUseRefillReminder == true ? store.refillDrafts() : [])
         let locale = session.locale
         let theme = entitlements?.canChooseAlarmTheme == true
             ? ReminderPreferences.alarmTheme
@@ -142,6 +149,16 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             case .missed:
                 content.title = session.t(.notificationMissedTitle)
                 content.body = session.t(.notificationMissedBody, draft.medicine, draft.time)
+            case .advance:
+                guard entitlements?.canUseAdvanceReminder == true,
+                      ReminderPreferences.advanceHourEnabled else { continue }
+                content.title = session.t(.notificationAdvanceTitle)
+                content.body = session.t(.notificationAdvanceBody, draft.medicine, draft.time)
+                content.categoryIdentifier = ""
+            case .refill:
+                content.title = session.t(.notificationRefillTitle)
+                content.body = session.t(.notificationRefillBody, draft.medicine)
+                content.categoryIdentifier = ""
             }
             var components = calendar.dateComponents(
                 [.year, .month, .day, .hour, .minute],
@@ -159,6 +176,41 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             } catch {
                 continue
             }
+        }
+
+        center.removePendingNotificationRequests(withIdentifiers: [Engagement.winBackId])
+        if ReminderPreferences.winBackEnabled, let winBack = Engagement.winBackDate() {
+            let content = UNMutableNotificationContent()
+            content.title = session.t(.notificationWinBackTitle)
+            content.body = session.t(.notificationWinBackBody)
+            content.sound = .default
+            var components = calendar.dateComponents(
+                [.year, .month, .day, .hour, .minute],
+                from: winBack
+            )
+            components.second = 0
+            let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+            try? await center.add(
+                UNNotificationRequest(identifier: Engagement.winBackId, content: content, trigger: trigger)
+            )
+        }
+    }
+
+    func nudgeUnfinishedSetup(locale: AppLocale) {
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            guard settings.authorizationStatus == .authorized
+                    || settings.authorizationStatus == .provisional else { return }
+            center.removePendingNotificationRequests(withIdentifiers: [Engagement.leaveSetupId])
+            let content = UNMutableNotificationContent()
+            content.title = L10n.string(.unfinishedPlanHeadline, locale: locale)
+            content.body = L10n.string(.leaveHealthWarning, locale: locale)
+            content.sound = .default
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+            try? await center.add(
+                UNNotificationRequest(identifier: Engagement.leaveSetupId, content: content, trigger: trigger)
+            )
         }
     }
 

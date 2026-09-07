@@ -11,22 +11,36 @@ struct OnboardingPrescriptionDraft: Equatable, Sendable {
     var dose: String
     var frequency: String
     var duration: String
+    var timesPerDay: String
 
     static let empty = OnboardingPrescriptionDraft(
         medicine: "",
         dose: "",
         frequency: "",
-        duration: ""
+        duration: "",
+        timesPerDay: ""
     )
 
     var isFilled: Bool {
         !medicine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !dose.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !frequency.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && (!frequency.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !timesPerDay.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            && !duration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var hasMedicineName: Bool {
         !medicine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Combines times-per-day with the written frequency so dose slots can be built.
+    var scheduleFrequency: String {
+        let times = timesPerDay.trimmingCharacters(in: .whitespacesAndNewlines)
+        let freq = frequency.trimmingCharacters(in: .whitespacesAndNewlines)
+        if times.isEmpty { return freq }
+        let stamped = "\(times)× daily"
+        if freq.isEmpty { return stamped }
+        return "\(stamped) · \(freq)"
     }
 }
 
@@ -154,8 +168,9 @@ struct OnboardingManualEntryView: View {
                 .multilineTextAlignment(.center)
             MedicineNameField(title: session.t(.manualMedicine), text: $draft.medicine)
             field(session.t(.manualDose), text: $draft.dose)
+            timesPerDayRow
             field(session.t(.manualFrequency), text: $draft.frequency)
-            field(session.t(.manualDuration), text: $draft.duration)
+            DurationRangeField(duration: $draft.duration)
             Spacer(minLength: 8)
             CheckMedButton(title: session.t(.continueButton), action: onContinue)
                 .disabled(!draft.isFilled)
@@ -174,11 +189,18 @@ struct OnboardingManualEntryView: View {
                 .textCase(.uppercase)
                 .foregroundStyle(CheckMedTheme.muted)
             TextField(title, text: text)
-                .padding(14)
+                .padding(12)
                 .background(CheckMedTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.ink, lineWidth: 2))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+                )
         }
+    }
+
+    private var timesPerDayRow: some View {
+        TimesPerDayPicker(title: session.t(.manualTimesPerDay), value: $draft.timesPerDay)
     }
 }
 
@@ -187,6 +209,7 @@ struct OnboardingAnalysingView: View {
     var isShort: Bool
     var work: (() async -> Void)? = nil
     var onFinished: () -> Void
+    var importToken: Int = 0
 
     @State private var pulse = false
 
@@ -216,7 +239,7 @@ struct OnboardingAnalysingView: View {
                 pulse = true
             }
         }
-        .task {
+        .task(id: importToken) {
             let started = Date()
             if let work {
                 await work()
@@ -235,51 +258,402 @@ struct OnboardingAnalysingView: View {
 
 struct OnboardingConfirmView: View {
     @Environment(SessionStore.self) private var session
-    @Binding var draft: OnboardingPrescriptionDraft
+    @Environment(EntitlementStore.self) private var entitlements
+    @Binding var drafts: [OnboardingPrescriptionDraft]
     var isManual: Bool
     var onConfirm: () -> Void
     var onBack: () -> Void
 
-    var body: some View {
-        VStack(spacing: 16) {
-            SetupStepHeader(
-                title: isManual ? session.t(.confirmManualHeadline) : session.t(.confirmEditHeadline)
-            )
-            PhilView(size: 88, smiling: true)
-            if !isManual, !draft.hasMedicineName {
-                Text(session.t(.scanOCREmptyHint))
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .multilineTextAlignment(.center)
-            }
-            MedicineNameField(title: session.t(.manualMedicine), text: $draft.medicine)
-            field(session.t(.manualDose), text: $draft.dose)
-            field(session.t(.manualFrequency), text: $draft.frequency)
-            field(session.t(.manualDuration), text: $draft.duration)
-            Spacer(minLength: 8)
-            CheckMedButton(title: session.t(.confirmLooksGood), action: onConfirm)
-                .disabled(!draft.isFilled)
-            CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
-            SafetyCaption()
-                .frame(maxWidth: .infinity)
-        }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CheckMedTheme.background)
+    @State private var page = 0
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case medicine, dose, frequency, duration
     }
 
-    private func field(_ title: String, text: Binding<String>) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+    private var canConfirm: Bool {
+        drafts.contains(where: \.isFilled)
+    }
+
+    private var keyboardOpen: Bool { focusedField != nil }
+    private var freeMedicineCap: Int { SuperLimits.freePrescriptions }
+
+    var body: some View {
+        VStack(spacing: 10) {
+            header
+            pagerBanner
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if !isManual, drafts.allSatisfy({ !$0.hasMedicineName }) {
+                            Text(session.t(.scanOCREmptyHint))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                        }
+                        medicineFields(index: min(page, max(0, drafts.count - 1)))
+                            .id("fields")
+                        if !keyboardOpen {
+                            CheckMedButton(title: session.t(.confirmLooksGood), action: onConfirm)
+                                .disabled(!canConfirm)
+                            CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+                            SafetyCaption()
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(.bottom, keyboardOpen ? 12 : 8)
+                }
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: focusedField) { _, field in
+                    guard field != nil else { return }
+                    withAnimation {
+                        proxy.scrollTo("fields", anchor: .top)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.background)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button(session.t(.done)) { focusedField = nil }
+            }
+        }
+        .onChange(of: drafts.count) { _, count in
+            if page >= count { page = max(0, count - 1) }
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            PhilThinkingImage(size: 44)
+                .accessibilityHidden(true)
+            Text(isManual ? session.t(.confirmManualHeadline) : session.t(.confirmEditHeadline))
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.ink)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if keyboardOpen {
+                Button(session.t(.done)) { focusedField = nil }
+                    .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.primaryShadow)
+                    .frame(minWidth: 44, minHeight: 44)
+            } else if currentDraft.hasMedicineName {
+                Button(action: removeCurrentMedicine) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.danger)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(session.t(.confirmRemoveMedicine))
+            }
+        }
+    }
+
+    private var currentDraft: OnboardingPrescriptionDraft {
+        guard drafts.indices.contains(page) else { return .empty }
+        return drafts[page]
+    }
+
+    private var pagerBanner: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            pagePills
+            if !entitlements.isSuper {
+                Text(session.t(.confirmFreePlanLimit))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if drafts.count > 1 {
+                Text(session.t(.confirmMultipleHint))
+                    .font(.system(.subheadline, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.belly)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(CheckMedTheme.primaryShadow.opacity(0.35), lineWidth: 1.5)
+        )
+    }
+
+    private var pagePills: some View {
+        HStack(spacing: 8) {
+            ForEach(drafts.indices, id: \.self) { index in
+                Button {
+                    focusedField = nil
+                    withAnimation(.easeInOut(duration: 0.2)) { page = index }
+                } label: {
+                    Text("\(index + 1)")
+                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                        .foregroundStyle(index == page ? CheckMedTheme.onPrimary : CheckMedTheme.ink)
+                        .frame(width: 38, height: 38)
+                        .background(index == page ? CheckMedTheme.primary : CheckMedTheme.surface)
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle().stroke(
+                                index == page ? CheckMedTheme.primaryShadow : CheckMedTheme.hairline,
+                                lineWidth: 1.5
+                            )
+                        )
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(session.t(.confirmMedicineOf, index + 1, drafts.count))
+            }
+            Button(action: addMedicineSlot) {
+                Image(systemName: "plus")
+                    .font(.system(size: 16, weight: .heavy))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .frame(width: 38, height: 38)
+                    .background(CheckMedTheme.surface)
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(CheckMedTheme.hairline, lineWidth: 1.5))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(session.t(.confirmAddMedicine))
+            Text(session.t(.confirmMedicineOf, page + 1, max(drafts.count, 1)))
+                .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.ink)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func addMedicineSlot() {
+        focusedField = nil
+        if !entitlements.isSuper, drafts.count >= freeMedicineCap {
+            entitlements.presentPaywall()
+            return
+        }
+        drafts.append(.empty)
+        page = drafts.count - 1
+    }
+
+    private func medicineFields(index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            MedicineNameField(
+                title: session.t(.manualMedicine),
+                text: binding(index, \.medicine)
+            )
+            compactField(session.t(.manualDose), text: binding(index, \.dose), field: .dose)
+            TimesPerDayPicker(
+                title: session.t(.manualTimesPerDay),
+                value: binding(index, \.timesPerDay)
+            )
+            compactField(session.t(.manualFrequency), text: binding(index, \.frequency), field: .frequency)
+            DurationRangeField(duration: binding(index, \.duration))
+        }
+    }
+
+    private func removeCurrentMedicine() {
+        focusedField = nil
+        guard drafts.indices.contains(page) else { return }
+        drafts.remove(at: page)
+        if drafts.isEmpty {
+            drafts = [.empty]
+            page = 0
+        } else {
+            page = min(page, drafts.count - 1)
+        }
+    }
+
+    private func binding(_ index: Int, _ keyPath: WritableKeyPath<OnboardingPrescriptionDraft, String>) -> Binding<String> {
+        Binding(
+            get: {
+                guard drafts.indices.contains(index) else { return "" }
+                return drafts[index][keyPath: keyPath]
+            },
+            set: { value in
+                guard drafts.indices.contains(index) else { return }
+                drafts[index][keyPath: keyPath] = value
+            }
+        )
+    }
+
+    private func compactField(_ title: String, text: Binding<String>, field: Field) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(.caption, design: .rounded).weight(.bold))
+                .font(.system(.caption2, design: .rounded).weight(.bold))
                 .textCase(.uppercase)
                 .foregroundStyle(CheckMedTheme.muted)
             TextField(title, text: text)
-                .padding(14)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .background(CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(CheckMedTheme.ink, lineWidth: 2))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+                )
+                .focused($focusedField, equals: field)
+        }
+    }
+}
+
+}
+
+struct DurationRangeField: View {
+    @Environment(SessionStore.self) private var session
+    @Binding var duration: String
+
+    @State private var showPicker = false
+    @State private var start = Date()
+    @State private var end = Calendar.current.date(byAdding: .day, value: 6, to: Date()) ?? Date()
+
+    private var calendar: Calendar { session.foundationCalendar }
+
+    private var dayCount: Int {
+        let s = calendar.startOfDay(for: start)
+        let e = calendar.startOfDay(for: max(end, start))
+        let diff = calendar.dateComponents([.day], from: s, to: e).day ?? 0
+        return max(1, diff + 1)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(session.t(.manualDuration))
+                .font(.system(.caption2, design: .rounded).weight(.bold))
+                .textCase(.uppercase)
+                .foregroundStyle(CheckMedTheme.muted)
+            Button {
+                seedFromDuration()
+                showPicker = true
+            } label: {
+                HStack {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.primaryShadow)
+                    Text(duration.isEmpty ? session.t(.durationPickDates) : duration)
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                        .foregroundStyle(duration.isEmpty ? CheckMedTheme.muted : CheckMedTheme.ink)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .background(CheckMedTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(session.t(.manualDuration))
+            .accessibilityValue(duration)
+        }
+        .sheet(isPresented: $showPicker, onDismiss: commitDays) {
+            NavigationStack {
+                VStack(spacing: 8) {
+                    Text(session.t(.durationStart))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .textCase(.uppercase)
+                    DatePicker(
+                        session.t(.durationStart),
+                        selection: $start,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .environment(\.locale, session.locale.foundationLocale)
+
+                    Text(session.t(.durationEnd))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .textCase(.uppercase)
+                    DatePicker(
+                        session.t(.durationEnd),
+                        selection: $end,
+                        in: start...,
+                        displayedComponents: .date
+                    )
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .environment(\.locale, session.locale.foundationLocale)
+
+                    Text(session.t(.durationDaysFormat, dayCount))
+                        .font(.system(.title3, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .padding(.top, 4)
+                }
+                .padding(.horizontal, 20)
+                .navigationTitle(session.t(.manualDuration))
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button(session.t(.done)) {
+                            commitDays()
+                            showPicker = false
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+            .onAppear { seedFromDuration() }
+        }
+        .onChange(of: start) { _, _ in
+            if end < start { end = start }
+        }
+    }
+
+    private func seedFromDuration() {
+        let days = duration.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
+        start = Date()
+        if let days, days > 0 {
+            end = calendar.date(byAdding: .day, value: days - 1, to: calendar.startOfDay(for: start)) ?? start
+        }
+    }
+
+    private func commitDays() {
+        duration = session.t(.durationDaysFormat, dayCount)
+    }
+}
+
+struct TimesPerDayPicker: View {
+    let title: String
+    @Binding var value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.system(.caption2, design: .rounded).weight(.bold))
+                .textCase(.uppercase)
+                .foregroundStyle(CheckMedTheme.muted)
+            HStack(spacing: 8) {
+                ForEach(["1", "2", "3", "4"], id: \.self) { option in
+                    Button {
+                        value = value == option ? "" : option
+                    } label: {
+                        Text(option)
+                            .font(.system(.body, design: .rounded).weight(.heavy))
+                            .foregroundStyle(value == option ? Color.white : CheckMedTheme.ink)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(value == option ? CheckMedTheme.primary : CheckMedTheme.surface)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(
+                                        value == option ? CheckMedTheme.primaryShadow : CheckMedTheme.hairline,
+                                        lineWidth: 1.5
+                                    )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(title) \(option)")
+                }
+            }
         }
     }
 }

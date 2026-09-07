@@ -17,7 +17,7 @@ struct PathNodeView: View {
                         .background(Circle().fill(node.status == .current ? CheckMedTheme.current : CheckMedTheme.surface))
                     Text(glyph)
                         .font(.system(size: 22, weight: .black, design: .rounded))
-                        .foregroundStyle(node.status == .current ? Color.white : CheckMedTheme.primary)
+                        .foregroundStyle(node.status == .current ? Color.white : CheckMedTheme.primaryShadow)
                 }
                 .frame(width: 58, height: 58)
                 if showConnector {
@@ -40,7 +40,7 @@ struct PathNodeView: View {
                     HStack {
                         Button(session.t(.taken), action: onTake)
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(CheckMedTheme.onPrimary)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
                             .background(CheckMedTheme.primary, in: Capsule())
@@ -64,7 +64,7 @@ struct PathNodeView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color(hex: 0xEFEFEF), lineWidth: 2)
+                    .stroke(CheckMedTheme.hairline, lineWidth: 2)
             )
         }
         .padding(.leading, offset)

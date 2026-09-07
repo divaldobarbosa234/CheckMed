@@ -13,25 +13,31 @@ struct CheckMedButton: View {
             Text(title.uppercased(with: locale))
                 .font(.system(.body, design: .rounded).weight(.heavy))
                 .tracking(0.5)
-                .foregroundStyle(style == .primary ? Color.white : CheckMedTheme.ink)
+                .foregroundStyle(style == .primary ? CheckMedTheme.onPrimary : CheckMedTheme.ink)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(background)
-                .clipShape(Capsule())
-                .contentShape(Capsule())
+                .background(background, in: Capsule())
                 .overlay(
                     Capsule()
                         .stroke(CheckMedTheme.ink, lineWidth: style == .secondary ? 2 : 0)
                 )
-                .shadow(color: style == .primary ? CheckMedTheme.primaryShadow : .clear, radius: 0, y: 4)
         }
         .buttonStyle(.plain)
+        .background(alignment: .bottom) {
+            if style == .primary {
+                Capsule()
+                    .fill(CheckMedTheme.primaryShadow)
+                    .offset(y: 4)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.bottom, style == .primary ? 4 : 0)
+        .contentShape(Capsule())
         .accessibilityLabel(title)
         .modifier(PrimaryReturnKey(enabled: style == .primary))
     }
 
-    @ViewBuilder
-    private var background: some View {
+    private var background: Color {
         switch style {
         case .primary: CheckMedTheme.primary
         case .secondary: CheckMedTheme.surface

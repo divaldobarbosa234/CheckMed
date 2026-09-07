@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import PDFKit
 import UIKit
@@ -59,13 +60,34 @@ extension EntitlementStore {
 
 enum PrescriptionReader {
     static func draft(fromImageData data: Data) async -> OnboardingPrescriptionDraft {
-        let extraction = await PrescriptionExtractorChain.extract(fromImageData: data)
-        return extraction.draft
+        (await drafts(fromImageData: data)).first ?? .empty
     }
 
     static func draft(fromPDF url: URL) async -> OnboardingPrescriptionDraft {
+        (await drafts(fromPDF: url)).first ?? .empty
+    }
+
+    static func drafts(fromImageData data: Data) async -> [OnboardingPrescriptionDraft] {
+        if let cached = OCRDraftCache.drafts(for: data) { return cached }
+        let extraction = await PrescriptionExtractorChain.extract(fromImageData: data)
+        let result = normalized(extraction)
+        OCRDraftCache.store(result, for: data)
+        return result
+    }
+
+    static func drafts(fromPDF url: URL) async -> [OnboardingPrescriptionDraft] {
+        let key = (try? Data(contentsOf: url)) ?? Data(url.absoluteString.utf8)
+        if let cached = OCRDraftCache.drafts(for: key) { return cached }
         let extraction = await PrescriptionExtractorChain.extract(fromPDF: url)
-        return extraction.draft
+        let result = normalized(extraction)
+        OCRDraftCache.store(result, for: key)
+        return result
+    }
+
+    private static func normalized(_ extraction: PrescriptionExtraction) -> [OnboardingPrescriptionDraft] {
+        if !extraction.drafts.isEmpty { return extraction.drafts }
+        if extraction.draft.hasMedicineName { return [extraction.draft] }
+        return [.empty]
     }
 
     static func recognizeText(from data: Data) async -> String {
@@ -92,14 +114,30 @@ enum PrescriptionReader {
     nonisolated static func jpegPages(fromPDF url: URL, maxPages: Int = 3) -> Data? {
         guard let document = PDFDocument(url: url) else { return nil }
         let limit = min(document.pageCount, maxPages)
+        var images: [UIImage] = []
         for index in 0..<limit {
             guard let page = document.page(at: index),
                   let cgImage = rasterize(page)
             else { continue }
-            let image = UIImage(cgImage: cgImage)
-            if let jpeg = jpeg(from: image) { return jpeg }
+            images.append(UIImage(cgImage: cgImage))
         }
-        return nil
+        guard let first = images.first else { return nil }
+        if images.count == 1 { return jpeg(from: first) }
+        let width = images.map(\.size.width).max() ?? first.size.width
+        let height = images.reduce(0) { $0 + $1.size.height }
+        let size = CGSize(width: max(1, width), height: max(1, height))
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let stacked = renderer.image { _ in
+            var y: CGFloat = 0
+            for image in images {
+                image.draw(in: CGRect(x: 0, y: y, width: image.size.width, height: image.size.height))
+                y += image.size.height
+            }
+        }
+        return jpeg(from: stacked, maxDimension: 2400)
     }
 
     nonisolated static func jpeg(from image: UIImage, maxDimension: CGFloat = 1600) -> Data? {
@@ -176,8 +214,9 @@ enum PrescriptionReader {
     nonisolated private static func ocr(_ image: CGImage) -> String {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.automaticallyDetectsLanguage = true
+        request.usesLanguageCorrection = false
+        request.automaticallyDetectsLanguage = false
+        request.recognitionLanguages = ["pt-BR", "en-US", "es-ES", "fr-FR"]
         request.minimumTextHeight = 0.012
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
@@ -187,6 +226,26 @@ enum PrescriptionReader {
         }
         let observations = request.results ?? []
         return observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+    }
+}
+
+/// Same photo/PDF bytes always yield the same confirm list in this session.
+private enum OCRDraftCache {
+    private static let lock = NSLock()
+    private static var draftsByDigest: [String: [OnboardingPrescriptionDraft]] = [:]
+
+    static func drafts(for data: Data) -> [OnboardingPrescriptionDraft]? {
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        lock.lock()
+        defer { lock.unlock() }
+        return draftsByDigest[digest]
+    }
+
+    static func store(_ drafts: [OnboardingPrescriptionDraft], for data: Data) {
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        lock.lock()
+        draftsByDigest[digest] = drafts
+        lock.unlock()
     }
 }
 
@@ -207,6 +266,10 @@ enum PrescriptionParser {
     ]
 
     static func parse(_ raw: String) -> OnboardingPrescriptionDraft {
+        parseAll(raw, limit: 1).first ?? .empty
+    }
+
+    static func parseAll(_ raw: String, limit: Int = 12) -> [OnboardingPrescriptionDraft] {
         let cleaned = raw
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\u{00a0}", with: " ")
@@ -215,50 +278,139 @@ enum PrescriptionParser {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
 
-        guard let medicine = findMedicine(in: lines, raw: cleaned) else {
-            return .empty
+        let globalDose = findDose(in: cleaned)
+        let globalFrequency = findFrequency(in: cleaned)
+        let globalDuration = findDuration(in: cleaned)
+        var drafts: [OnboardingPrescriptionDraft] = []
+        var seen = Set<String>()
+
+        for (index, line) in lines.enumerated() {
+            let nearby = nearbyText(lines: lines, index: index)
+            for hit in strengthHits(in: line) {
+                let key = hit.name.lowercased()
+                guard seen.insert(key).inserted else { continue }
+                drafts.append(
+                    OnboardingPrescriptionDraft(
+                        medicine: "\(hit.name) \(hit.strength)",
+                        dose: nonempty(findDose(in: nearby), globalDose),
+                        frequency: nonempty(findFrequency(in: nearby), globalFrequency),
+                        duration: nonempty(findDuration(in: nearby), globalDuration),
+                        timesPerDay: nonempty(
+                            findTimesPerDay(in: nearby),
+                            findTimesPerDay(in: cleaned)
+                        )
+                    )
+                )
+                if drafts.count >= limit { return drafts }
+            }
         }
-        return OnboardingPrescriptionDraft(
-            medicine: medicine,
-            dose: findDose(in: cleaned),
-            frequency: findFrequency(in: cleaned),
-            duration: findDuration(in: cleaned)
-        )
+
+        if drafts.isEmpty {
+            let labeled = try? NSRegularExpression(
+                pattern: #"(?i)\b(?:medicine|medication|medicamento|médicament|drug|rx)\s*[:\-]\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\- ]{2,40})"#
+            )
+            if let labeled {
+                let range = NSRange(cleaned.startIndex..., in: cleaned)
+                for match in labeled.matches(in: cleaned, range: range) {
+                    guard match.numberOfRanges > 1,
+                          let nameRange = Range(match.range(at: 1), in: cleaned)
+                    else { continue }
+                    let name = String(cleaned[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    let key = name.lowercased()
+                    guard isPlausibleName(name), seen.insert(key).inserted else { continue }
+                    drafts.append(
+                        OnboardingPrescriptionDraft(
+                            medicine: name,
+                            dose: globalDose,
+                            frequency: globalFrequency,
+                            duration: globalDuration,
+                            timesPerDay: findTimesPerDay(in: cleaned)
+                        )
+                    )
+                    if drafts.count >= limit { return drafts }
+                }
+            }
+        }
+
+        if drafts.isEmpty {
+            for line in lines where line.count >= 5 && line.count <= 48 {
+                let words = line.split(separator: " ").map(String.init)
+                guard words.count <= 4, words.allSatisfy({ $0.first?.isLetter == true }) else { continue }
+                let key = line.lowercased()
+                guard isPlausibleName(line), looksLikeDrugToken(line), seen.insert(key).inserted else { continue }
+                drafts.append(
+                    OnboardingPrescriptionDraft(
+                        medicine: line,
+                        dose: globalDose,
+                        frequency: globalFrequency,
+                        duration: globalDuration,
+                        timesPerDay: findTimesPerDay(in: cleaned)
+                    )
+                )
+                if drafts.count >= limit { return drafts }
+            }
+        }
+
+        return drafts
     }
 
-    private static func findMedicine(in lines: [String], raw: String) -> String? {
+    private static func nearbyText(lines: [String], index: Int) -> String {
+        let end = min(lines.count, index + 3)
+        return lines[index..<end].joined(separator: "\n")
+    }
+
+    private static func nonempty(_ preferred: String, _ fallback: String) -> String {
+        preferred.isEmpty ? fallback : preferred
+    }
+
+    private struct StrengthHit {
+        var name: String
+        var strength: String
+    }
+
+    private static func strengthHits(in line: String) -> [StrengthHit] {
         let strength = try? NSRegularExpression(
-            pattern: #"(?i)\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]{2,}(?:\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]{2,}){0,3})\s+(\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|ug|g|ml|ui|iu|%))\b"#
+            pattern: #"(?i)\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]{2,}(?:\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]{2,}){0,3})\s+(\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|ug|g|ml|ui|iu|%|miligramos?|milligrams?))\b"#
         )
-        for line in lines {
-            guard let strength, let match = strength.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+        guard let strength else { return [] }
+        let range = NSRange(line.startIndex..., in: line)
+        return strength.matches(in: line, range: range).compactMap { match in
+            guard match.numberOfRanges > 2,
                   let nameRange = Range(match.range(at: 1), in: line),
                   let doseRange = Range(match.range(at: 2), in: line)
-            else { continue }
+            else { return nil }
             let name = String(line[nameRange]).trimmingCharacters(in: .whitespaces)
             let dose = String(line[doseRange]).replacingOccurrences(of: " ", with: "")
-            if isPlausibleName(name) {
-                return "\(name) \(dose.lowercased())"
-            }
+            guard isPlausibleName(name) else { return nil }
+            return StrengthHit(name: name, strength: dose.lowercased())
         }
+    }
 
-        let labeled = try? NSRegularExpression(
-            pattern: #"(?i)\b(?:medicine|medication|medicamento|médicament|drug|rx)\s*[:\-]\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\- ]{2,40})"#
-        )
-        if let labeled, let match = labeled.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
-           let range = Range(match.range(at: 1), in: raw) {
-            let name = String(raw[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-            if isPlausibleName(name) { return name }
+    private static func findTimesPerDay(in raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.contains("qid") || lower.contains("4 times") || lower.contains("quatro vez") {
+            return "4"
         }
-
-        for line in lines where line.count >= 5 && line.count <= 48 {
-            let words = line.split(separator: " ").map(String.init)
-            guard words.count <= 4, words.allSatisfy({ $0.first?.isLetter == true }) else { continue }
-            if isPlausibleName(line), looksLikeDrugToken(line) {
-                return line
-            }
+        if lower.contains("tid") || lower.contains("3 times") || lower.contains("três vez")
+            || lower.contains("tres vez") || lower.contains("trois fois") {
+            return "3"
         }
-        return nil
+        if lower.contains("bid") || lower.contains("twice") || lower.contains("2 times")
+            || lower.contains("duas vez") || lower.contains("deux fois") {
+            return "2"
+        }
+        if lower.contains("once") || lower.contains("qd") || lower.contains("1 time")
+            || lower.contains("uma vez") || lower.contains("una vez") || lower.contains("une fois") {
+            return "1"
+        }
+        let hoursPattern = #"(?i)(?:every|cada|todas as|toutes les)\s+(\d+)\s+(?:hours?|horas?|heures?)"#
+        if let hoursText = firstGroup(hoursPattern, in: raw), let hours = Int(hoursText) {
+            if hours <= 6 { return "4" }
+            if hours <= 8 { return "3" }
+            if hours <= 12 { return "2" }
+            return "1"
+        }
+        return ""
     }
 
     private static func findDose(in raw: String) -> String {

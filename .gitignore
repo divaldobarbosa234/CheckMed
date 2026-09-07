@@ -47,6 +47,10 @@ ChekMed/.git/
 **/xcuserdata/
 *.xcuserstate
 
+# Xcode build products
+.derivedData/
+.phase4-test/
+
 # Expo Go simulator binary (download locally; do not commit)
 Expo-Go*.app
 *.tar.app
@@ -54,6 +58,7 @@ Expo-Go*.app
 # local verification captures
 .verify-*.png
 .sim-screenshots/
+exports/screens/
 
 # typescript
 *.tsbuildinfo

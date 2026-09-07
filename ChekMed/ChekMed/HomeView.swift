@@ -5,6 +5,7 @@ struct HomeView: View {
     @Environment(TodayPathStore.self) private var path
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(FamilyStore.self) private var family
+    @Environment(CheckMedStore.self) private var treatments
     @State private var navPath = NavigationPath()
 
     private var greeting: String {
@@ -34,7 +35,6 @@ struct HomeView: View {
                                 .font(.system(.title2, design: .rounded).weight(.heavy))
                         }
                         Spacer()
-                        freezeChip
                     }
 
                     HStack(alignment: .center, spacing: 12) {
@@ -57,7 +57,7 @@ struct HomeView: View {
                         )
                     }
 
-                    SpeechBubbleView(text: path.bubble)
+                    SpeechBubbleView(text: philBubble)
 
                     if family.isViewingExtra, let extra = family.extra {
                         Text(session.t(.familyLookingAt, extra.name))
@@ -88,18 +88,15 @@ struct HomeView: View {
                     CheckMedButton(title: session.t(.homeScan)) {
                         navPath.append(AppRoute.addPrescription)
                     }
-
-                    HStack(spacing: 10) {
-                        ghost(session.t(.homeNextDose)) { navPath.append(AppRoute.nextDose) }
-                        ghost(session.t(.homeAlarm)) { navPath.append(AppRoute.medicationAlarm) }
-                    }
-
-                    HStack(spacing: 10) {
-                        ghost(session.t(.homeTodaysTreatment)) { navPath.append(AppRoute.todayTreatment) }
-                        ghost(session.t(.homeUpcoming)) { navPath.append(AppRoute.upcoming) }
-                    }
                     CheckMedButton(title: session.t(.homeSummary), style: .ghost) {
                         navPath.append(AppRoute.dailySummary)
+                    }
+                    HStack(spacing: 10) {
+                        ghost(session.t(.journeyTitle)) { navPath.append(AppRoute.journeyReport) }
+                        ghost(session.t(.pharmacyTitle)) { navPath.append(AppRoute.pharmacySearch) }
+                    }
+                    CheckMedButton(title: session.t(.notesOnDevice), style: .ghost) {
+                        navPath.append(AppRoute.community)
                     }
 
                     SafetyCaption()
@@ -114,10 +111,15 @@ struct HomeView: View {
                 AppRouteView(route: route, path: $navPath)
             }
             .onAppear { path.reload() }
+            .sheet(item: feelingItem) { item in
+                FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
+            }
             .task {
+                guard !session.needsUnfinishedPlan(treatments: treatments) else { return }
                 guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
                 try? await Task.sleep(nanoseconds: 3_500_000_000)
                 guard !Task.isCancelled else { return }
+                guard !session.needsUnfinishedPlan(treatments: treatments) else { return }
                 guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
                 session.markOnboardingPaywallOffered()
                 entitlements.presentPaywall()
@@ -125,35 +127,23 @@ struct HomeView: View {
         }
     }
 
-    private var freezeChip: some View {
-        Button {
-            if !entitlements.canUseStreakFreeze {
-                entitlements.presentPaywall()
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: entitlements.canUseStreakFreeze ? "snowflake" : "lock.fill")
-                    .font(.system(size: 12, weight: .bold))
-                Text(session.t(.homeFreeze))
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
-            }
-            .foregroundStyle(entitlements.canUseStreakFreeze ? CheckMedTheme.superAccent : CheckMedTheme.muted)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(CheckMedTheme.surface, in: Capsule())
-            .overlay(
-                Capsule().stroke(
-                    entitlements.canUseStreakFreeze ? CheckMedTheme.superAccent : Color(hex: 0xEFEFEF),
-                    lineWidth: 2
-                )
-            )
+    private var philBubble: String {
+        if path.nodes.isEmpty {
+            return session.t(.homeBubbleEmpty)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(
-            entitlements.canUseStreakFreeze
-                ? session.t(.homeFreezeOn)
-                : session.t(.homeFreezeLocked)
-        )
+        if path.pathComplete {
+            return session.t(.homeBubbleComplete)
+        }
+        if path.mood == .celebrate, let current = path.current {
+            return session.t(.homeBubbleCelebrate, current.medicine, current.time)
+        }
+        if path.mood == .skip, let current = path.current {
+            return session.t(.homeBubbleSkip, current.medicine, current.time)
+        }
+        if let current = path.current {
+            return session.t(.homeBubbleCurrent, current.medicine, current.time)
+        }
+        return session.t(.homeBubbleEmpty)
     }
 
     private func ghost(_ title: String, action: @escaping () -> Void) -> some View {
@@ -167,4 +157,19 @@ struct HomeView: View {
         }
         .buttonStyle(.plain)
     }
+
+    private var feelingItem: Binding<FeelingSheetItem?> {
+        Binding(
+            get: {
+                path.pendingFeeling.map { FeelingSheetItem(logId: $0.logId, medicine: $0.medicine) }
+            },
+            set: { if $0 == nil { path.clearPendingFeeling() } }
+        )
+    }
+}
+
+private struct FeelingSheetItem: Identifiable {
+    var id: UUID { logId }
+    let logId: UUID
+    let medicine: String
 }

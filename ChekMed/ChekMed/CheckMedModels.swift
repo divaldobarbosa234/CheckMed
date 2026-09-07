@@ -350,3 +350,79 @@ final class DoseLogRecord {
         deletedAt = snapshot.deletedAt
     }
 }
+
+enum FeelingMood: String, CaseIterable, Identifiable, Codable, Sendable {
+    case great
+    case okay
+    case low
+    case sideEffect
+
+    var id: String { rawValue }
+
+    func title(_ session: SessionStore) -> String {
+        switch self {
+        case .great: session.t(.feelingGreat)
+        case .okay: session.t(.feelingOkay)
+        case .low: session.t(.feelingLow)
+        case .sideEffect: session.t(.feelingSideEffect)
+        }
+    }
+}
+
+@Model
+final class FeelingRecord {
+    @Attribute(.unique) var id: UUID
+    var ownerId: UUID?
+    var profileId: UUID?
+    var logId: UUID?
+    var medicineName: String
+    var mood: String
+    var note: String
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        ownerId: UUID? = nil,
+        profileId: UUID? = nil,
+        logId: UUID? = nil,
+        medicineName: String,
+        mood: String,
+        note: String = "",
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.ownerId = ownerId
+        self.profileId = profileId
+        self.logId = logId
+        self.medicineName = medicineName
+        self.mood = mood
+        self.note = note
+        self.createdAt = createdAt
+    }
+}
+
+@Model
+final class CommunityCommentRecord {
+    @Attribute(.unique) var id: UUID
+    var ownerId: UUID?
+    var medicineKey: String
+    var author: String
+    var body: String
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        ownerId: UUID? = nil,
+        medicineKey: String,
+        author: String,
+        body: String,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.ownerId = ownerId
+        self.medicineKey = medicineKey
+        self.author = author
+        self.body = body
+        self.createdAt = createdAt
+    }
+}

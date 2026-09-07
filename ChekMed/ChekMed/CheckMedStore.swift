@@ -16,6 +16,8 @@ struct ReminderDraft: Identifiable, Sendable {
     enum Kind: String, Sendable {
         case dose
         case missed
+        case advance
+        case refill
     }
 
     var id: UUID
@@ -29,8 +31,26 @@ struct ReminderDraft: Identifiable, Sendable {
         switch kind {
         case .dose: "checkmed.dose.\(id.uuidString)"
         case .missed: "checkmed.missed.\(id.uuidString)"
+        case .advance: "checkmed.advance.\(id.uuidString)"
+        case .refill: "checkmed.refill.\(id.uuidString)"
         }
     }
+}
+
+struct JourneyReport: Equatable, Sendable {
+    var treatmentId: UUID
+    var title: String
+    var startDate: Date
+    var endDate: Date?
+    var takenCount: Int
+    var skippedCount: Int
+    var plannedCount: Int
+    var percent: Int
+    var medicines: [String]
+    var feelingGreat: Int
+    var feelingOkay: Int
+    var feelingLow: Int
+    var feelingSideEffect: Int
 }
 
 /// Local SwiftData is the UI source of truth for treatments, medicines, schedules, and logs.
@@ -63,6 +83,8 @@ final class CheckMedStore {
             MedicineRecord.self,
             DoseScheduleRecord.self,
             DoseLogRecord.self,
+            FeelingRecord.self,
+            CommunityCommentRecord.self,
         ])
         let disk = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         if let live = try? ModelContainer(for: schema, configurations: [disk]) {
@@ -129,11 +151,13 @@ final class CheckMedStore {
 
     struct MedicineSummary: Identifiable {
         var id: UUID
+        var treatmentId: UUID
         var name: String
         var doseLabel: String
         var frequency: String
         var duration: String
         var treatmentTitle: String
+        var treatmentStatus: String
     }
 
     func medicineSummaries() -> [MedicineSummary] {
@@ -143,23 +167,37 @@ final class CheckMedStore {
             guard let treatment = treatmentsById[medicine.treatmentId] else { return nil }
             return MedicineSummary(
                 id: medicine.id,
+                treatmentId: treatment.id,
                 name: medicine.name,
                 doseLabel: medicine.doseLabel,
                 frequency: medicine.frequency,
                 duration: medicine.duration,
-                treatmentTitle: treatment.title
+                treatmentTitle: treatment.title,
+                treatmentStatus: treatment.status
             )
         }
     }
 
     /// First-treatment onboarding: create or replace the single active plan.
     func seedFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) {
-        saveDraft(draft, ownerId: ownerId, profileId: profileId, replacingFirst: true)
+        seedFromDrafts([draft], ownerId: ownerId, profileId: profileId)
+    }
+
+    func seedFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) {
+        for (index, draft) in drafts.enumerated() where draft.hasMedicineName {
+            saveDraft(draft, ownerId: ownerId, profileId: profileId, replacingFirst: index == 0)
+        }
     }
 
     /// Later adds from Home: always insert a new treatment.
     func addFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) {
-        saveDraft(draft, ownerId: ownerId, profileId: profileId, replacingFirst: false)
+        addFromDrafts([draft], ownerId: ownerId, profileId: profileId)
+    }
+
+    func addFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) {
+        for draft in drafts where draft.hasMedicineName {
+            saveDraft(draft, ownerId: ownerId, profileId: profileId, replacingFirst: false)
+        }
     }
 
     private func saveDraft(
@@ -182,6 +220,7 @@ final class CheckMedStore {
             existing.updatedAt = now
             existing.deletedAt = nil
             existing.status = "active"
+            existing.endDate = Self.endDate(fromDuration: draft.duration, start: existing.startDate, calendar: calendar)
             stamp(existing)
             treatment = existing
         } else {
@@ -190,6 +229,7 @@ final class CheckMedStore {
                 profileId: writeProfileId,
                 title: medicineName,
                 startDate: now,
+                endDate: Self.endDate(fromDuration: draft.duration, start: now, calendar: calendar),
                 updatedAt: now
             )
             context.insert(treatment)
@@ -200,7 +240,7 @@ final class CheckMedStore {
         if replacingFirst, let existing = medicines(for: treatment.id).first {
             existing.name = medicineName
             existing.doseLabel = draft.dose
-            existing.frequency = draft.frequency
+            existing.frequency = draft.scheduleFrequency
             existing.duration = draft.duration
             existing.updatedAt = now
             existing.deletedAt = nil
@@ -213,7 +253,7 @@ final class CheckMedStore {
                 profileId: writeProfileId,
                 name: medicineName,
                 doseLabel: draft.dose,
-                frequency: draft.frequency,
+                frequency: draft.scheduleFrequency,
                 duration: draft.duration,
                 updatedAt: now
             )
@@ -221,7 +261,7 @@ final class CheckMedStore {
             invalidateCache()
         }
 
-        replaceSchedules(for: medicine, frequency: draft.frequency, now: now)
+        replaceSchedules(for: medicine, frequency: draft.scheduleFrequency, now: now)
         logsEnsuredDay = nil
         ensureUpcomingLogs()
         save()
@@ -240,6 +280,102 @@ final class CheckMedStore {
         requestSync()
     }
 
+    func completeTreatment(id: UUID) {
+        guard let treatment = allTreatments().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        treatment.status = "completed"
+        treatment.endDate = treatment.endDate ?? Date()
+        treatment.updatedAt = Date()
+        stamp(treatment)
+        save()
+        notify()
+        requestSync()
+    }
+
+    var hasMedicationDaysSet: Bool {
+        _ = revision
+        let meds = medicineSummaries()
+        guard !meds.isEmpty else { return false }
+        return meds.allSatisfy { summary in
+            Self.endDate(fromDuration: summary.duration, start: Date(), calendar: calendar) != nil
+        }
+    }
+
+    func draftsFromActivePlan() -> [OnboardingPrescriptionDraft] {
+        _ = revision
+        let drafts = medicineSummaries().map { summary in
+            OnboardingPrescriptionDraft(
+                medicine: summary.name,
+                dose: summary.doseLabel,
+                frequency: summary.frequency,
+                duration: summary.duration,
+                timesPerDay: ""
+            )
+        }
+        return drafts.isEmpty ? [.empty] : drafts
+    }
+
+    func deleteActiveTreatments() {
+        let now = Date()
+        let active = activeTreatments()
+        guard !active.isEmpty else { return }
+        let treatmentIds = Set(active.map(\.id))
+        var scheduleIds = Set<UUID>()
+        for treatment in active {
+            treatment.deletedAt = now
+            treatment.updatedAt = now
+            stamp(treatment)
+        }
+        for medicine in medicines() where treatmentIds.contains(medicine.treatmentId) {
+            medicine.deletedAt = now
+            medicine.updatedAt = now
+            stamp(medicine)
+            for schedule in schedules(for: medicine.id) where schedule.deletedAt == nil {
+                schedule.deletedAt = now
+                schedule.updatedAt = now
+                stamp(schedule)
+                scheduleIds.insert(schedule.id)
+            }
+        }
+        for log in allLogs() where log.deletedAt == nil && scheduleIds.contains(log.scheduleId) {
+            log.deletedAt = now
+            log.updatedAt = now
+            stamp(log)
+        }
+        invalidateCache()
+        logsEnsuredDay = nil
+        save()
+        notify()
+        requestSync()
+    }
+
+    func refillDrafts(now: Date = Date()) -> [ReminderDraft] {
+        _ = revision
+        var drafts: [ReminderDraft] = []
+        for treatment in activeTreatments() {
+            guard let end = treatment.endDate else { continue }
+            let fire = calendar.date(byAdding: .day, value: -2, to: calendar.startOfDay(for: end)) ?? end
+            guard fire > now.addingTimeInterval(8) else { continue }
+            let firstMed = medicines(for: treatment.id).first
+            drafts.append(
+                ReminderDraft(
+                    id: treatment.id,
+                    fireDate: fire,
+                    medicine: firstMed?.name ?? treatment.title,
+                    doseLabel: firstMed?.duration ?? treatment.title,
+                    time: "",
+                    kind: .refill
+                )
+            )
+        }
+        return drafts
+    }
+
+    static func endDate(fromDuration text: String, start: Date, calendar: Calendar) -> Date? {
+        let days = text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
+        guard let days, days > 0 else { return nil }
+        return calendar.date(byAdding: .day, value: days, to: start)
+    }
+
     /// Used when AlarmKit / notification actions fire before the SwiftUI store is bound.
     static func persistDoseStatus(id: UUID, status: DoseLogStatus) {
         let schema = Schema([
@@ -247,6 +383,8 @@ final class CheckMedStore {
             MedicineRecord.self,
             DoseScheduleRecord.self,
             DoseLogRecord.self,
+            FeelingRecord.self,
+            CommunityCommentRecord.self,
         ])
         let disk = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         guard let container = try? ModelContainer(for: schema, configurations: [disk]) else { return }
@@ -338,6 +476,19 @@ final class CheckMedStore {
                         kind: .dose
                     )
                 )
+                let advanceAt = log.scheduledAt.addingTimeInterval(-3600)
+                if advanceAt > now.addingTimeInterval(8) {
+                    drafts.append(
+                        ReminderDraft(
+                            id: log.id,
+                            fireDate: advanceAt,
+                            medicine: medicine.name,
+                            doseLabel: medicine.doseLabel,
+                            time: schedule.timeOfDay,
+                            kind: .advance
+                        )
+                    )
+                }
             }
             let missedAt = log.scheduledAt.addingTimeInterval(grace)
             if missedAt > now.addingTimeInterval(8), missedAt < horizon {
@@ -387,6 +538,124 @@ final class CheckMedStore {
             }
         }
         return cells
+    }
+
+    func addFeeling(logId: UUID?, medicineName: String, mood: FeelingMood, note: String) {
+        let row = FeelingRecord(
+            ownerId: ownerId,
+            profileId: writeProfileId,
+            logId: logId,
+            medicineName: medicineName,
+            mood: mood.rawValue,
+            note: note.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        context.insert(row)
+        save()
+        notify()
+    }
+
+    func recentFeelings(limit: Int = 14) -> [FeelingRecord] {
+        _ = revision
+        return feelings()
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    func comments(forMedicine name: String) -> [CommunityCommentRecord] {
+        _ = revision
+        let key = Self.medicineKey(name)
+        return allComments()
+            .filter { $0.medicineKey == key }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func addComment(medicineName: String, author: String, body: String) {
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let row = CommunityCommentRecord(
+            ownerId: ownerId,
+            medicineKey: Self.medicineKey(medicineName),
+            author: author.trimmingCharacters(in: .whitespacesAndNewlines),
+            body: trimmed
+        )
+        context.insert(row)
+        save()
+        notify()
+    }
+
+    func journeyReports() -> [JourneyReport] {
+        _ = revision
+        var seen = Set<UUID>()
+        var reports: [JourneyReport] = []
+        for treatment in activeTreatments() + finishedTreatments() {
+            guard seen.insert(treatment.id).inserted, let report = journeyReport(for: treatment) else { continue }
+            reports.append(report)
+        }
+        return reports
+    }
+
+    func finishedJourneyReports() -> [JourneyReport] {
+        _ = revision
+        return finishedTreatments().compactMap { journeyReport(for: $0) }
+    }
+
+    private func journeyReport(for treatment: TreatmentRecord) -> JourneyReport? {
+        let meds = medicines().filter { $0.treatmentId == treatment.id }
+        guard !meds.isEmpty else { return nil }
+        let medIds = Set(meds.map(\.id))
+        let scheduleIds = Set(schedules().filter { medIds.contains($0.medicineId) }.map(\.id))
+        let related = logs().filter { scheduleIds.contains($0.scheduleId) && $0.scheduledAt <= Date() }
+        let taken = related.filter { $0.status == DoseLogStatus.taken.rawValue }.count
+        let skipped = related.filter { $0.status == DoseLogStatus.skipped.rawValue }.count
+        let planned = related.count
+        let percent = planned == 0 ? 0 : Int((Double(taken) / Double(planned) * 100).rounded())
+        let names = Set(meds.map(\.name))
+        let relatedFeelings = feelings().filter { feeling in
+            names.contains { $0.caseInsensitiveCompare(feeling.medicineName) == .orderedSame }
+        }
+        return JourneyReport(
+            treatmentId: treatment.id,
+            title: treatment.title,
+            startDate: treatment.startDate,
+            endDate: treatment.endDate,
+            takenCount: taken,
+            skippedCount: skipped,
+            plannedCount: planned,
+            percent: percent,
+            medicines: meds.map(\.name),
+            feelingGreat: relatedFeelings.filter { $0.mood == FeelingMood.great.rawValue }.count,
+            feelingOkay: relatedFeelings.filter { $0.mood == FeelingMood.okay.rawValue }.count,
+            feelingLow: relatedFeelings.filter { $0.mood == FeelingMood.low.rawValue }.count,
+            feelingSideEffect: relatedFeelings.filter { $0.mood == FeelingMood.sideEffect.rawValue }.count
+        )
+    }
+
+    private func finishedTreatments() -> [TreatmentRecord] {
+        let now = Date()
+        return visible(allTreatments()).filter { treatment in
+            guard treatment.deletedAt == nil else { return false }
+            if treatment.status == "completed" { return true }
+            if let end = treatment.endDate, end < calendar.startOfDay(for: now) { return true }
+            return false
+        }
+    }
+
+    private func feelings() -> [FeelingRecord] {
+        visible(allFeelings())
+    }
+
+    private func allFeelings() -> [FeelingRecord] {
+        fetch()
+    }
+
+    private func allComments() -> [CommunityCommentRecord] {
+        fetch()
+    }
+
+    static func medicineKey(_ name: String) -> String {
+        name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Sync support
@@ -614,6 +883,8 @@ final class CheckMedStore {
             if let record = row as? MedicineRecord { return record.ownerId == nil || record.ownerId == ownerId }
             if let record = row as? DoseScheduleRecord { return record.ownerId == nil || record.ownerId == ownerId }
             if let record = row as? DoseLogRecord { return record.ownerId == nil || record.ownerId == ownerId }
+            if let record = row as? FeelingRecord { return record.ownerId == nil || record.ownerId == ownerId }
+            if let record = row as? CommunityCommentRecord { return record.ownerId == nil || record.ownerId == ownerId }
             return true
         }
     }
@@ -635,6 +906,7 @@ final class CheckMedStore {
         if let record = row as? MedicineRecord { return record.profileId }
         if let record = row as? DoseScheduleRecord { return record.profileId }
         if let record = row as? DoseLogRecord { return record.profileId }
+        if let record = row as? FeelingRecord { return record.profileId }
         return nil
     }
 

@@ -8,14 +8,18 @@ struct AddPrescriptionIntakeHost: View {
     @Environment(TodayPathStore.self) private var path
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(\.dismiss) private var dismiss
+    var onFinished: (() -> Void)? = nil
+    var onCancel: (() -> Void)? = nil
 
     @State private var phase: Phase = .choose
     @State private var method: OnboardingAddMethod = .photo
     @State private var draft = OnboardingPrescriptionDraft.empty
+    @State private var drafts = [OnboardingPrescriptionDraft.empty]
     @State private var pending: PendingPrescriptionImport = .none
     @State private var showPhotosPicker = false
     @State private var showPDFImporter = false
     @State private var photoItem: PhotosPickerItem?
+    @State private var importToken = 0
 
     private enum Phase {
         case choose, camera, manual, analysing, confirm
@@ -31,33 +35,47 @@ struct AddPrescriptionIntakeHost: View {
                     onPDF: { start(.pdf) { showPDFImporter = true } },
                     onManual: { start(.manual) {
                         draft = .empty
+                        drafts = [.empty]
                         pending = .none
                         phase = .manual
                     } },
-                    onBack: { dismiss() }
+                    onBack: {
+                        if let onCancel {
+                            onCancel()
+                        } else {
+                            dismiss()
+                        }
+                    }
                 )
             case .camera:
                 OnboardingCameraView(
                     onCaptured: { data in
                         pending = .image(data)
                         draft = .empty
-                        phase = .analysing
+                        drafts = [.empty]
+                        goAnalysing()
                     },
                     onBack: { phase = .choose }
                 )
             case .manual:
                 OnboardingManualEntryView(
                     draft: $draft,
-                    onContinue: { phase = .analysing },
+                    onContinue: {
+                        drafts = [draft]
+                        goAnalysing()
+                    },
                     onBack: { phase = .choose }
                 )
             case .analysing:
-                OnboardingAnalysingView(isShort: method == .manual, work: runImport) {
-                    phase = .confirm
-                }
+                OnboardingAnalysingView(
+                    isShort: method == .manual,
+                    work: runImport,
+                    onFinished: { phase = .confirm },
+                    importToken: importToken
+                )
             case .confirm:
                 OnboardingConfirmView(
-                    draft: $draft,
+                    drafts: $drafts,
                     isManual: method == .manual,
                     onConfirm: confirm,
                     onBack: {
@@ -74,15 +92,17 @@ struct AddPrescriptionIntakeHost: View {
                     let compact = PrescriptionReader.downsampledJPEG(from: data)
                     pending = .image(compact)
                     draft = .empty
+                    drafts = [.empty]
                     photoItem = nil
-                    phase = .analysing
+                    goAnalysing()
                 }
             }
         }
         .prescriptionPDFImporter(isPresented: $showPDFImporter) { url in
             pending = .pdf(url)
             draft = .empty
-            phase = .analysing
+            drafts = [.empty]
+            goAnalysing()
         }
     }
 
@@ -97,22 +117,42 @@ struct AddPrescriptionIntakeHost: View {
         proceed()
     }
 
+    private func goAnalysing() {
+        importToken += 1
+        phase = .analysing
+    }
+
     private func runImport() async {
         switch pending {
         case .none:
-            break
+            if drafts.filter(\.hasMedicineName).isEmpty {
+                drafts = [draft]
+            }
         case .image(let data):
-            draft = await PrescriptionReader.draft(fromImageData: data)
-            pending = .none
+            let parsed = await PrescriptionReader.drafts(fromImageData: data)
+            if parsed.contains(where: \.hasMedicineName) {
+                drafts = parsed
+                draft = parsed[0]
+            }
         case .pdf(let url):
-            draft = await PrescriptionReader.draft(fromPDF: url)
-            pending = .none
+            let parsed = await PrescriptionReader.drafts(fromPDF: url)
+            if parsed.contains(where: \.hasMedicineName) {
+                drafts = parsed
+                draft = parsed[0]
+            }
+        }
+        if drafts.isEmpty {
+            drafts = [.empty]
         }
     }
 
     private func confirm() {
-        treatments.addFromDraft(
-            draft,
+        let named = drafts.filter(\.hasMedicineName)
+        let room = entitlements.isSuper
+            ? named.count
+            : max(0, SuperLimits.freePrescriptions - treatments.activeTreatmentCount)
+        treatments.addFromDrafts(
+            Array(named.prefix(room)),
             ownerId: session.auth.userId,
             profileId: session.profileId
         )
@@ -120,6 +160,10 @@ struct AddPrescriptionIntakeHost: View {
             ImportUsage.incrementPhotoPDF(ownerId: session.auth.userId)
         }
         path.reload()
-        dismiss()
+        if let onFinished {
+            onFinished()
+        } else {
+            dismiss()
+        }
     }
 }

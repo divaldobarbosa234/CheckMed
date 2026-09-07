@@ -6,6 +6,8 @@
 	<string>CheckMed uses the camera to photograph prescriptions so Phil can help you organize them. You review every field before anything is saved.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>CheckMed can import a prescription photo from your library so Phil can help you organize it. You review every field before anything is saved.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>CheckMed uses your location only to search nearby pharmacies. Availability is not a medical recommendation — confirm stock with the pharmacy.</string>
 	<key>NSAlarmKitUsageDescription</key>
 	<string>CheckMed uses alarms for medication dose times so Phil can wake the device even in Silent or Focus. Taken and Skip cancel or reschedule the next dose.</string>
 	<key>UILaunchScreen</key>

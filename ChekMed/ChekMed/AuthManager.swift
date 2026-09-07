@@ -1,3 +1,4 @@
+import AuthenticationServices
 import CryptoKit
 import Foundation
 import GoogleSignIn
@@ -73,6 +74,8 @@ final class AuthManager {
     private var listenerTask: Task<Void, Never>?
     private var didStart = false
     private var sawInitialSession = false
+    private let appleSignIn = AppleSignInCoordinator()
+    private var pendingAppleDisplayName: String?
 
     func start() {
         guard !didStart else { return }
@@ -84,17 +87,19 @@ final class AuthManager {
             return
         }
         listen(to: client)
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            await MainActor.run {
+                guard let self, !self.sawInitialSession else { return }
+                self.sawInitialSession = true
+                self.isRestoring = false
+            }
+        }
     }
 
     func clearMessages() {
         errorMessage = nil
         statusMessage = nil
-    }
-
-    func presentAppleComingSoon(_ message: String = AuthConfig.appleComingSoonMessage) {
-        errorMessage = nil
-        statusMessage = nil
-        _ = message
     }
 
     func presentFacebookUnavailable(_ message: String = "Facebook sign-in is not enabled yet.") {
@@ -141,6 +146,39 @@ final class AuthManager {
             errorMessage = Self.message(for: error)
         }
         apply(session: nil)
+    }
+
+    func signInWithApple() async {
+        errorMessage = nil
+        statusMessage = nil
+
+        guard let client else {
+            errorMessage = "Add SUPABASE_URL and the publishable key to Secrets.xcconfig, then build again."
+            return
+        }
+
+        isLoading = true
+        do {
+            let rawNonce = Self.randomNonce()
+            let result = try await appleSignIn.signIn(hashedNonce: Self.sha256Hex(rawNonce))
+            pendingAppleDisplayName = result.fullName
+            _ = try await client.auth.signInWithIdToken(
+                credentials: OpenIDConnectCredentials(
+                    provider: .apple,
+                    idToken: result.idToken,
+                    nonce: rawNonce
+                )
+            )
+        } catch {
+            pendingAppleDisplayName = nil
+            if Self.isAppleCancel(error) {
+                errorMessage = nil
+                statusMessage = nil
+            } else {
+                errorMessage = Self.appleMessage(for: error)
+            }
+        }
+        isLoading = false
     }
 
     func signInWithGoogle() async {
@@ -191,7 +229,16 @@ final class AuthManager {
             client = nil
             return
         }
-        client = SupabaseClient(supabaseURL: url, supabaseKey: key)
+        client = SupabaseClient(
+            supabaseURL: url,
+            supabaseKey: key,
+            options: SupabaseClientOptions(
+                auth: .init(
+                    storage: CheckMedAuthStorage(),
+                    emitLocalSessionAsInitialSession: true
+                )
+            )
+        )
     }
 
     private func configureGoogle() {
@@ -304,9 +351,13 @@ final class AuthManager {
         email = session?.user.email
         if let user = session?.user {
             displayName = Self.inferredDisplayName(from: user)
+            if displayName == "friend", let pending = pendingAppleDisplayName, !pending.isEmpty {
+                displayName = pending
+            }
         } else {
             displayName = "friend"
             companionName = "Phil"
+            pendingAppleDisplayName = nil
         }
         if session != nil {
             errorMessage = nil
@@ -427,6 +478,47 @@ final class AuthManager {
         SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
+    private static func isAppleCancel(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == ASAuthorizationError.errorDomain,
+           ns.code == ASAuthorizationError.canceled.rawValue {
+            return true
+        }
+        let raw = ns.localizedDescription.lowercased()
+        return raw.contains("canceled") || raw.contains("cancelled")
+    }
+
+    private static func appleMessage(for error: Error) -> String {
+        if let error = error as? AppleSignInError {
+            return error.localizedDescription
+        }
+        let ns = error as NSError
+        if ns.domain == ASAuthorizationError.errorDomain {
+            switch ns.code {
+            case ASAuthorizationError.canceled.rawValue:
+                return "Apple sign-in didn't complete. Try again."
+            case ASAuthorizationError.failed.rawValue,
+                 ASAuthorizationError.invalidResponse.rawValue,
+                 ASAuthorizationError.notHandled.rawValue,
+                 ASAuthorizationError.unknown.rawValue:
+                return "Apple sign-in didn't complete. Try again."
+            default:
+                break
+            }
+        }
+        let raw = ns.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if raw.isEmpty {
+            return "Apple sign-in didn't complete. Try again."
+        }
+        if raw.localizedCaseInsensitiveContains("is not enabled") {
+            return "Sign in with Apple is on in the app, but it is still off in Supabase. Enable the Apple provider (Team ID, Key ID, and .p8) and add client ID com.checkmed.app."
+        }
+        if raw.localizedCaseInsensitiveContains("provider") || raw.localizedCaseInsensitiveContains("apple") {
+            return raw
+        }
+        return "Apple sign-in didn't complete. Try again."
+    }
+
     private static func isGoogleCancel(_ error: Error) -> Bool {
         let ns = error as NSError
         if ns.domain == kGIDSignInErrorDomain && ns.code == GIDSignInError.canceled.rawValue {
@@ -464,6 +556,34 @@ final class AuthManager {
             controller = presented
         }
         return controller
+    }
+}
+
+/// Persists the Supabase session in UserDefaults (survives debug reinstalls and
+/// Keychain access-group changes) and mirrors into the default Keychain.
+private struct CheckMedAuthStorage: AuthLocalStorage {
+    private let prefix = "checkmed.auth."
+    private let keychain = KeychainLocalStorage()
+
+    func store(key: String, value: Data) throws {
+        UserDefaults.standard.set(value, forKey: prefix + key)
+        try? keychain.store(key: key, value: value)
+    }
+
+    func retrieve(key: String) throws -> Data? {
+        if let data = UserDefaults.standard.data(forKey: prefix + key) {
+            return data
+        }
+        if let data = try? keychain.retrieve(key: key) {
+            UserDefaults.standard.set(data, forKey: prefix + key)
+            return data
+        }
+        return nil
+    }
+
+    func remove(key: String) throws {
+        UserDefaults.standard.removeObject(forKey: prefix + key)
+        try? keychain.remove(key: key)
     }
 }
 

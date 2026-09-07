@@ -38,11 +38,35 @@ enum AlarmTheme: String, CaseIterable, Identifiable {
     }
 }
 
+enum Engagement {
+    private static let lastActiveKey = "checkmed.lastActiveAt"
+    static let winBackId = "checkmed.winback"
+    static let leaveSetupId = "checkmed.leaveSetup"
+
+    static func ping() {
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: lastActiveKey)
+    }
+
+    static var lastActive: Date {
+        let raw = UserDefaults.standard.double(forKey: lastActiveKey)
+        if raw <= 0 { return Date() }
+        return Date(timeIntervalSince1970: raw)
+    }
+
+    static func winBackDate(now: Date = Date()) -> Date? {
+        guard ReminderPreferences.winBackEnabled else { return nil }
+        let fire = lastActive.addingTimeInterval(72 * 60 * 60)
+        return fire > now.addingTimeInterval(60) ? fire : nil
+    }
+}
+
 enum ReminderPreferences {
     private enum Keys {
         static let theme = "checkmed.alarmTheme"
         static let quietHours = "checkmed.quietHoursEnabled"
         static let voiceReminders = "checkmed.voiceRemindersEnabled"
+        static let advanceHour = "checkmed.advanceHourEnabled"
+        static let winBack = "checkmed.winBackEnabled"
     }
 
     static var alarmTheme: AlarmTheme {
@@ -61,6 +85,22 @@ enum ReminderPreferences {
     static var voiceRemindersEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: Keys.voiceReminders) }
         set { UserDefaults.standard.set(newValue, forKey: Keys.voiceReminders) }
+    }
+
+    static var advanceHourEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: Keys.advanceHour) == nil { return true }
+            return UserDefaults.standard.bool(forKey: Keys.advanceHour)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.advanceHour) }
+    }
+
+    static var winBackEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: Keys.winBack) == nil { return true }
+            return UserDefaults.standard.bool(forKey: Keys.winBack)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.winBack) }
     }
 }
 
@@ -100,6 +140,9 @@ final class FamilyStore {
     private(set) var activeId: UUID?
     private var ownerId: UUID?
 
+    @ObservationIgnored
+    var onCloudSync: (() async -> Void)?
+
     var occupiedSlots: Int { extra == nil ? 1 : 2 }
     var isViewingExtra: Bool {
         guard let extra, let activeId else { return false }
@@ -124,6 +167,7 @@ final class FamilyStore {
         guard !trimmed.isEmpty else { return false }
         extra = FamilyMember(id: extra?.id ?? UUID(), name: trimmed)
         persist()
+        Task { await onCloudSync?() }
         return true
     }
 
@@ -132,6 +176,7 @@ final class FamilyStore {
         activeId = nil
         persist()
         persistActive()
+        Task { await onCloudSync?() }
     }
 
     func selectPrimary() {
@@ -152,6 +197,16 @@ final class FamilyStore {
         } else {
             store.setActiveScope(profileId: primaryProfileId, includeUnscoped: true)
         }
+    }
+
+    func applyRemote(id: UUID?, name: String?) {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let id, !trimmed.isEmpty {
+            extra = FamilyMember(id: id, name: trimmed)
+        } else {
+            extra = nil
+        }
+        persist()
     }
 
     private func persist() {
@@ -256,7 +311,7 @@ struct AlarmThemePicker: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .stroke(
-                                theme == option ? option.tint : Color(hex: 0xEFEFEF),
+                                theme == option ? option.tint : CheckMedTheme.hairline,
                                 lineWidth: 2
                             )
                     )

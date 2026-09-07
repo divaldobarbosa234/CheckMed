@@ -128,7 +128,7 @@ struct FamilyView: View {
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(locked ? CheckMedTheme.superAccent.opacity(0.5) : Color(hex: 0xEFEFEF), lineWidth: 2)
+                .stroke(locked ? CheckMedTheme.superAccent.opacity(0.5) : CheckMedTheme.hairline, lineWidth: 2)
         )
     }
 }

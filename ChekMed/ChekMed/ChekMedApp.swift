@@ -13,15 +13,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         ReminderScheduler.shared.configure()
         return true
     }
-
-    func application(
-        _ app: UIApplication,
-        open url: URL,
-        options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-    ) -> Bool {
-        GIDSignIn.sharedInstance.handle(url)
-    }
 }
+
 
 @main
 struct ChekMedApp: App {
@@ -81,6 +74,7 @@ struct ChekMedApp: App {
         family.applyScope(to: treatments, primaryProfileId: session.profileId)
         path.bind(store: treatments)
         syncEngine.bind(store: treatments, session: session)
+        syncEngine.bindFamily(family)
         treatments.onRecordsChanged = { [path] in
             path.reload()
             ReminderScheduler.shared.reschedule()
@@ -100,5 +94,6 @@ struct ChekMedApp: App {
         }
         path.reload()
         ReminderScheduler.shared.reschedule()
+        session.startAuthIfNeeded()
     }
 }
