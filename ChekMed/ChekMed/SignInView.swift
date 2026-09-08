@@ -127,8 +127,9 @@ struct SignInView: View {
         VStack(spacing: 0) {
             ZStack(alignment: .topLeading) {
                 PhilWelcomeCluster(compact: true)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 28)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 8)
                 Button {
                     page = .landing
                     mode = .login
@@ -144,22 +145,26 @@ struct SignInView: View {
                 .accessibilityLabel(session.t(.back))
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 250)
+            .frame(height: 188)
+            .clipped()
 
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(formTitle)
                         .font(.system(.title, design: .rounded).weight(.heavy))
                         .foregroundStyle(CheckMedTheme.ink)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 2)
                     Text(formSubhead)
                         .font(.system(.subheadline, design: .rounded).weight(.semibold))
                         .foregroundStyle(CheckMedTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 24)
-                .padding(.top, 36)
-                .padding(.bottom, 12)
+                .padding(.top, 28)
+                .padding(.bottom, 16)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
@@ -256,19 +261,18 @@ struct SignInView: View {
                 }
                 .scrollClipDisabled()
             }
-            .background(
-                CheckMedTheme.surface
-                    .clipShape(
-                        UnevenRoundedRectangle(
-                            topLeadingRadius: 36,
-                            bottomLeadingRadius: 0,
-                            bottomTrailingRadius: 0,
-                            topTrailingRadius: 36,
-                            style: .continuous
-                        )
-                    )
-                    .ignoresSafeArea(edges: .bottom)
-            )
+            .background {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 32,
+                    bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0,
+                    topTrailingRadius: 32,
+                    style: .continuous
+                )
+                .fill(CheckMedTheme.surface)
+                .ignoresSafeArea(edges: .bottom)
+            }
+            .zIndex(1)
         }
     }
 

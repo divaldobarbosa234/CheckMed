@@ -137,3 +137,52 @@ struct NotificationsPermissionView: View {
         }
     }
 }
+
+struct AlarmSetupView: View {
+    @Environment(SessionStore.self) private var session
+    @State private var theme = ReminderPreferences.alarmTheme
+    @State private var isRequesting = false
+    var onEnable: () -> Void
+    var onSkip: () -> Void
+    var onBack: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            SetupStepHeader(title: session.t(.alarmSetupTitle))
+            Spacer(minLength: 8)
+            PhilView(size: 128, pose: .pointingDown, smiling: true)
+            Text(session.t(.alarmSetupHeadline))
+                .font(.system(.title2, design: .rounded).weight(.heavy))
+                .multilineTextAlignment(.center)
+            Text(session.t(.alarmSetupBody))
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .multilineTextAlignment(.center)
+            AlarmThemePicker(theme: $theme)
+            Spacer(minLength: 8)
+            CheckMedButton(title: session.t(.alarmSetupEnable)) {
+                isRequesting = true
+                Task {
+                    _ = try? await UNUserNotificationCenter.current()
+                        .requestAuthorization(options: [.alert, .sound, .badge])
+                    _ = await DoseAlarmKit.requestAuthorizationIfNeeded()
+                    await MainActor.run {
+                        ReminderPreferences.alarmTheme = theme
+                        ReminderScheduler.shared.reschedule()
+                        isRequesting = false
+                        onEnable()
+                    }
+                }
+            }
+            .disabled(isRequesting)
+            CheckMedButton(title: session.t(.skip), style: .secondary, action: onSkip)
+                .disabled(isRequesting)
+            CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+                .disabled(isRequesting)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.background)
+    }
+}

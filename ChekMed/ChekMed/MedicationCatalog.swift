@@ -82,32 +82,42 @@ enum MedicationCatalog {
             .map(\.1)
     }
 
+    /// First-word / alias → shortest catalog name. Stops “Amoxicilina 500” eating the 8-hit cap.
+    private static let firstTokenIndex: [String: String] = {
+        var map: [String: String] = [:]
+        for entry in entries {
+            for token in ([entry.name] + entry.aliases) {
+                let folded = MedicationCatalogEntry.fold(token)
+                let first = folded.split(whereSeparator: { !$0.isLetter && $0 != "'" }).first.map(String.init) ?? folded
+                guard first.count >= 5 else { continue }
+                if let existing = map[first] {
+                    let existingParts = existing.split(separator: " ").count
+                    let nextParts = entry.name.split(separator: " ").count
+                    if nextParts < existingParts || (nextParts == existingParts && entry.name.count < existing.count) {
+                        map[first] = entry.name
+                    }
+                } else {
+                    map[first] = entry.name
+                }
+            }
+        }
+        return map
+    }()
+
     /// Whole-token catalog hits in OCR text only. Never fuzzy-map scrawl onto a popular drug.
     static func wholeWordHits(in raw: String) -> [String] {
         let foldedRaw = MedicationCatalogEntry.fold(raw)
         guard foldedRaw.count >= 4 else { return [] }
         var hits: [String] = []
         var seen = Set<String>()
-        for entry in entries {
-            for token in ([entry.name] + entry.aliases) {
-                let folded = MedicationCatalogEntry.fold(token)
-                guard folded.count >= 5 else { continue }
-                if containsWholeToken(folded, in: foldedRaw), seen.insert(entry.name).inserted {
-                    hits.append(entry.name)
-                    break
-                }
-            }
-            if hits.count >= 8 { break }
+        let words = foldedRaw.split(whereSeparator: { !$0.isLetter && $0 != "'" }).map(String.init)
+        for word in words {
+            guard word.count >= 5, let name = firstTokenIndex[word] else { continue }
+            let key = MedicationCatalogEntry.fold(name.split(separator: " ").first.map(String.init) ?? name)
+            guard seen.insert(key).inserted else { continue }
+            hits.append(name)
+            if hits.count >= 12 { break }
         }
         return hits
-    }
-
-    private static func containsWholeToken(_ token: String, in haystack: String) -> Bool {
-        guard let regex = try? NSRegularExpression(
-            pattern: "\\b" + NSRegularExpression.escapedPattern(for: token) + "\\b",
-            options: [.caseInsensitive]
-        ) else { return false }
-        let range = NSRange(haystack.startIndex..., in: haystack)
-        return regex.firstMatch(in: haystack, range: range) != nil
     }
 }

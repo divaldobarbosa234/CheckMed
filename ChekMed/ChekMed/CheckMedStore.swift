@@ -10,6 +10,9 @@ struct AdherenceSnapshot: Equatable, Sendable {
     var todayTaken: Int
     var todayTotal: Int
     var hasHistory: Bool
+    var weekTaken: Int
+    var weekPlanned: Int
+    var weekPercent: Int?
 }
 
 struct ReminderDraft: Identifiable, Sendable {
@@ -149,6 +152,14 @@ final class CheckMedStore {
 
     var activeTreatmentCount: Int { activeTreatments().count }
 
+    func daysUntilNextRevision(calendar: Calendar) -> Int? {
+        _ = revision
+        let today = calendar.startOfDay(for: Date())
+        let ends = activeTreatments().compactMap(\.endDate).map { calendar.startOfDay(for: $0) }
+        guard let soonest = ends.min() else { return nil }
+        return calendar.dateComponents([.day], from: today, to: soonest).day
+    }
+
     struct MedicineSummary: Identifiable {
         var id: UUID
         var treatmentId: UUID
@@ -156,6 +167,7 @@ final class CheckMedStore {
         var doseLabel: String
         var frequency: String
         var duration: String
+        var timesPerDay: Int
         var treatmentTitle: String
         var treatmentStatus: String
     }
@@ -172,6 +184,7 @@ final class CheckMedStore {
                 doseLabel: medicine.doseLabel,
                 frequency: medicine.frequency,
                 duration: medicine.duration,
+                timesPerDay: max(1, schedules(for: medicine.id).count),
                 treatmentTitle: treatment.title,
                 treatmentStatus: treatment.status
             )
@@ -210,6 +223,8 @@ final class CheckMedStore {
         if let profileId {
             stampProfileId = stampProfileId ?? profileId
         }
+        var draft = draft
+        draft.syncDoseTimes()
         let now = Date()
         let medicineName = draft.medicine.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !medicineName.isEmpty else { return }
@@ -242,6 +257,7 @@ final class CheckMedStore {
             existing.doseLabel = draft.dose
             existing.frequency = draft.scheduleFrequency
             existing.duration = draft.duration
+            existing.reason = draft.reason
             existing.updatedAt = now
             existing.deletedAt = nil
             stamp(existing)
@@ -255,13 +271,14 @@ final class CheckMedStore {
                 doseLabel: draft.dose,
                 frequency: draft.scheduleFrequency,
                 duration: draft.duration,
+                reason: draft.reason,
                 updatedAt: now
             )
             context.insert(medicine)
             invalidateCache()
         }
 
-        replaceSchedules(for: medicine, frequency: draft.scheduleFrequency, now: now)
+        replaceSchedules(for: medicine, times: draft.doseTimes, frequency: draft.scheduleFrequency, now: now)
         logsEnsuredDay = nil
         ensureUpcomingLogs()
         save()
@@ -302,13 +319,17 @@ final class CheckMedStore {
 
     func draftsFromActivePlan() -> [OnboardingPrescriptionDraft] {
         _ = revision
-        let drafts = medicineSummaries().map { summary in
-            OnboardingPrescriptionDraft(
-                medicine: summary.name,
-                dose: summary.doseLabel,
-                frequency: summary.frequency,
-                duration: summary.duration,
-                timesPerDay: ""
+        let drafts = medicines().compactMap { medicine -> OnboardingPrescriptionDraft? in
+            guard medicine.deletedAt == nil else { return nil }
+            let times = schedules(for: medicine.id).map(\.timeOfDay).sorted()
+            return OnboardingPrescriptionDraft(
+                medicine: medicine.name,
+                dose: medicine.doseLabel,
+                frequency: medicine.frequency,
+                duration: medicine.duration,
+                timesPerDay: times.isEmpty ? "" : "\(min(4, times.count))",
+                doseTimes: times,
+                reason: medicine.reason
             )
         }
         return drafts.isEmpty ? [.empty] : drafts
@@ -371,7 +392,10 @@ final class CheckMedStore {
     }
 
     static func endDate(fromDuration text: String, start: Date, calendar: Calendar) -> Date? {
-        let days = text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.first
+        if let end = PlanDuration.endDate(from: text, calendar: calendar) {
+            return end
+        }
+        let days = text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.last
         guard let days, days > 0 else { return nil }
         return calendar.date(byAdding: .day, value: days, to: start)
     }
@@ -442,6 +466,13 @@ final class CheckMedStore {
         let takenCount = due.filter { $0.status == DoseLogStatus.taken.rawValue }.count
         let plannedCount = due.count
         let percent: Int? = plannedCount == 0 ? nil : Int((Double(takenCount) / Double(plannedCount) * 100).rounded())
+        var weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? today
+        weekStart = calendar.startOfDay(for: weekStart)
+        let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? now
+        let weekLogs = history.filter { $0.scheduledAt >= weekStart && $0.scheduledAt < weekEnd }
+        let weekTaken = weekLogs.filter { $0.status == DoseLogStatus.taken.rawValue }.count
+        let weekPlanned = weekLogs.count
+        let weekPercent: Int? = weekPlanned == 0 ? nil : Int((Double(weekTaken) / Double(weekPlanned) * 100).rounded())
         return AdherenceSnapshot(
             streakDays: streakDays(now: now, today: today),
             takenCount: takenCount,
@@ -450,7 +481,10 @@ final class CheckMedStore {
             treatmentCount: activeTreatments().count,
             todayTaken: todayTaken,
             todayTotal: todayTotal,
-            hasHistory: !due.isEmpty
+            hasHistory: !due.isEmpty,
+            weekTaken: weekTaken,
+            weekPlanned: weekPlanned,
+            weekPercent: weekPercent
         )
     }
 
@@ -742,8 +776,13 @@ final class CheckMedStore {
 
     // MARK: - Private
 
-    private func replaceSchedules(for medicine: MedicineRecord, frequency: String, now: Date) {
-        let slots = Self.slots(for: frequency)
+    private func replaceSchedules(for medicine: MedicineRecord, times: [String], frequency: String, now: Date) {
+        let slots: [(time: String, period: String)]
+        if times.contains(where: { !$0.isEmpty }) {
+            slots = times.filter { !$0.isEmpty }.map { ($0, Self.period(for: $0)) }
+        } else {
+            slots = Self.slots(for: frequency)
+        }
         let existing = schedules(for: medicine.id)
         for schedule in existing {
             schedule.deletedAt = now
@@ -1017,33 +1056,42 @@ final class CheckMedStore {
         Task { await onNeedsSync?() }
     }
 
+    static func defaultTimes(count: Int) -> [String] {
+        switch max(1, min(4, count)) {
+        case 4: ["08:00", "12:00", "16:00", "20:00"]
+        case 3: ["08:00", "12:00", "20:00"]
+        case 2: ["08:00", "20:00"]
+        default: ["08:00"]
+        }
+    }
+
+    static func compactHourLabel(_ timeOfDay: String) -> String {
+        let parts = timeOfDay.split(separator: ":")
+        guard let hour = parts.first.flatMap({ Int($0) }) else { return timeOfDay }
+        if parts.count > 1, parts[1] != "00" {
+            return "\(hour)h\(parts[1])"
+        }
+        return "\(hour)h"
+    }
+
+    static func period(for timeOfDay: String) -> String {
+        let hour = Int(timeOfDay.split(separator: ":").first ?? "8") ?? 8
+        if hour < 12 { return "Morning" }
+        if hour < 17 { return "Afternoon" }
+        return "Evening"
+    }
+
     static func slots(for frequency: String) -> [(time: String, period: String)] {
         let value = frequency.lowercased()
         if value.contains("as needed") || value.contains("quando") || value.contains("según") || value.contains("si besoin") {
             return [("12:00", "Afternoon")]
         }
-        if value.contains("4") {
-            return [
-                ("08:00", "Morning"),
-                ("12:00", "Afternoon"),
-                ("16:00", "Afternoon"),
-                ("20:00", "Evening"),
-            ]
-        }
-        if value.contains("3") {
-            return [
-                ("08:00", "Morning"),
-                ("14:00", "Afternoon"),
-                ("20:00", "Evening"),
-            ]
-        }
-        if value.contains("2") {
-            return [
-                ("08:00", "Morning"),
-                ("20:00", "Evening"),
-            ]
-        }
-        return [("08:00", "Morning")]
+        let count: Int
+        if value.contains("4") { count = 4 }
+        else if value.contains("3") { count = 3 }
+        else if value.contains("2") { count = 2 }
+        else { count = 1 }
+        return defaultTimes(count: count).map { ($0, period(for: $0)) }
     }
 
     private func date(on day: Date, timeOfDay: String) -> Date? {
@@ -1054,5 +1102,76 @@ final class CheckMedStore {
         let parts = timeOfDay.split(separator: ":")
         guard parts.count >= 2, let hour = Int(parts[0]), let minute = Int(parts[1]) else { return nil }
         return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+    }
+}
+
+enum PlanDuration {
+    static func encode(start: Date, end: Date, calendar: Calendar) -> String {
+        let days = dayCount(from: start, to: end, calendar: calendar)
+        return "\(iso(start, calendar: calendar))|\(iso(end, calendar: calendar))|\(days)"
+    }
+
+    static func display(_ text: String, locale: Locale, calendar: Calendar) -> String {
+        let bounds = bounds(from: text, calendar: calendar) ?? defaultBounds(from: text, calendar: calendar)
+        guard let bounds else { return text }
+        let days = dayCount(from: bounds.start, to: bounds.end, calendar: calendar)
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("dMMMMy")
+        let startText = formatter.string(from: bounds.start)
+        let endText = formatter.string(from: bounds.end)
+        if calendar.isDate(bounds.start, equalTo: bounds.end, toGranularity: .month) {
+            let dayOnly = DateFormatter()
+            dayOnly.calendar = calendar
+            dayOnly.locale = locale
+            dayOnly.setLocalizedDateFormatFromTemplate("d")
+            return "\(dayOnly.string(from: bounds.start))–\(endText) (\(days))"
+        }
+        return "\(startText) – \(endText) (\(days))"
+    }
+
+    static func endDate(from text: String, calendar: Calendar) -> Date? {
+        bounds(from: text, calendar: calendar)?.end
+    }
+
+    static func bounds(from text: String, calendar: Calendar) -> (start: Date, end: Date)? {
+        let parts = text.split(separator: "|").map(String.init)
+        guard parts.count >= 2, let start = date(parts[0], calendar: calendar), let end = date(parts[1], calendar: calendar) else {
+            return nil
+        }
+        return (start, end)
+    }
+
+    private static func defaultBounds(from text: String, calendar: Calendar) -> (start: Date, end: Date)? {
+        let days = text.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.last
+        guard let days, days > 0 else { return nil }
+        let start = calendar.startOfDay(for: Date())
+        let end = calendar.date(byAdding: .day, value: max(0, days - 1), to: start) ?? start
+        return (start, end)
+    }
+
+    private static func dayCount(from start: Date, to end: Date, calendar: Calendar) -> Int {
+        let s = calendar.startOfDay(for: start)
+        let e = calendar.startOfDay(for: max(end, start))
+        return max(1, (calendar.dateComponents([.day], from: s, to: e).day ?? 0) + 1)
+    }
+
+    private static func iso(_ date: Date, calendar: Calendar) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
+    }
+
+    private static func date(_ stamp: String, calendar: Calendar) -> Date? {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: stamp)
     }
 }

@@ -85,9 +85,10 @@ enum PrescriptionReader {
     }
 
     private static func normalized(_ extraction: PrescriptionExtraction) -> [OnboardingPrescriptionDraft] {
-        if !extraction.drafts.isEmpty { return extraction.drafts }
-        if extraction.draft.hasMedicineName { return [extraction.draft] }
-        return [.empty]
+        let raw = extraction.drafts.isEmpty ? [extraction.draft] : extraction.drafts
+        let medicines = raw.filter { PrescriptionParser.keepsAsMedicine($0) }
+        if medicines.isEmpty { return [.empty] }
+        return medicines
     }
 
     static func recognizeText(from data: Data) async -> String {
@@ -263,6 +264,19 @@ enum PrescriptionParser {
         "hospital", "clinic", "clínica", "clinica", "phone", "telefone", "teléfono",
         "age", "idade", "edad", "âge", "sex", "sexo", "gender", "gênero",
         "weight", "peso", "dr",
+        "si", "if", "cuando", "quando", "warning", "aviso",
+    ]
+
+    private static let boilerplateSnippets = [
+        "sintomas persist", "síntomas persist", "symptoms persist",
+        "sintomas persistem", "empeoran", "worsen", "piorarem",
+        "consulte", "consultar al", "contact your", "see your doctor",
+        "según prescripci", "conforme prescri", "as directed",
+        "si los sintomas", "si los síntomas", "if symptoms",
+        "quando os sintomas", "si les symptômes",
+        "keep out of reach", "mantener fuera", "manter fora",
+        "this prescription", "esta receta", "esta receita", "cette ordonnance",
+        "no sustituye", "does not replace", "não substitui",
     ]
 
     static func parse(_ raw: String) -> OnboardingPrescriptionDraft {
@@ -288,10 +302,38 @@ enum PrescriptionParser {
             let nearby = nearbyText(lines: lines, index: index)
             for hit in strengthHits(in: line) {
                 let key = hit.name.lowercased()
-                guard seen.insert(key).inserted else { continue }
+                guard PrescriptionParser.keepsAsMedicineName(hit.name), seen.insert(key).inserted else { continue }
                 drafts.append(
                     OnboardingPrescriptionDraft(
                         medicine: "\(hit.name) \(hit.strength)",
+                        dose: nonempty(findDose(in: nearby), globalDose),
+                        frequency: nonempty(findFrequency(in: nearby), globalFrequency),
+                        duration: nonempty(findDuration(in: nearby), globalDuration),
+                        timesPerDay: nonempty(
+                            findTimesPerDay(in: nearby),
+                            findTimesPerDay(in: cleaned)
+                        )
+                    )
+                )
+                if drafts.count >= limit { return drafts }
+            }
+        }
+
+        if drafts.count < limit {
+            for (index, line) in lines.enumerated() {
+                guard let item = numberedItem(in: line) else { continue }
+                let follow = index + 1 < lines.count ? lines[index + 1] : ""
+                let nearby = nearbyText(lines: lines, index: index)
+                let strength = strengthHits(in: item).first?.strength
+                    ?? strengthHits(in: follow).first?.strength
+                    ?? ""
+                let name = strengthHits(in: item).first?.name ?? item
+                let key = name.lowercased()
+                guard keepsAsMedicineName(name), seen.insert(key).inserted else { continue }
+                let medicine = strength.isEmpty ? name : "\(name) \(strength)"
+                drafts.append(
+                    OnboardingPrescriptionDraft(
+                        medicine: medicine,
                         dose: nonempty(findDose(in: nearby), globalDose),
                         frequency: nonempty(findFrequency(in: nearby), globalFrequency),
                         duration: nonempty(findDuration(in: nearby), globalDuration),
@@ -317,7 +359,7 @@ enum PrescriptionParser {
                     else { continue }
                     let name = String(cleaned[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
                     let key = name.lowercased()
-                    guard isPlausibleName(name), seen.insert(key).inserted else { continue }
+                    guard keepsAsMedicineName(name), seen.insert(key).inserted else { continue }
                     drafts.append(
                         OnboardingPrescriptionDraft(
                             medicine: name,
@@ -352,6 +394,17 @@ enum PrescriptionParser {
         }
 
         return drafts
+    }
+
+    private static func numberedItem(in line: String) -> String? {
+        let pattern = #"^\s*(?:\d+\s*[\)\.\-:]+|[\-•*])\s+(.+)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: line)
+        else { return nil }
+        let item = String(line[range]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return item.isEmpty ? nil : item
     }
 
     private static func nearbyText(lines: [String], index: Int) -> String {
@@ -452,6 +505,32 @@ enum PrescriptionParser {
         if lower.contains("qid") || lower.contains("4") { return value }
         if lower.contains("bid") || lower.contains("2") { return value }
         return value
+    }
+
+    static func keepsAsMedicine(_ draft: OnboardingPrescriptionDraft) -> Bool {
+        draft.hasMedicineName && keepsAsMedicineName(draft.medicine)
+    }
+
+    static func keepsAsMedicineName(_ name: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isPlausibleName(trimmed), !isBoilerplate(trimmed) else { return false }
+        let words = trimmed.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        if words.count > 5 { return false }
+        if trimmed.count > 42 { return false }
+        if strengthHits(in: trimmed).isEmpty,
+           !looksLikeDrugToken(trimmed),
+           MedicationCatalog.wholeWordHits(in: trimmed).isEmpty,
+           words.count > 3 {
+            return false
+        }
+        return true
+    }
+
+    private static func isBoilerplate(_ name: String) -> Bool {
+        let folded = MedicationCatalogEntry.fold(name)
+        if boilerplateSnippets.contains(where: { folded.contains($0) }) { return true }
+        let starters = ["si ", "if ", "cuando ", "quando ", "cuando los ", "si los ", "if the "]
+        return starters.contains(where: { folded.hasPrefix($0) })
     }
 
     private static func isPlausibleName(_ name: String) -> Bool {

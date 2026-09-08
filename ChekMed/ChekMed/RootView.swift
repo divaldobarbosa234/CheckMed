@@ -8,17 +8,17 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if session.auth.isRestoring || session.isResolvingPostAuth {
+            if session.auth.isRestoring {
                 restoring
+            } else if session.isResolvingPostAuth, session.hasCompletedOnboarding {
+                restoring
+            } else if session.kind == .authenticated, session.showResumeSetup {
+                ResumePlanSetupFlow()
+                    .transition(.opacity)
             } else if !session.hasCompletedOnboarding || session.kind != .authenticated {
                 FirstTimeOnboardingView()
             } else if session.needsPrivacyAcknowledgement {
                 PrivacyConsentView(onAccept: { session.acknowledgePrivacy() })
-                    .transition(.opacity)
-            } else if session.kind == .authenticated, session.needsAccountProfile {
-                AccountProfileSetupView()
-            } else if session.showResumeSetup {
-                ResumePlanSetupFlow()
                     .transition(.opacity)
             } else if session.startFreshPrescription {
                 AddPrescriptionIntakeHost(
@@ -35,6 +35,8 @@ struct RootView: View {
             } else if session.showReturningWelcome {
                 ReturningWelcomeFlow()
                     .transition(.opacity)
+            } else if session.kind == .authenticated, session.needsAccountProfile {
+                AccountProfileSetupView()
             } else {
                 MainTabView()
             }

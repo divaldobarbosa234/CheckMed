@@ -39,7 +39,13 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "21481202",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "21481220",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P3D"
+          },
           "localizations" : [
             {
               "description" : "Extra family seat, more prescription reads, 1-hour reminder, journey report, pharmacies, refill heads-up.",
@@ -64,7 +70,13 @@
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "21481203",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "displayPrice" : "0.00",
+            "internalID" : "21481221",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P3D"
+          },
           "localizations" : [
             {
               "description" : "A year of Super. Same seats and reminders, billed once.",

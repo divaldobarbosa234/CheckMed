@@ -118,14 +118,14 @@ struct VisionPrescriptionExtractor: PrescriptionExtracting {
             MedicationCatalogEntry.fold(name.split(separator: " ").first.map(String.init) ?? name)
         }
 
-        for draft in parsed where draft.hasMedicineName {
+        for draft in parsed where PrescriptionParser.keepsAsMedicine(draft) {
             let token = key(for: draft.medicine)
             guard seen.insert(token).inserted else { continue }
             let index = folded.range(of: token)?.lowerBound.utf16Offset(in: folded) ?? items.count * 1000
             items.append((index, draft))
         }
-        let template = parsed.first
-        for hit in catalogHits {
+        let template = parsed.first(where: { PrescriptionParser.keepsAsMedicine($0) })
+        for hit in catalogHits where PrescriptionParser.keepsAsMedicineName(hit) {
             let token = key(for: hit)
             guard seen.insert(token).inserted else { continue }
             var extra = OnboardingPrescriptionDraft.empty

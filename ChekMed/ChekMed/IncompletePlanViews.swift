@@ -70,7 +70,7 @@ struct ResumePlanSetupFlow: View {
     @State private var drafts: [OnboardingPrescriptionDraft]
 
     private enum Phase {
-        case confirm, organize, notifications, ready
+        case confirm, planResume, organize, notifications, alarmSetup, ready
     }
 
     init() {
@@ -84,21 +84,24 @@ struct ResumePlanSetupFlow: View {
             case .confirm:
                 OnboardingConfirmView(
                     drafts: $drafts,
-                    isManual: true,
+                    isManual: false,
                     onConfirm: {
+                        for index in drafts.indices { drafts[index].syncDoseTimes() }
                         treatments.seedFromDrafts(
                             drafts.filter(\.hasMedicineName),
                             ownerId: session.auth.userId,
                             profileId: session.profileId
                         )
                         path.reload()
-                        if session.needsNotificationsPrompt {
-                            phase = .organize
-                        } else {
-                            session.finishResumeSetup()
-                        }
+                        phase = .planResume
                     },
                     onBack: { session.showResumeSetup = false }
+                )
+            case .planResume:
+                PlanResumeView(
+                    drafts: drafts.filter(\.hasMedicineName),
+                    onContinue: { phase = .notifications },
+                    onBack: { phase = .confirm }
                 )
             case .organize:
                 OnboardingOrganizeView(
@@ -108,9 +111,15 @@ struct ResumePlanSetupFlow: View {
             case .notifications:
                 NotificationsPermissionView(
                     secondaryTitle: session.t(.skip),
+                    onEnable: { phase = .alarmSetup },
+                    onSecondary: { phase = .alarmSetup },
+                    onBack: { phase = .planResume }
+                )
+            case .alarmSetup:
+                AlarmSetupView(
                     onEnable: { phase = .ready },
-                    onSecondary: { phase = .ready },
-                    onBack: { phase = .organize }
+                    onSkip: { phase = .ready },
+                    onBack: { phase = .notifications }
                 )
             case .ready:
                 OnboardingPhilReadyView {
@@ -118,15 +127,10 @@ struct ResumePlanSetupFlow: View {
                 }
             }
         }
-        .onAppear { bootstrap() }
-    }
-
-    private func bootstrap() {
-        drafts = treatments.draftsFromActivePlan()
-        if treatments.hasMedicationDaysSet {
-            phase = session.needsNotificationsPrompt ? .notifications : .ready
-        } else {
-            phase = .confirm
+        .onAppear {
+            if drafts.allSatisfy({ !$0.hasMedicineName }) {
+                drafts = treatments.draftsFromActivePlan()
+            }
         }
     }
 }

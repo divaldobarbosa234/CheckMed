@@ -17,6 +17,7 @@ final class EntitlementStore {
     private(set) var isLoading = false
     private(set) var statusMessage: String?
     private(set) var usedDebugUnlock = false
+    private(set) var introEligibleProductIDs: Set<String> = []
 
     var freeFamilySlots: Int { 1 }
     var familySlots: Int { isSuper ? 2 : freeFamilySlots }
@@ -27,6 +28,13 @@ final class EntitlementStore {
     var canViewJourneyReport: Bool { isSuper }
     var canSearchPharmacies: Bool { isSuper }
     var canUseRefillReminder: Bool { isSuper }
+
+    var monthlyProduct: Product? { products.first { $0.id == SuperProductID.monthly } }
+    var yearlyProduct: Product? { products.first { $0.id == SuperProductID.yearly } }
+
+    func isEligibleForFreeTrial(_ product: Product) -> Bool {
+        introEligibleProductIDs.contains(product.id)
+    }
 
     var allowsDebugUnlock: Bool {
         #if targetEnvironment(simulator)
@@ -57,6 +65,7 @@ final class EntitlementStore {
         isLoading = true
         statusMessage = nil
         await loadProducts()
+        await refreshIntroEligibility()
         await updateEntitlementFromStore()
         isLoading = false
     }
@@ -128,7 +137,21 @@ final class EntitlementStore {
                 .sorted { $0.price < $1.price }
         } catch {
             products = []
+            introEligibleProductIDs = []
         }
+    }
+
+    private func refreshIntroEligibility() async {
+        var eligible: Set<String> = []
+        for product in products {
+            guard let subscription = product.subscription,
+                  let offer = subscription.introductoryOffer,
+                  offer.paymentMode == .freeTrial else { continue }
+            if await subscription.isEligibleForIntroOffer {
+                eligible.insert(product.id)
+            }
+        }
+        introEligibleProductIDs = eligible
     }
 
     private func updateEntitlementFromStore() async {

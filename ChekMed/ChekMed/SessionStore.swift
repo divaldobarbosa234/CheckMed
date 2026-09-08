@@ -123,6 +123,8 @@ final class SessionStore {
     var showLeaveHealthWarning = false
     var didOfferUnfinishedPlanThisSession = false
     private var didBackgroundIncompleteSetup = false
+    /// First `FirstTimeOnboardingView` bootstrap in this process.
+    private static var didHandleLaunchOnboarding = false
 
     /// Awaits treatment sync and reports whether this owner already has treatments.
     @ObservationIgnored
@@ -251,6 +253,21 @@ final class SessionStore {
         guard raw != localFirstTimePhase else { return }
         localFirstTimePhase = raw
         UserDefaults.standard.set(raw, forKey: Keys.firstTimePhase)
+    }
+
+    /// Cold launch while setup is unfinished: splash → language → how it works → privacy.
+    /// Keeps the Apple/Google session; does not jump straight to Add prescription.
+    func consumeIncompleteColdLaunchIfNeeded() -> Bool {
+        if Self.didHandleLaunchOnboarding { return false }
+        Self.didHandleLaunchOnboarding = true
+        guard !hasCompletedOnboarding else { return false }
+        localIntroSplashSeen = false
+        localFirstTimePhase = "language"
+        localPrivacyAcknowledged = false
+        UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
+        UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
+        UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
+        return true
     }
 
     /// Unsigned users always replay splash → language → how it works → privacy → sign-in.
@@ -649,13 +666,22 @@ final class SessionStore {
             postAuthKind = .newAccount
             selectedMainTab = .home
             if isRestore {
-                if !identityComplete {
+                if !identityComplete, !isPastIdentityOnboardingStep {
                     setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
                 }
-            } else {
+            } else if !isPastIdentityOnboardingStep {
                 clearSessionOnboardingFlag()
                 setFirstTimePhaseRaw(identityComplete ? FirstTimePhase.addMedication.rawValue : FirstTimePhase.profile.rawValue)
             }
+        }
+    }
+
+    private var isPastIdentityOnboardingStep: Bool {
+        switch FirstTimePhase(rawValue: localFirstTimePhase) {
+        case .addMedication, .camera, .manualEntry, .analysing, .confirm, .planResume, .organize, .notifications, .alarmSetup, .ready:
+            true
+        default:
+            false
         }
     }
 

@@ -15,8 +15,10 @@ enum FirstTimePhase: String, Equatable {
     case manualEntry
     case analysing
     case confirm
+    case planResume
     case organize
     case notifications
+    case alarmSetup
     case ready
 
     var requiresAuth: Bool {
@@ -68,8 +70,14 @@ struct FirstTimeOnboardingView: View {
                 HowItWorksView(onGetStarted: { advance(to: .privacy) })
                     .transition(insert)
             case .privacy:
-                PrivacyConsentView(onAccept: { advance(to: .signIn) })
-                    .transition(insert)
+                PrivacyConsentView(onAccept: {
+                    if session.kind == .authenticated {
+                        advance(to: session.needsIdentityProfile ? .profile : .addMedication)
+                    } else {
+                        advance(to: .signIn)
+                    }
+                })
+                .transition(insert)
             case .signIn:
                 NavigationStack {
                     SignInView(onAuthenticated: {})
@@ -137,6 +145,7 @@ struct FirstTimeOnboardingView: View {
                     drafts: $drafts,
                     isManual: addMethod == .manual,
                     onConfirm: {
+                        for index in drafts.indices { drafts[index].syncDoseTimes() }
                         treatments.seedFromDrafts(
                             Array(drafts.filter(\.hasMedicineName).prefix(
                                 entitlements.isSuper ? drafts.count : SuperLimits.freePrescriptions
@@ -148,9 +157,16 @@ struct FirstTimeOnboardingView: View {
                             ImportUsage.incrementPhotoPDF(ownerId: session.auth.userId)
                         }
                         path.reload()
-                        advance(to: .organize)
+                        advance(to: .planResume)
                     },
                     onBack: { advance(to: addMethod == .manual ? .manualEntry : .addMedication) }
+                )
+                .transition(insert)
+            case .planResume:
+                PlanResumeView(
+                    drafts: drafts.filter(\.hasMedicineName),
+                    onContinue: { advance(to: .notifications) },
+                    onBack: { advance(to: .confirm) }
                 )
                 .transition(insert)
             case .organize:
@@ -162,9 +178,16 @@ struct FirstTimeOnboardingView: View {
             case .notifications:
                 NotificationsPermissionView(
                     secondaryTitle: session.t(.skip),
+                    onEnable: { advance(to: .alarmSetup) },
+                    onSecondary: { advance(to: .alarmSetup) },
+                    onBack: { advance(to: .planResume) }
+                )
+                .transition(insert)
+            case .alarmSetup:
+                AlarmSetupView(
                     onEnable: { advance(to: .ready) },
-                    onSecondary: { advance(to: .ready) },
-                    onBack: { advance(to: .organize) }
+                    onSkip: { advance(to: .ready) },
+                    onBack: { advance(to: .notifications) }
                 )
                 .transition(insert)
             case .ready:
@@ -208,11 +231,13 @@ struct FirstTimeOnboardingView: View {
             bootstrapPhase()
         }
         .onChange(of: session.kind) { oldKind, kind in
-            if oldKind == .authenticated, kind != .authenticated, phase != .splash {
+            if oldKind == .authenticated, kind != .authenticated {
+                if phase.requiresAuth { return }
                 afterSplash = .language
                 didBootstrapPhase = false
                 advance(to: .splash, persist: false)
             } else if kind == .authenticated {
+                if phase.requiresAuth { return }
                 didBootstrapPhase = false
                 bootstrapPhase()
             }
@@ -253,7 +278,7 @@ struct FirstTimeOnboardingView: View {
     private func routeAfterAuthIfNeeded() {
         guard session.kind == .authenticated else { return }
         guard session.postAuthKind == .newAccount else { return }
-        guard phase == .signIn || phase == .splash else { return }
+        guard phase == .signIn else { return }
         let next: FirstTimePhase = session.needsIdentityProfile ? .profile : .addMedication
         advance(to: next)
     }
@@ -278,6 +303,12 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func bootstrapPhase() {
+        if !didBootstrapPhase, session.consumeIncompleteColdLaunchIfNeeded() {
+            afterSplash = .language
+            didBootstrapPhase = true
+            phase = .splash
+            return
+        }
         afterSplash = destinationAfterSplash()
         if session.kind == .authenticated, phase == .signIn || phase == .splash || phase == .language || phase == .howItWorks || phase == .privacy {
             didBootstrapPhase = false
@@ -288,8 +319,7 @@ struct FirstTimeOnboardingView: View {
             afterSplash = .language
         }
         didBootstrapPhase = true
-        let skipIntro = session.kind == .authenticated
-        if session.shouldPlayIntroSplash, !skipIntro {
+        if session.shouldPlayIntroSplash {
             phase = .splash
         } else {
             session.markIntroSplashSeen()
@@ -335,19 +365,26 @@ struct FirstTimeOnboardingView: View {
         case .image(let data):
             let parsed = await PrescriptionReader.drafts(fromImageData: data)
             if parsed.contains(where: \.hasMedicineName) {
-                drafts = parsed
-                draft = parsed[0]
+                drafts = cappedMedicines(parsed)
+                draft = drafts[0]
             }
         case .pdf(let url):
             let parsed = await PrescriptionReader.drafts(fromPDF: url)
             if parsed.contains(where: \.hasMedicineName) {
-                drafts = parsed
-                draft = parsed[0]
+                drafts = cappedMedicines(parsed)
+                draft = drafts[0]
             }
         }
         if drafts.isEmpty {
             drafts = [.empty]
         }
+    }
+
+    private func cappedMedicines(_ parsed: [OnboardingPrescriptionDraft]) -> [OnboardingPrescriptionDraft] {
+        let named = parsed.filter(\.hasMedicineName)
+        let cap = entitlements.isSuper ? 12 : SuperLimits.freePrescriptions
+        let sliced = Array(named.prefix(cap))
+        return sliced.isEmpty ? [.empty] : sliced
     }
 }
 

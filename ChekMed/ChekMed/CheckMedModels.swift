@@ -139,6 +139,7 @@ final class MedicineRecord {
     var doseLabel: String
     var frequency: String
     var duration: String
+    var reason: String = ""
     var updatedAt: Date
     var deletedAt: Date?
 
@@ -151,6 +152,7 @@ final class MedicineRecord {
         doseLabel: String,
         frequency: String,
         duration: String,
+        reason: String = "",
         updatedAt: Date = Date(),
         deletedAt: Date? = nil
     ) {
@@ -162,6 +164,7 @@ final class MedicineRecord {
         self.doseLabel = doseLabel
         self.frequency = frequency
         self.duration = duration
+        self.reason = reason
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
     }

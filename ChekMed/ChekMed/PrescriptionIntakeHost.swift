@@ -22,7 +22,7 @@ struct AddPrescriptionIntakeHost: View {
     @State private var importToken = 0
 
     private enum Phase {
-        case choose, camera, manual, analysing, confirm
+        case choose, camera, manual, analysing, confirm, planResume
     }
 
     var body: some View {
@@ -77,10 +77,19 @@ struct AddPrescriptionIntakeHost: View {
                 OnboardingConfirmView(
                     drafts: $drafts,
                     isManual: method == .manual,
-                    onConfirm: confirm,
+                    onConfirm: {
+                        for index in drafts.indices { drafts[index].syncDoseTimes() }
+                        phase = .planResume
+                    },
                     onBack: {
                         phase = method == .manual ? .manual : .choose
                     }
+                )
+            case .planResume:
+                PlanResumeView(
+                    drafts: drafts.filter(\.hasMedicineName),
+                    onContinue: confirm,
+                    onBack: { phase = .confirm }
                 )
             }
         }
@@ -131,14 +140,14 @@ struct AddPrescriptionIntakeHost: View {
         case .image(let data):
             let parsed = await PrescriptionReader.drafts(fromImageData: data)
             if parsed.contains(where: \.hasMedicineName) {
-                drafts = parsed
-                draft = parsed[0]
+                drafts = cappedMedicines(parsed)
+                draft = drafts[0]
             }
         case .pdf(let url):
             let parsed = await PrescriptionReader.drafts(fromPDF: url)
             if parsed.contains(where: \.hasMedicineName) {
-                drafts = parsed
-                draft = parsed[0]
+                drafts = cappedMedicines(parsed)
+                draft = drafts[0]
             }
         }
         if drafts.isEmpty {
@@ -146,11 +155,18 @@ struct AddPrescriptionIntakeHost: View {
         }
     }
 
+    private func cappedMedicines(_ parsed: [OnboardingPrescriptionDraft]) -> [OnboardingPrescriptionDraft] {
+        let named = parsed.filter(\.hasMedicineName)
+        let cap = entitlements.isSuper ? 12 : SuperLimits.freePrescriptions
+        let sliced = Array(named.prefix(cap))
+        return sliced.isEmpty ? [.empty] : sliced
+    }
+
     private func confirm() {
         let named = drafts.filter(\.hasMedicineName)
         let room = entitlements.isSuper
             ? named.count
-            : max(0, SuperLimits.freePrescriptions - treatments.activeTreatmentCount)
+            : min(named.count, SuperLimits.freePrescriptions)
         treatments.addFromDrafts(
             Array(named.prefix(room)),
             ownerId: session.auth.userId,

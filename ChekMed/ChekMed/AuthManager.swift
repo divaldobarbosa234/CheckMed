@@ -317,6 +317,15 @@ final class AuthManager {
 
     private func handleAuthChange(_ event: AuthChangeEvent, _ session: Session?) async {
         let wasAuthenticated = isAuthenticated
+        let sameUser = wasAuthenticated && session?.user.id != nil && session?.user.id == userId
+        if event == .signedIn, sameUser {
+            apply(session: session)
+            if !sawInitialSession {
+                sawInitialSession = true
+                isRestoring = false
+            }
+            return
+        }
         let isRestore: Bool
         switch event {
         case .initialSession:

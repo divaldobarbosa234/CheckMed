@@ -5,6 +5,8 @@ struct MedicineNameField: View {
     let title: String
     @Binding var text: String
     var showsChrome: Bool = true
+    /// When true, label + field sit flush for grouping inside a parent card.
+    var embedded: Bool = false
 
     @FocusState private var focused: Bool
 
@@ -22,12 +24,12 @@ struct MedicineNameField: View {
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
                 .focused($focused)
-                .padding(14)
-                .background(CheckMedTheme.surface)
+                .padding(embedded ? 4 : 14)
+                .background(embedded ? Color.clear : CheckMedTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+                        .stroke(embedded ? Color.clear : CheckMedTheme.hairline, lineWidth: 1.5)
                 )
                 .accessibilityHint(session.t(.medicineSuggestHint))
             if focused, showsChrome {

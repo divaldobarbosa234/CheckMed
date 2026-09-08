@@ -14,7 +14,7 @@ enum AppRoute: Hashable {
     case prescriptionSaved
     case treatmentOverview
     case medicationList
-    case medicationDetail
+    case medicationDetail(UUID)
     case howToTake
     case treatmentTimeline
     case editTreatment
@@ -140,7 +140,7 @@ struct AppRouteView: View {
         case .prescriptionSaved: PrescriptionSavedScreen(go: nav.go)
         case .treatmentOverview: TreatmentOverviewScreen(go: nav.go)
         case .medicationList: MedicationListScreen(go: nav.go)
-        case .medicationDetail: MedicationDetailScreen(go: nav.go)
+        case .medicationDetail(let id): MedicationDetailScreen(go: nav.go, medicineId: id)
         case .howToTake: HowToTakeScreen(go: nav.go)
         case .treatmentTimeline: TreatmentTimelineScreen(go: nav.go)
         case .editTreatment: EditTreatmentScreen(go: nav.go)

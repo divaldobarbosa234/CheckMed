@@ -6,6 +6,7 @@ struct TreatmentsView: View {
     var body: some View {
         NavigationStack(path: $path) {
             TreatmentOverviewScreen(go: { path.append($0) })
+                .toolbar(path.isEmpty ? .hidden : .automatic, for: .navigationBar)
                 .navigationDestination(for: AppRoute.self) { route in
                     AppRouteView(route: route, path: $path)
                 }
@@ -19,6 +20,7 @@ struct ProgressTabView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ProgressDashboardScreen(go: { path.append($0) })
+                .toolbar(path.isEmpty ? .hidden : .automatic, for: .navigationBar)
                 .navigationDestination(for: AppRoute.self) { route in
                     AppRouteView(route: route, path: $path)
                 }
@@ -210,12 +212,19 @@ struct MainTabView: View {
             }
             .tint(CheckMedTheme.primaryShadow)
 
-            if showUnfinishedPrompt {
+            if session.showResumeSetup {
+                ResumePlanSetupFlow()
+                    .transition(.opacity)
+            } else if showUnfinishedPrompt {
                 UnfinishedPlanPromptView(kind: .afterReturn)
                     .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.35), value: showUnfinishedPrompt)
+        .animation(.easeInOut(duration: 0.35), value: session.showResumeSetup)
+        .onChange(of: session.showResumeSetup) { _, active in
+            if active { showUnfinishedPrompt = false }
+        }
         .task(id: "\(session.selectedMainTab)-\(session.needsUnfinishedPlan(treatments: treatments))") {
             await offerUnfinishedPlanIfNeeded()
         }
