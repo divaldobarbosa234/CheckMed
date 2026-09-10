@@ -14,6 +14,13 @@ struct OnboardingPrescriptionDraft: Equatable, Sendable {
     var timesPerDay: String
     var doseTimes: [String] = []
     var reason: String = ""
+    var form: String = ""
+    var packageAmount: String = ""
+    var packageUnit: String = ""
+    var doctorName: String = ""
+    var doctorId: String = ""
+    var hospitalName: String = ""
+    var doctorNotes: String = ""
 
     static let empty = OnboardingPrescriptionDraft(
         medicine: "",
@@ -35,14 +42,13 @@ struct OnboardingPrescriptionDraft: Equatable, Sendable {
         !medicine.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Combines times-per-day with the written frequency so dose slots can be built.
+    /// Interval text only. Times per day live in `timesPerDay`, not English “daily”.
     var scheduleFrequency: String {
-        let times = timesPerDay.trimmingCharacters(in: .whitespacesAndNewlines)
-        let freq = frequency.trimmingCharacters(in: .whitespacesAndNewlines)
-        if times.isEmpty { return freq }
-        let stamped = "\(times)× daily"
-        if freq.isEmpty { return stamped }
-        return "\(stamped) · \(freq)"
+        PrescriptionParser.intervalOnly(frequency)
+    }
+
+    mutating func sanitizeScheduleFields() {
+        frequency = PrescriptionParser.intervalOnly(frequency)
     }
 
     var timesCount: Int {
@@ -52,13 +58,18 @@ struct OnboardingPrescriptionDraft: Equatable, Sendable {
 
     mutating func syncDoseTimes() {
         let count = timesCount
-        let defaults = CheckMedStore.defaultTimes(count: count)
-        var next = doseTimes
-        if next.count > count { next = Array(next.prefix(count)) }
-        while next.count < count {
-            next.append(defaults[next.count])
+        let interval = CheckMedStore.intervalHours(from: frequency, timesCount: count)
+        let first = doseTimes.first.flatMap { $0.isEmpty ? nil : $0 } ?? "08:00"
+        if doseTimes.count != count || doseTimes.contains(where: \.isEmpty) {
+            doseTimes = CheckMedStore.spreadTimes(from: first, count: count, intervalHours: interval)
         }
-        doseTimes = next
+    }
+
+    mutating func suggestTimesFromFirst() {
+        let count = timesCount
+        let interval = CheckMedStore.intervalHours(from: frequency, timesCount: count)
+        let first = doseTimes.first.flatMap { $0.isEmpty ? nil : $0 } ?? "08:00"
+        doseTimes = CheckMedStore.spreadTimes(from: first, count: count, intervalHours: interval)
     }
 
     var compactTimesLabel: String {
@@ -68,14 +79,46 @@ struct OnboardingPrescriptionDraft: Equatable, Sendable {
     }
 }
 
+extension [OnboardingPrescriptionDraft] {
+    func cappedForPlan(isSuper: Bool, existingCount: Int = 0) -> [OnboardingPrescriptionDraft] {
+        var seen = Set<String>()
+        var unique: [OnboardingPrescriptionDraft] = []
+        for draft in self {
+            if draft.hasMedicineName {
+                let key = PrescriptionParser.canonicalMedicineKey(draft.medicine)
+                if !seen.insert(key).inserted { continue }
+            }
+            unique.append(draft)
+        }
+        let room = Swift.max(0, (isSuper ? 12 : SuperLimits.freePrescriptions) - Swift.max(0, existingCount))
+        if room == 0 {
+            return unique.contains(where: \.hasMedicineName) ? [] : [.empty]
+        }
+        var named = 0
+        let limited = unique.filter { draft in
+            guard draft.hasMedicineName else { return named == 0 }
+            named += 1
+            return named <= room
+        }
+        return limited.isEmpty ? [.empty] : limited
+    }
+}
+
 struct OnboardingAddMedicationView: View {
     @Environment(SessionStore.self) private var session
+    @Environment(CheckMedStore.self) private var treatments
+    @Environment(EntitlementStore.self) private var entitlements
     var onPhoto: () -> Void
     var onChoosePhotos: () -> Void = {}
     var onPDF: () -> Void
     var onManual: () -> Void
     var onBack: () -> Void
     var showsChoosePhotos: Bool = true
+
+    private var medicineCount: Int { treatments.activeMedicineCount }
+    private var remainingSlots: Int {
+        entitlements.freeMedicineSlotsRemaining(existingCount: medicineCount)
+    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -86,6 +129,19 @@ struct OnboardingAddMedicationView: View {
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .multilineTextAlignment(.center)
+            if !entitlements.isSuper, medicineCount > 0 {
+                Text(
+                    remainingSlots > 0
+                        ? session.t(.confirmRemainingSlots, medicineCount, remainingSlots)
+                        : session.t(.confirmFreePlanFull)
+                )
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.ink)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(CheckMedTheme.primary.opacity(0.35))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            }
             Spacer(minLength: 8)
             CheckMedButton(title: session.t(.scanTakePhoto), action: onPhoto)
             if showsChoosePhotos {
@@ -194,9 +250,18 @@ struct OnboardingManualEntryView: View {
             field(session.t(.manualDose), text: $draft.dose)
             timesPerDayRow
             field(session.t(.manualFrequency), text: $draft.frequency)
-            DoseTimesField(timesPerDay: $draft.timesPerDay, doseTimes: $draft.doseTimes)
+            DoseTimesField(
+                timesPerDay: $draft.timesPerDay,
+                frequency: $draft.frequency,
+                doseTimes: $draft.doseTimes
+            )
             DurationRangeField(duration: $draft.duration)
             field(session.t(.medicineReason), text: $draft.reason, optional: true)
+            field(session.t(.reportDoctor), text: $draft.doctorName, optional: true)
+            field(session.t(.reportDoctorId), text: $draft.doctorId, optional: true)
+            field(session.t(.reportHospital), text: $draft.hospitalName, optional: true)
+            field(session.t(.reportDoctorNotes), text: $draft.doctorNotes, optional: true)
+            field(session.t(.refillPackageAmount), text: $draft.packageAmount, optional: true)
             Spacer(minLength: 8)
             CheckMedButton(title: session.t(.continueButton), action: onContinue)
                 .disabled(!draft.isFilled)
@@ -244,14 +309,10 @@ struct OnboardingAnalysingView: View {
     var onFinished: () -> Void
     var importToken: Int = 0
 
-    @State private var pulse = false
-
     var body: some View {
         VStack(spacing: 20) {
             Spacer()
             PhilView(size: 168, mood: .celebrate, smiling: true)
-                .scaleEffect(pulse ? 1.06 : 0.94)
-                .opacity(pulse ? 1 : 0.82)
             Text(session.t(.scanAnalysingTitle))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
                 .multilineTextAlignment(.center)
@@ -267,11 +328,6 @@ struct OnboardingAnalysingView: View {
         .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
-                pulse = true
-            }
-        }
         .task(id: importToken) {
             let started = Date()
             if let work {
@@ -294,6 +350,7 @@ struct OnboardingConfirmView: View {
     @Environment(EntitlementStore.self) private var entitlements
     @Binding var drafts: [OnboardingPrescriptionDraft]
     var isManual: Bool
+    var existingMedicineCount: Int = 0
     var onConfirm: () -> Void
     var onBack: () -> Void
 
@@ -302,14 +359,43 @@ struct OnboardingConfirmView: View {
 
     private enum Field: Hashable {
         case medicine, dose, frequency, duration, reason
+        case doctor, doctorId, hospital, doctorNotes, packageAmount
     }
 
-    private var canConfirm: Bool {
-        drafts.contains(where: \.isFilled)
+    private var safePage: Int {
+        Swift.min(Swift.max(0, page), Swift.max(0, drafts.count - 1))
+    }
+
+    private var isOnLastMedicine: Bool {
+        drafts.isEmpty || safePage >= drafts.count - 1
+    }
+
+    private var canAdvance: Bool {
+        guard drafts.indices.contains(safePage) else { return false }
+        return drafts[safePage].isFilled
+    }
+
+    private var firstIncompleteIndex: Int? {
+        drafts.firstIndex { $0.hasMedicineName && !$0.isFilled }
     }
 
     private var keyboardOpen: Bool { focusedField != nil }
     private var freeMedicineCap: Int { SuperLimits.freePrescriptions }
+    private var remainingSlots: Int {
+        entitlements.freeMedicineSlotsRemaining(existingCount: existingMedicineCount)
+    }
+    private var namedDraftCount: Int { drafts.filter(\.hasMedicineName).count }
+
+    private var freePlanBanner: String? {
+        guard !entitlements.isSuper else { return nil }
+        if existingMedicineCount > 0, remainingSlots > 0 {
+            return session.t(.confirmRemainingSlots, existingMedicineCount, remainingSlots)
+        }
+        if existingMedicineCount >= freeMedicineCap {
+            return session.t(.confirmFreePlanFull)
+        }
+        return session.t(.confirmFreePlanLimit)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -328,8 +414,8 @@ struct OnboardingConfirmView: View {
                                 .font(.system(.caption, design: .rounded).weight(.semibold))
                                 .foregroundStyle(CheckMedTheme.muted)
                         }
-                        if !entitlements.isSuper {
-                            Text(session.t(.confirmFreePlanLimit))
+                        if let freePlanBanner {
+                            Text(freePlanBanner)
                                 .font(.system(.caption, design: .rounded).weight(.semibold))
                                 .foregroundStyle(CheckMedTheme.ink)
                                 .padding(10)
@@ -353,9 +439,9 @@ struct OnboardingConfirmView: View {
             }
             if !keyboardOpen {
                 VStack(spacing: 8) {
-                    CheckMedButton(title: session.t(.continueButton), action: onConfirm)
-                        .disabled(!canConfirm)
-                    CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+                    CheckMedButton(title: session.t(.continueButton), action: advanceOrConfirm)
+                        .disabled(!canAdvance)
+                    CheckMedButton(title: session.t(.back), style: .ghost, action: stepBack)
                     SafetyCaption()
                         .frame(maxWidth: .infinity)
                 }
@@ -375,9 +461,9 @@ struct OnboardingConfirmView: View {
         .onChange(of: drafts.count) { _, count in
             if page >= count { page = max(0, count - 1) }
         }
-        .onAppear { applyFreeMedicineCap() }
+        .onAppear { sanitizeAndCapDrafts() }
         .onChange(of: entitlements.isSuper) { _, _ in
-            applyFreeMedicineCap()
+            sanitizeAndCapDrafts()
         }
     }
 
@@ -416,8 +502,40 @@ struct OnboardingConfirmView: View {
     }
 
     private var currentDraft: OnboardingPrescriptionDraft {
-        guard drafts.indices.contains(page) else { return .empty }
-        return drafts[page]
+        guard drafts.indices.contains(safePage) else { return .empty }
+        return drafts[safePage]
+    }
+
+    private func advanceOrConfirm() {
+        focusedField = nil
+        guard canAdvance else { return }
+        drafts[safePage].syncDoseTimes()
+        if !isOnLastMedicine {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                page = safePage + 1
+            }
+            return
+        }
+        if let incomplete = firstIncompleteIndex, incomplete != safePage {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                page = incomplete
+            }
+            return
+        }
+        guard drafts.contains(where: \.isFilled) else { return }
+        for index in drafts.indices { drafts[index].syncDoseTimes() }
+        onConfirm()
+    }
+
+    private func stepBack() {
+        focusedField = nil
+        if safePage > 0 {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                page = safePage - 1
+            }
+        } else {
+            onBack()
+        }
     }
 
     private var pager: some View {
@@ -482,18 +600,31 @@ struct OnboardingConfirmView: View {
 
     private func addMedicineSlot() {
         focusedField = nil
-        if !entitlements.isSuper, drafts.count >= freeMedicineCap {
+        let usedInBatch = namedDraftCount
+        if !entitlements.isSuper, usedInBatch >= remainingSlots {
             entitlements.presentPaywall()
+            return
+        }
+        if entitlements.isSuper, drafts.count >= 12 {
             return
         }
         drafts.append(.empty)
         page = drafts.count - 1
     }
 
-    private func applyFreeMedicineCap() {
-        guard !entitlements.isSuper, drafts.count > freeMedicineCap else { return }
-        drafts = Array(drafts.prefix(freeMedicineCap))
-        page = min(page, max(0, drafts.count - 1))
+    private func sanitizeAndCapDrafts() {
+        var next = drafts
+        for index in next.indices {
+            next[index].sanitizeScheduleFields()
+        }
+        next = next.cappedForPlan(isSuper: entitlements.isSuper, existingCount: existingMedicineCount)
+        if next.isEmpty {
+            next = [.empty]
+        }
+        if next != drafts {
+            drafts = next
+            page = min(page, max(0, drafts.count - 1))
+        }
     }
 
     private func medicineFields(index: Int) -> some View {
@@ -515,12 +646,23 @@ struct OnboardingConfirmView: View {
             confirmDivider
             DoseTimesField(
                 timesPerDay: binding(index, \.timesPerDay),
+                frequency: binding(index, \.frequency),
                 doseTimes: doseTimesBinding(index)
             )
             confirmDivider
             DurationRangeField(duration: binding(index, \.duration), embedded: true)
             confirmDivider
             compactField(session.t(.medicineReason), text: binding(index, \.reason), field: .reason, optional: true)
+            confirmDivider
+            compactField(session.t(.reportDoctor), text: binding(index, \.doctorName), field: .doctor, optional: true)
+            confirmDivider
+            compactField(session.t(.reportDoctorId), text: binding(index, \.doctorId), field: .doctorId, optional: true)
+            confirmDivider
+            compactField(session.t(.reportHospital), text: binding(index, \.hospitalName), field: .hospital, optional: true)
+            confirmDivider
+            compactField(session.t(.reportDoctorNotes), text: binding(index, \.doctorNotes), field: .doctorNotes, optional: true)
+            confirmDivider
+            compactField(session.t(.refillPackageAmount), text: binding(index, \.packageAmount), field: .packageAmount, optional: true)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 16)
@@ -996,34 +1138,71 @@ struct TimesPerDayPicker: View {
 struct DoseTimesField: View {
     @Environment(SessionStore.self) private var session
     @Binding var timesPerDay: String
+    @Binding var frequency: String
     @Binding var doseTimes: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(session.t(.doseTimesTitle))
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .textCase(.uppercase)
                 .foregroundStyle(CheckMedTheme.muted)
+            if timesCount > 1 {
+                Text(session.t(.doseTimesSpreadHint, intervalHours))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
             ForEach(Array(doseTimes.indices), id: \.self) { index in
-                DatePicker(
-                    session.t(.doseTimeSlot, index + 1),
-                    selection: timeBinding(index),
-                    displayedComponents: .hourAndMinute
-                )
-                .environment(\.locale, session.locale.foundationLocale)
-                .labelsHidden()
-                .tint(CheckMedTheme.primaryShadow)
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(slotTitle(index))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.ink)
+                        Text(session.t(.doseTimeAlarmHint))
+                            .font(.system(.caption2, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                    Spacer(minLength: 8)
+                    DatePicker(
+                        slotTitle(index),
+                        selection: timeBinding(index),
+                        displayedComponents: .hourAndMinute
+                    )
+                    .environment(\.locale, session.locale.foundationLocale)
+                    .labelsHidden()
+                    .tint(CheckMedTheme.primaryShadow)
+                }
             }
         }
-        .onAppear { sync() }
-        .onChange(of: timesPerDay) { _, _ in sync() }
+        .onAppear { suggestFromFirst() }
+        .onChange(of: timesPerDay) { _, _ in suggestFromFirst() }
+        .onChange(of: frequency) { _, _ in suggestFromFirst() }
     }
 
-    private func sync() {
+    private var timesCount: Int {
+        if let value = Int(timesPerDay), (1...4).contains(value) { return value }
+        return max(1, min(4, doseTimes.count))
+    }
+
+    private var intervalHours: Int {
+        CheckMedStore.intervalHours(from: frequency, timesCount: timesCount)
+    }
+
+    private func slotTitle(_ index: Int) -> String {
+        switch index {
+        case 0: session.t(.doseTimeFirst)
+        case 1: session.t(.doseTimeSecond)
+        case 2: session.t(.doseTimeThird)
+        default: session.t(.doseTimeFourth)
+        }
+    }
+
+    private func suggestFromFirst() {
         var draft = OnboardingPrescriptionDraft.empty
         draft.timesPerDay = timesPerDay
+        draft.frequency = frequency
         draft.doseTimes = doseTimes
-        draft.syncDoseTimes()
+        draft.suggestTimesFromFirst()
         if draft.doseTimes != doseTimes {
             doseTimes = draft.doseTimes
         }
@@ -1032,14 +1211,20 @@ struct DoseTimesField: View {
     private func timeBinding(_ index: Int) -> Binding<Date> {
         Binding(
             get: {
-                CheckMedStore.date(on: Date(), timeOfDay: doseTimes.indices.contains(index) ? doseTimes[index] : "08:00")
-                    ?? Date()
+                CheckMedStore.date(
+                    on: Date(),
+                    timeOfDay: doseTimes.indices.contains(index) ? doseTimes[index] : "08:00"
+                ) ?? Date()
             },
             set: { date in
                 guard doseTimes.indices.contains(index) else { return }
-                let hour = Calendar.current.component(.hour, from: date)
-                let minute = Calendar.current.component(.minute, from: date)
+                let calendar = Calendar.current
+                let hour = calendar.component(.hour, from: date)
+                let minute = calendar.component(.minute, from: date)
                 doseTimes[index] = String(format: "%02d:%02d", hour, minute)
+                if index == 0 {
+                    suggestFromFirst()
+                }
             }
         )
     }
@@ -1049,6 +1234,7 @@ struct PlanResumeView: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
     let drafts: [OnboardingPrescriptionDraft]
+    var showsAddMore: Bool = true
     var onContinue: () -> Void
     var onBack: () -> Void
 
@@ -1081,8 +1267,10 @@ struct PlanResumeView: View {
             }
             VStack(spacing: 10) {
                 CheckMedButton(title: session.t(.continueButton), action: onContinue)
-                CheckMedButton(title: session.t(.planAddMoreOrFamily), style: .secondary) {
-                    entitlements.presentPaywall()
+                if showsAddMore {
+                    CheckMedButton(title: session.t(.planAddMoreOrFamily), style: .secondary) {
+                        entitlements.presentPaywall()
+                    }
                 }
                 CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
             }
@@ -1138,8 +1326,6 @@ struct OnboardingOrganizeView: View {
         VStack(spacing: 18) {
             Spacer()
             PhilView(size: 156, mood: .celebrate, pose: .pointingDown, smiling: true)
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 12)
             Text(session.t(.organizeHeadline))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
                 .multilineTextAlignment(.center)
@@ -1167,14 +1353,10 @@ struct OnboardingPhilReadyView: View {
     @Environment(SessionStore.self) private var session
     var onContinue: () -> Void
 
-    @State private var appeared = false
-
     var body: some View {
         VStack(spacing: 18) {
             Spacer()
             PhilView(size: 176, mood: .complete, smiling: true)
-                .scaleEffect(appeared ? 1 : 0.88)
-                .opacity(appeared ? 1 : 0)
             Text(session.t(.philReadyHeadline))
                 .font(.system(.title, design: .rounded).weight(.black))
                 .multilineTextAlignment(.center)
@@ -1189,10 +1371,5 @@ struct OnboardingPhilReadyView: View {
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
-        .onAppear {
-            withAnimation(.spring(duration: 0.72, bounce: 0.32)) {
-                appeared = true
-            }
-        }
     }
 }

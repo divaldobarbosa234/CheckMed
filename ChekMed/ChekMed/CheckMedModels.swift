@@ -140,6 +140,18 @@ final class MedicineRecord {
     var frequency: String
     var duration: String
     var reason: String = ""
+    var form: String = MedicineForm.other.rawValue
+    var packageAmount: Double = 0
+    var packageUnit: String = MedicineUnit.tablet.rawValue
+    var stockPercent: Double = 100
+    var quantityPerDose: Double = 1
+    var doseUnit: String = MedicineUnit.tablet.rawValue
+    var doctorName: String = ""
+    var doctorId: String = ""
+    var hospitalName: String = ""
+    var doctorNotes: String = ""
+    var lastRefillAt: Date? = nil
+    var refillRemindEnabled: Bool = true
     var updatedAt: Date
     var deletedAt: Date?
 
@@ -153,6 +165,18 @@ final class MedicineRecord {
         frequency: String,
         duration: String,
         reason: String = "",
+        form: String = MedicineForm.other.rawValue,
+        packageAmount: Double = 0,
+        packageUnit: String = MedicineUnit.tablet.rawValue,
+        stockPercent: Double = 100,
+        quantityPerDose: Double = 1,
+        doseUnit: String = MedicineUnit.tablet.rawValue,
+        doctorName: String = "",
+        doctorId: String = "",
+        hospitalName: String = "",
+        doctorNotes: String = "",
+        lastRefillAt: Date? = nil,
+        refillRemindEnabled: Bool = true,
         updatedAt: Date = Date(),
         deletedAt: Date? = nil
     ) {
@@ -165,6 +189,18 @@ final class MedicineRecord {
         self.frequency = frequency
         self.duration = duration
         self.reason = reason
+        self.form = form
+        self.packageAmount = packageAmount
+        self.packageUnit = packageUnit
+        self.stockPercent = stockPercent
+        self.quantityPerDose = quantityPerDose
+        self.doseUnit = doseUnit
+        self.doctorName = doctorName
+        self.doctorId = doctorId
+        self.hospitalName = hospitalName
+        self.doctorNotes = doctorNotes
+        self.lastRefillAt = lastRefillAt
+        self.refillRemindEnabled = refillRemindEnabled
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
     }
@@ -209,6 +245,42 @@ final class MedicineRecord {
         duration = snapshot.duration
         updatedAt = snapshot.updatedAt
         deletedAt = snapshot.deletedAt
+    }
+
+    var medicineForm: MedicineForm {
+        MedicineForm(rawValue: form) ?? .other
+    }
+
+    var packageMedicineUnit: MedicineUnit {
+        MedicineUnit(rawValue: packageUnit) ?? .tablet
+    }
+
+    var doseMedicineUnit: MedicineUnit {
+        MedicineUnit(rawValue: doseUnit) ?? .tablet
+    }
+
+    func applyDoseDefaultsIfNeeded() {
+        let parsed = MedicineUnits.parseDoseLabel(doseLabel)
+        if quantityPerDose <= 0 { quantityPerDose = parsed.quantity }
+        if doseUnit.isEmpty || doseUnit == MedicineUnit.other.rawValue {
+            doseUnit = parsed.unit.rawValue
+        }
+        if form.isEmpty || form == MedicineForm.other.rawValue {
+            form = MedicineForm.infer(from: doseLabel, medicineName: name).rawValue
+        }
+        if packageAmount <= 0 {
+            switch MedicineUnit(rawValue: doseUnit) ?? parsed.unit {
+            case .ml, .tsp, .tbsp, .oz, .drop:
+                packageAmount = 100
+                packageUnit = MedicineUnit.ml.rawValue
+            case .g, .mg, .mcg:
+                packageAmount = 30
+                packageUnit = MedicineUnit.g.rawValue
+            default:
+                packageAmount = 20
+                packageUnit = (MedicineUnit(rawValue: doseUnit) ?? .tablet).rawValue
+            }
+        }
     }
 }
 

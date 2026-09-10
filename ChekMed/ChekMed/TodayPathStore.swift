@@ -62,6 +62,7 @@ final class TodayPathStore {
     func takeCurrent() {
         guard let current, let id = UUID(uuidString: current.id) else { return }
         store?.markLog(id: id, status: .taken)
+        ReminderScheduler.shared.handleTakenSideEffects(logId: id)
         pendingFeeling = (id, current.medicine)
         mood = .celebrate
         reload()

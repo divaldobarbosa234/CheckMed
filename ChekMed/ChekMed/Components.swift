@@ -228,7 +228,7 @@ struct LanguageSelectField: View {
     }
 }
 
-private struct LanguageWheelSheet: View {
+struct LanguageWheelSheet: View {
     @Environment(SessionStore.self) private var session
     @Binding var locale: AppLocale
     var onCommit: ((AppLocale) -> Void)?

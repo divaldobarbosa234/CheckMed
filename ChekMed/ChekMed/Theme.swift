@@ -2,36 +2,36 @@ import SwiftUI
 import UIKit
 
 enum CheckMedTheme {
-    /// Cream canvas matching Phil’s belly.
+    /// Warm off-white canvas used throughout the redesigned app.
     static let background = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.12, green: 0.08, blue: 0.04, alpha: 1)
-            : UIColor(red: 1, green: 0.957, blue: 0.839, alpha: 1)
+            ? UIColor(red: 0.035, green: 0.09, blue: 0.14, alpha: 1)
+            : UIColor(red: 0.985, green: 0.98, blue: 0.95, alpha: 1)
     })
     static let surface = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.18, green: 0.13, blue: 0.07, alpha: 1)
-            : UIColor(red: 1, green: 0.988, blue: 0.957, alpha: 1)
+            ? UIColor(red: 0.055, green: 0.125, blue: 0.19, alpha: 1)
+            : UIColor(red: 1, green: 1, blue: 0.995, alpha: 1)
     })
     static let ink = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 1, green: 0.957, blue: 0.839, alpha: 1)
-            : UIColor(red: 0.227, green: 0.145, blue: 0.055, alpha: 1)
+            ? UIColor(red: 0.93, green: 0.98, blue: 1, alpha: 1)
+            : UIColor(red: 0.035, green: 0.14, blue: 0.27, alpha: 1)
     })
     static let muted = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.82, green: 0.70, blue: 0.52, alpha: 1)
-            : UIColor(red: 0.545, green: 0.416, blue: 0.267, alpha: 1)
+            ? UIColor(red: 0.62, green: 0.72, blue: 0.80, alpha: 1)
+            : UIColor(red: 0.39, green: 0.47, blue: 0.57, alpha: 1)
     })
     static let locked = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.32, green: 0.23, blue: 0.12, alpha: 1)
-            : UIColor(red: 0.941, green: 0.875, blue: 0.737, alpha: 1)
+            ? UIColor(red: 0.12, green: 0.20, blue: 0.27, alpha: 1)
+            : UIColor(red: 0.90, green: 0.92, blue: 0.94, alpha: 1)
     })
     static let hairline = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 0.35, green: 0.25, blue: 0.14, alpha: 1)
-            : UIColor(red: 0.953, green: 0.886, blue: 0.757, alpha: 1)
+            ? UIColor(red: 0.12, green: 0.23, blue: 0.29, alpha: 1)
+            : UIColor(red: 0.91, green: 0.93, blue: 0.91, alpha: 1)
     })
     /// Baby-blue canvas sampled from phil_onboarding_flow.mp4 edges.
     static let philFlowCanvasUIColor = UIColor(red: 193 / 255, green: 232 / 255, blue: 249 / 255, alpha: 1)
@@ -43,27 +43,32 @@ enum CheckMedTheme {
     /// Canvas sampled from phil_sad.mp4 edges (off-white, not cream).
     static let philSadCanvasUIColor = UIColor(red: 252 / 255, green: 251 / 255, blue: 242 / 255, alpha: 1)
     static let philSadCanvas = Color(uiColor: philSadCanvasUIColor)
-    /// Phil body / splash gold.
-    static let primary = Color(hex: 0xFBD604)
-    /// Beak / feet orange, button shadow.
-    static let primaryShadow = Color(hex: 0xE07000)
-    static let onPrimary = Color(hex: 0x3A250E)
-    static let current = Color(hex: 0xF08A10)
+    /// CheckMed green used for primary actions and positive health states.
+    static let primary = Color(hex: 0x45B94F)
+    static let primaryShadow = Color(hex: 0x178E48)
+    static let onPrimary = Color.white
+    static let philYellow = Color(hex: 0xFBD604)
+    static let current = Color(hex: 0xFFAA32)
     static let streak = Color(hex: 0xFF8A00)
     static let skip = Color(hex: 0xFFC800)
     static let danger = Color(hex: 0xFF4B4B)
-    static let guestBg = Color(hex: 0xFFF4CC)
-    static let guestBorder = Color(hex: 0xFFC800)
+    static let guestBg = Color(hex: 0xEEF8EC)
+    static let guestBorder = Color(hex: 0xA7DFA9)
     static let safety = Color(uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
-            ? UIColor(red: 1, green: 0.82, blue: 0.42, alpha: 1)
-            : UIColor(red: 0.541, green: 0.353, blue: 0, alpha: 1)
+            ? UIColor(red: 0.98, green: 0.80, blue: 0.42, alpha: 1)
+            : UIColor(red: 0.50, green: 0.34, blue: 0.06, alpha: 1)
     })
-    static let belly = Color(hex: 0xFFF3C4)
+    static let belly = Color(hex: 0xFFF4BE)
     static let cheek = Color(hex: 0xFF8FAB)
     static let beak = Color(hex: 0xFF8A00)
     static let google = Color(hex: 0x4285F4)
-    static let superAccent = Color(hex: 0xE86A1A)
+    static let superAccent = Color(hex: 0x8E58D6)
+    static let mintWash = Color(hex: 0xEAF7E8)
+    static let blueWash = Color(hex: 0xEAF5FC)
+    static let lavenderWash = Color(hex: 0xF1EAFF)
+    static let sunshineWash = Color(hex: 0xFFF4B8)
+    static let navy = Color(hex: 0x092B50)
 }
 
 enum AppearanceMode: String, CaseIterable, Identifiable {

@@ -1,14 +1,13 @@
 import SwiftUI
 
-/// Five overlapping circular Phil stills on the sign-in landing. No speech bubble.
+/// Overlapping circular Phil stills on the sign-in landing. No speech bubble.
 struct PhilWelcomeCluster: View {
     var compact = false
 
+    /// Three frames (not five) — each onboarding PNG is ~1MB compressed / ~4MB decoded; five at once spiked memory on sign-in.
     private let frames = [
         "phil_onboarding_02_photo",
-        "phil_onboarding_03_read",
         "phil_onboarding_01_intro",
-        "phil_onboarding_04_plan",
         "phil_onboarding_05_healthy",
     ]
 
@@ -18,19 +17,14 @@ struct PhilWelcomeCluster: View {
             let h = geo.size.height
             let large = compact ? min(w, h) * 0.34 : min(w, h) * 0.48
             let mid = large * (compact ? 0.86 : 0.78)
-            let small = large * (compact ? 0.72 : 0.62)
 
             ZStack {
                 phil(frames[0], size: mid)
                     .offset(x: compact ? -w * 0.22 : -w * 0.28, y: compact ? -h * 0.10 : -h * 0.16)
-                phil(frames[1], size: small)
-                    .offset(x: compact ? 0 : w * 0.02, y: compact ? -h * 0.18 : -h * 0.28)
-                phil(frames[3], size: mid)
+                phil(frames[2], size: mid)
                     .offset(x: compact ? w * 0.22 : w * 0.28, y: compact ? -h * 0.06 : -h * 0.10)
-                phil(frames[2], size: large)
-                    .offset(x: compact ? -w * 0.10 : -w * 0.14, y: compact ? h * 0.08 : h * 0.18)
-                phil(frames[4], size: large * 0.92)
-                    .offset(x: compact ? w * 0.12 : w * 0.18, y: compact ? h * 0.10 : h * 0.20)
+                phil(frames[1], size: large)
+                    .offset(x: compact ? -w * 0.02 : 0, y: compact ? h * 0.06 : h * 0.14)
             }
             .frame(width: w, height: h)
         }
@@ -42,6 +36,7 @@ struct PhilWelcomeCluster: View {
     private func phil(_ name: String, size: CGFloat) -> some View {
         Image(name)
             .resizable()
+            .interpolation(.medium)
             .scaledToFill()
             .frame(width: size, height: size)
             .clipShape(Circle())

@@ -39,7 +39,11 @@ enum AppRoute: Hashable {
     case family
     case journeyReport
     case community
-    case pharmacySearch
+    case pharmacySearch(query: String = "")
+    case refillStock
+    case medicineReport
+    case medicineReportEdit
+    case reportsHub
 }
 
 enum CheckMedDemo {
@@ -165,7 +169,11 @@ struct AppRouteView: View {
         case .family: FamilyView()
         case .journeyReport: JourneyReportScreen(go: nav.go)
         case .community: CommunityScreen()
-        case .pharmacySearch: PharmacySearchScreen()
+        case .pharmacySearch(let query): PharmacySearchScreen(initialQuery: query)
+        case .refillStock: RefillStockScreen(go: nav.go)
+        case .medicineReport: MedicineReportScreen(go: nav.go)
+        case .medicineReportEdit: MedicineReportEditScreen()
+        case .reportsHub: ReportsHubScreen(go: nav.go)
         }
     }
 }

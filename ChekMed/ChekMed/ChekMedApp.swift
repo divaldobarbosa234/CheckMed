@@ -62,6 +62,7 @@ struct ChekMedApp: App {
                         family.selectPrimary()
                         family.applyScope(to: treatments, primaryProfileId: session.profileId)
                     }
+                    treatments.pruneDuplicateAndFreeCap(isSuper: isSuper)
                     ReminderScheduler.shared.reschedule()
                 }
         }
@@ -93,6 +94,7 @@ struct ChekMedApp: App {
             return treatments.hasExistingTreatments
         }
         path.reload()
+        treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
         ReminderScheduler.shared.reschedule()
         session.startAuthIfNeeded()
     }

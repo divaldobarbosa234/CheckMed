@@ -21,6 +21,8 @@ struct ReminderDraft: Identifiable, Sendable {
         case missed
         case advance
         case refill
+        case stockRefill
+        case stockDaysLeft
     }
 
     var id: UUID
@@ -36,6 +38,8 @@ struct ReminderDraft: Identifiable, Sendable {
         case .missed: "checkmed.missed.\(id.uuidString)"
         case .advance: "checkmed.advance.\(id.uuidString)"
         case .refill: "checkmed.refill.\(id.uuidString)"
+        case .stockRefill: "checkmed.stockRefill.\(id.uuidString)"
+        case .stockDaysLeft: "checkmed.stockDays.\(id.uuidString).\(Int(fireDate.timeIntervalSince1970))"
         }
     }
 }
@@ -152,6 +156,28 @@ final class CheckMedStore {
 
     var activeTreatmentCount: Int { activeTreatments().count }
 
+    var activeMedicineCount: Int {
+        _ = revision
+        return medicineSummaries().count
+    }
+
+    func deleteMedicine(id: UUID) {
+        guard let medicine = medicines().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        let now = Date()
+        removeMedicine(medicine, now: now)
+        if medicines(for: medicine.treatmentId).isEmpty,
+           let treatment = activeTreatments().first(where: { $0.id == medicine.treatmentId }) {
+            treatment.deletedAt = now
+            treatment.updatedAt = now
+            stamp(treatment)
+        }
+        logsEnsuredDay = nil
+        invalidateCache()
+        save()
+        notify()
+        requestSync()
+    }
+
     func daysUntilNextRevision(calendar: Calendar) -> Int? {
         _ = revision
         let today = calendar.startOfDay(for: Date())
@@ -170,13 +196,52 @@ final class CheckMedStore {
         var timesPerDay: Int
         var treatmentTitle: String
         var treatmentStatus: String
+        var form: MedicineForm
+        var packageAmount: Double
+        var packageUnit: MedicineUnit
+        var stockPercent: Double
+        var quantityPerDose: Double
+        var doseUnit: MedicineUnit
+        var doctorName: String
+        var doctorId: String
+        var hospitalName: String
+        var doctorNotes: String
+        var reason: String
+        var lastRefillAt: Date?
+        var refillRemindEnabled: Bool
+        var daysLeft: Double?
+        var scheduleTimes: [String]
+        var daysOnTreatment: Int
+        var missedCount: Int
     }
 
     func medicineSummaries() -> [MedicineSummary] {
         _ = revision
         let treatmentsById = Dictionary(uniqueKeysWithValues: activeTreatments().map { ($0.id, $0) })
+        let now = Date()
         return medicines().compactMap { medicine in
             guard let treatment = treatmentsById[medicine.treatmentId] else { return nil }
+            medicine.applyDoseDefaultsIfNeeded()
+            let medSchedules = schedules(for: medicine.id)
+            let times = max(1, medSchedules.count)
+            let scheduleTimes = medSchedules.map(\.timeOfDay).sorted()
+            let days = MedicineUnits.daysLeft(
+                packageAmount: medicine.packageAmount,
+                packageUnit: medicine.packageMedicineUnit,
+                stockPercent: medicine.stockPercent,
+                quantityPerDose: medicine.quantityPerDose,
+                doseUnit: medicine.doseMedicineUnit,
+                timesPerDay: times
+            )
+            let scheduleIds = Set(medSchedules.map(\.id))
+            let medLogs = allLogs().filter { scheduleIds.contains($0.scheduleId) && $0.deletedAt == nil }
+            let missed = medLogs.filter {
+                $0.scheduledAt <= now && $0.status == DoseLogStatus.skipped.rawValue
+            }.count
+            let daysOn = max(
+                1,
+                calendar.dateComponents([.day], from: calendar.startOfDay(for: treatment.startDate), to: calendar.startOfDay(for: now)).day ?? 1
+            )
             return MedicineSummary(
                 id: medicine.id,
                 treatmentId: treatment.id,
@@ -184,11 +249,40 @@ final class CheckMedStore {
                 doseLabel: medicine.doseLabel,
                 frequency: medicine.frequency,
                 duration: medicine.duration,
-                timesPerDay: max(1, schedules(for: medicine.id).count),
+                timesPerDay: times,
                 treatmentTitle: treatment.title,
-                treatmentStatus: treatment.status
+                treatmentStatus: treatment.status,
+                form: medicine.medicineForm,
+                packageAmount: medicine.packageAmount,
+                packageUnit: medicine.packageMedicineUnit,
+                stockPercent: medicine.stockPercent,
+                quantityPerDose: medicine.quantityPerDose,
+                doseUnit: medicine.doseMedicineUnit,
+                doctorName: medicine.doctorName,
+                doctorId: medicine.doctorId,
+                hospitalName: medicine.hospitalName,
+                doctorNotes: medicine.doctorNotes,
+                reason: medicine.reason,
+                lastRefillAt: medicine.lastRefillAt,
+                refillRemindEnabled: medicine.refillRemindEnabled,
+                daysLeft: days,
+                scheduleTimes: scheduleTimes,
+                daysOnTreatment: daysOn,
+                missedCount: missed
             )
         }
+    }
+
+    func medicineMostUrgentForRefill() -> MedicineSummary? {
+        medicineSummaries()
+            .filter { $0.refillRemindEnabled && ($0.daysLeft != nil || $0.stockPercent < 100) }
+            .sorted { lhs, rhs in
+                let ld = lhs.daysLeft ?? 999
+                let rd = rhs.daysLeft ?? 999
+                if ld != rd { return ld < rd }
+                return lhs.timesPerDay > rhs.timesPerDay
+            }
+            .first
     }
 
     /// First-treatment onboarding: create or replace the single active plan.
@@ -197,9 +291,7 @@ final class CheckMedStore {
     }
 
     func seedFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) {
-        for (index, draft) in drafts.enumerated() where draft.hasMedicineName {
-            saveDraft(draft, ownerId: ownerId, profileId: profileId, replacingFirst: index == 0)
-        }
+        persistDrafts(drafts, ownerId: ownerId, profileId: profileId, replacePlan: true)
     }
 
     /// Later adds from Home: always insert a new treatment.
@@ -208,8 +300,33 @@ final class CheckMedStore {
     }
 
     func addFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) {
-        for draft in drafts where draft.hasMedicineName {
-            saveDraft(draft, ownerId: ownerId, profileId: profileId, replacingFirst: false)
+        persistDrafts(drafts, ownerId: ownerId, profileId: profileId, replacePlan: false)
+    }
+
+    private func persistDrafts(
+        _ drafts: [OnboardingPrescriptionDraft],
+        ownerId: UUID?,
+        profileId: UUID?,
+        replacePlan: Bool
+    ) {
+        let named = drafts.filter(\.hasMedicineName)
+        guard let first = named.first else { return }
+        saveDraft(
+            first,
+            ownerId: ownerId,
+            profileId: profileId,
+            replacingFirst: replacePlan,
+            ontoTreatment: replacePlan ? nil : activeTreatments().first
+        )
+        let plan = activeTreatments().first
+        for draft in named.dropFirst() {
+            saveDraft(
+                draft,
+                ownerId: ownerId,
+                profileId: profileId,
+                replacingFirst: false,
+                ontoTreatment: plan
+            )
         }
     }
 
@@ -217,7 +334,8 @@ final class CheckMedStore {
         _ draft: OnboardingPrescriptionDraft,
         ownerId: UUID?,
         profileId: UUID?,
-        replacingFirst: Bool
+        replacingFirst: Bool,
+        ontoTreatment: TreatmentRecord? = nil
     ) {
         self.ownerId = ownerId ?? self.ownerId
         if let profileId {
@@ -230,7 +348,9 @@ final class CheckMedStore {
         guard !medicineName.isEmpty else { return }
 
         let treatment: TreatmentRecord
-        if replacingFirst, let existing = activeTreatments().first {
+        if let ontoTreatment {
+            treatment = ontoTreatment
+        } else if replacingFirst, let existing = activeTreatments().first {
             existing.title = medicineName
             existing.updatedAt = now
             existing.deletedAt = nil
@@ -252,12 +372,13 @@ final class CheckMedStore {
         }
 
         let medicine: MedicineRecord
-        if replacingFirst, let existing = medicines(for: treatment.id).first {
+        if replacingFirst, ontoTreatment == nil, let existing = medicines(for: treatment.id).first {
             existing.name = medicineName
             existing.doseLabel = draft.dose
             existing.frequency = draft.scheduleFrequency
             existing.duration = draft.duration
             existing.reason = draft.reason
+            applyReportFields(from: draft, to: existing)
             existing.updatedAt = now
             existing.deletedAt = nil
             stamp(existing)
@@ -274,9 +395,11 @@ final class CheckMedStore {
                 reason: draft.reason,
                 updatedAt: now
             )
+            applyReportFields(from: draft, to: medicine)
             context.insert(medicine)
             invalidateCache()
         }
+        medicine.applyDoseDefaultsIfNeeded()
 
         replaceSchedules(for: medicine, times: draft.doseTimes, frequency: draft.scheduleFrequency, now: now)
         logsEnsuredDay = nil
@@ -286,12 +409,90 @@ final class CheckMedStore {
         requestSync()
     }
 
+    private func applyReportFields(from draft: OnboardingPrescriptionDraft, to medicine: MedicineRecord) {
+        if !draft.reason.isEmpty { medicine.reason = draft.reason }
+        if !draft.doctorName.isEmpty { medicine.doctorName = draft.doctorName }
+        if !draft.doctorId.isEmpty { medicine.doctorId = draft.doctorId }
+        if !draft.hospitalName.isEmpty { medicine.hospitalName = draft.hospitalName }
+        if !draft.doctorNotes.isEmpty { medicine.doctorNotes = draft.doctorNotes }
+        if !draft.form.isEmpty { medicine.form = draft.form }
+        let parsedDose = MedicineUnits.parseDoseLabel(draft.dose)
+        medicine.quantityPerDose = parsedDose.quantity
+        medicine.doseUnit = parsedDose.unit.rawValue
+        if let amount = Double(draft.packageAmount.replacingOccurrences(of: ",", with: ".")), amount > 0 {
+            medicine.packageAmount = amount
+            if let unit = MedicineUnit.parse(draft.packageUnit) ?? MedicineUnit(rawValue: draft.packageUnit) {
+                medicine.packageUnit = unit.rawValue
+            }
+        }
+        if medicine.form.isEmpty || medicine.form == MedicineForm.other.rawValue {
+            medicine.form = MedicineForm.infer(from: draft.dose, medicineName: draft.medicine).rawValue
+        }
+    }
+
+    func updateMedicineStock(
+        id: UUID,
+        stockPercent: Double? = nil,
+        packageAmount: Double? = nil,
+        packageUnit: MedicineUnit? = nil,
+        quantityPerDose: Double? = nil,
+        doseUnit: MedicineUnit? = nil,
+        form: MedicineForm? = nil,
+        refillRemindEnabled: Bool? = nil,
+        markRefilled: Bool = false,
+        doctorName: String? = nil,
+        doctorId: String? = nil,
+        hospitalName: String? = nil,
+        doctorNotes: String? = nil,
+        reason: String? = nil
+    ) {
+        guard let medicine = medicines().first(where: { $0.id == id }) else { return }
+        if let stockPercent { medicine.stockPercent = min(100, max(0, stockPercent)) }
+        if let packageAmount { medicine.packageAmount = max(0, packageAmount) }
+        if let packageUnit { medicine.packageUnit = packageUnit.rawValue }
+        if let quantityPerDose { medicine.quantityPerDose = max(0.01, quantityPerDose) }
+        if let doseUnit { medicine.doseUnit = doseUnit.rawValue }
+        if let form { medicine.form = form.rawValue }
+        if let refillRemindEnabled { medicine.refillRemindEnabled = refillRemindEnabled }
+        if let doctorName { medicine.doctorName = doctorName }
+        if let doctorId { medicine.doctorId = doctorId }
+        if let hospitalName { medicine.hospitalName = hospitalName }
+        if let doctorNotes { medicine.doctorNotes = doctorNotes }
+        if let reason { medicine.reason = reason }
+        if markRefilled {
+            medicine.stockPercent = 100
+            medicine.lastRefillAt = Date()
+        }
+        medicine.updatedAt = Date()
+        stamp(medicine)
+        save()
+        notify()
+        requestSync()
+    }
+
     func markLog(id: UUID, status: DoseLogStatus) {
         guard let log = allLogs().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        let wasPending = log.status == DoseLogStatus.pending.rawValue
         log.status = status.rawValue
         log.loggedAt = Date()
         log.updatedAt = Date()
         stamp(log)
+        if status == .taken, wasPending,
+           let schedule = schedules().first(where: { $0.id == log.scheduleId }),
+           let medicine = medicines().first(where: { $0.id == schedule.medicineId }) {
+            medicine.applyDoseDefaultsIfNeeded()
+            if let next = MedicineUnits.stockPercentAfterDose(
+                packageAmount: medicine.packageAmount,
+                packageUnit: medicine.packageMedicineUnit,
+                stockPercent: medicine.stockPercent,
+                quantityPerDose: medicine.quantityPerDose,
+                doseUnit: medicine.doseMedicineUnit
+            ) {
+                medicine.stockPercent = next
+                medicine.updatedAt = Date()
+                stamp(medicine)
+            }
+        }
         save()
         notify()
         requestSync()
@@ -333,6 +534,69 @@ final class CheckMedStore {
             )
         }
         return drafts.isEmpty ? [.empty] : drafts
+    }
+
+    func completeAllActiveTreatments() {
+        let ids = activeTreatments().map(\.id)
+        for id in ids {
+            completeTreatment(id: id)
+        }
+    }
+
+    func pruneDuplicateAndFreeCap(isSuper: Bool) {
+        let cap = isSuper ? 12 : SuperLimits.freePrescriptions
+        let meds = medicines().sorted { $0.updatedAt < $1.updatedAt }
+        var seen = Set<String>()
+        var kept = 0
+        let now = Date()
+        var changed = false
+        for med in meds {
+            let cleaned = PrescriptionParser.intervalOnly(med.frequency)
+            if cleaned != med.frequency {
+                med.frequency = cleaned
+                med.updatedAt = now
+                stamp(med)
+                changed = true
+            }
+            let key = PrescriptionParser.canonicalMedicineKey(med.name)
+            let duplicate = !key.isEmpty && !seen.insert(key).inserted
+            if duplicate || kept >= cap {
+                removeMedicine(med, now: now)
+                changed = true
+            } else {
+                kept += 1
+            }
+        }
+        for treatment in activeTreatments() where medicines(for: treatment.id).isEmpty {
+            treatment.deletedAt = now
+            treatment.updatedAt = now
+            stamp(treatment)
+            changed = true
+        }
+        guard changed else { return }
+        logsEnsuredDay = nil
+        invalidateCache()
+        save()
+        notify()
+        requestSync()
+    }
+
+    private func removeMedicine(_ medicine: MedicineRecord, now: Date) {
+        medicine.deletedAt = now
+        medicine.updatedAt = now
+        stamp(medicine)
+        var scheduleIds = Set<UUID>()
+        for schedule in schedules(for: medicine.id) where schedule.deletedAt == nil {
+            schedule.deletedAt = now
+            schedule.updatedAt = now
+            stamp(schedule)
+            scheduleIds.insert(schedule.id)
+        }
+        for log in allLogs() where log.deletedAt == nil && scheduleIds.contains(log.scheduleId) {
+            log.deletedAt = now
+            log.updatedAt = now
+            stamp(log)
+        }
     }
 
     func deleteActiveTreatments() {
@@ -389,6 +653,55 @@ final class CheckMedStore {
             )
         }
         return drafts
+    }
+
+    /// Free stock-based refill: fire ~1 day before projected empty.
+    func stockRefillDrafts(now: Date = Date()) -> [ReminderDraft] {
+        _ = revision
+        var drafts: [ReminderDraft] = []
+        for summary in medicineSummaries() where summary.refillRemindEnabled {
+            guard let days = summary.daysLeft, days.isFinite, days > 0 else { continue }
+            let whole = max(1, Int(days.rounded(.down)))
+            guard let fireDay = calendar.date(byAdding: .day, value: whole - 1, to: calendar.startOfDay(for: now)) else { continue }
+            var comps = calendar.dateComponents([.year, .month, .day], from: fireDay)
+            comps.hour = 9
+            comps.minute = 0
+            guard let fire = calendar.date(from: comps), fire > now.addingTimeInterval(60) else { continue }
+            drafts.append(
+                ReminderDraft(
+                    id: summary.id,
+                    fireDate: fire,
+                    medicine: summary.name,
+                    doseLabel: String(format: "%.0f", days),
+                    time: "",
+                    kind: .stockRefill
+                )
+            )
+        }
+        return drafts
+    }
+
+    func medicineId(forLogId id: UUID) -> UUID? {
+        guard let log = allLogs().first(where: { $0.id == id }),
+              let schedule = schedules().first(where: { $0.id == log.scheduleId })
+        else { return nil }
+        return schedule.medicineId
+    }
+
+    func stockDaysLeftDraft(for medicineId: UUID, now: Date = Date()) -> ReminderDraft? {
+        guard let summary = medicineSummaries().first(where: { $0.id == medicineId }),
+              summary.refillRemindEnabled,
+              let days = summary.daysLeft,
+              days.isFinite
+        else { return nil }
+        return ReminderDraft(
+            id: medicineId,
+            fireDate: now.addingTimeInterval(2),
+            medicine: summary.name,
+            doseLabel: String(format: "%.0f", max(0, days.rounded())),
+            time: "",
+            kind: .stockDaysLeft
+        )
     }
 
     static func endDate(fromDuration text: String, start: Date, calendar: Calendar) -> Date? {
@@ -688,8 +1001,7 @@ final class CheckMedStore {
     }
 
     static func medicineKey(_ name: String) -> String {
-        name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        PrescriptionParser.canonicalMedicineKey(name)
     }
 
     // MARK: - Sync support
@@ -1056,13 +1368,45 @@ final class CheckMedStore {
         Task { await onNeedsSync?() }
     }
 
-    static func defaultTimes(count: Int) -> [String] {
-        switch max(1, min(4, count)) {
-        case 4: ["08:00", "12:00", "16:00", "20:00"]
-        case 3: ["08:00", "12:00", "20:00"]
-        case 2: ["08:00", "20:00"]
-        default: ["08:00"]
+    static func intervalHours(from frequency: String, timesCount: Int) -> Int {
+        let fallback = max(1, 24 / max(1, min(4, timesCount)))
+        let raw = frequency.lowercased()
+        let patterns = [
+            #"cada\s+(\d+)\s*(?:h|horas?|hours?|heures?)?\b"#,
+            #"every\s+(\d+)\s*(?:h|hours?)\b"#,
+            #"todas as\s+(\d+)\s*(?:h|horas?)?\b"#,
+            #"toutes les\s+(\d+)\s*(?:h|heures?)?\b"#,
+            #"(\d+)\s*(?:hours?|horas?|heures?)\b"#,
+            #"(\d+)\s*h\b"#,
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern),
+                  let match = regex.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
+                  match.numberOfRanges > 1,
+                  let range = Range(match.range(at: 1), in: raw),
+                  let hours = Int(raw[range]),
+                  (1...24).contains(hours)
+            else { continue }
+            return hours
         }
+        return fallback
+    }
+
+    static func spreadTimes(from first: String, count: Int, intervalHours: Int) -> [String] {
+        let slots = max(1, min(4, count))
+        let parts = first.split(separator: ":")
+        let hour = parts.first.flatMap { Int($0) } ?? 8
+        let minute = parts.count > 1 ? Int(parts[1]) ?? 0 : 0
+        let start = ((hour % 24) * 60) + max(0, min(59, minute))
+        let step = max(1, intervalHours) * 60
+        return (0..<slots).map { index in
+            let total = (start + index * step) % (24 * 60)
+            return String(format: "%02d:%02d", total / 60, total % 60)
+        }
+    }
+
+    static func defaultTimes(count: Int) -> [String] {
+        spreadTimes(from: "08:00", count: count, intervalHours: intervalHours(from: "", timesCount: count))
     }
 
     static func compactHourLabel(_ timeOfDay: String) -> String {

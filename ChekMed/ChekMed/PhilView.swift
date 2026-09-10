@@ -17,14 +17,14 @@ struct PhilView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Capsule()
-                .fill(CheckMedTheme.primaryShadow)
+                .fill(CheckMedTheme.beak)
                 .frame(width: 18, height: 22)
                 .rotationEffect(.degrees(-18))
                 .offset(x: size * 0.04, y: -size * 0.02)
 
             ZStack {
                 RoundedRectangle(cornerRadius: size / 2.1, style: .continuous)
-                    .fill(CheckMedTheme.primary)
+                    .fill(CheckMedTheme.philYellow)
                     .overlay(alignment: .bottom) {
                         Capsule()
                             .fill(CheckMedTheme.belly)
@@ -80,7 +80,7 @@ struct PhilView: View {
             .frame(width: size, height: size)
             .overlay(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(CheckMedTheme.primaryShadow)
+                    .fill(CheckMedTheme.beak)
                     .frame(height: 6)
             }
             .clipShape(RoundedRectangle(cornerRadius: size / 2.1, style: .continuous))
@@ -92,23 +92,15 @@ struct PhilView: View {
         .frame(width: pose == .pointingDown ? size * 1.22 : size, height: size * 1.16)
         .rotationEffect(.degrees(pose == .pointingDown ? 6 : (isSad ? -5 : 0)))
         .accessibilityLabel("Phil, the CheckMed companion")
-        .phaseAnimator([0.0, isSad ? 6.0 : -8.0], trigger: mood) { view, value in
-            view
-                .offset(y: value)
-                .rotationEffect(.degrees(mood == .skip ? -8 : 0))
-                .scaleEffect(mood == .celebrate || mood == .complete ? 1.06 : (isSad ? 0.96 : 1))
-        } animation: { _ in
-            .easeInOut(duration: mood == .celebrate ? 0.28 : (isSad ? 1.2 : 0.9))
-        }
     }
 
     private var pointingArm: some View {
         Capsule(style: .continuous)
-            .fill(CheckMedTheme.primary)
+            .fill(CheckMedTheme.philYellow)
             .frame(width: size * 0.16, height: size * 0.42)
             .overlay(alignment: .bottom) {
                 Capsule()
-                    .fill(CheckMedTheme.primaryShadow)
+                    .fill(CheckMedTheme.beak)
                     .frame(width: size * 0.16, height: size * 0.12)
             }
             .rotationEffect(.degrees(42))

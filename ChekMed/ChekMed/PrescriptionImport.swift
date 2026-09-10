@@ -26,16 +26,21 @@ enum ImportUsage {
 }
 
 extension EntitlementStore {
+    func freeMedicineSlotsRemaining(existingCount: Int) -> Int {
+        if isSuper { return max(0, 12 - existingCount) }
+        return max(0, SuperLimits.freePrescriptions - existingCount)
+    }
+
     func allowsNewPrescription(existingCount: Int) -> Bool {
-        if existingCount == 0 { return true }
         if isSuper { return true }
+        if existingCount == 0 { return true }
         return existingCount < SuperLimits.freePrescriptions
     }
 
-    func allowsPhotoPDF(usedCount: Int, existingTreatments: Int) -> Bool {
-        if existingTreatments == 0 { return true }
-        let cap = isSuper ? SuperLimits.superPhotoPDFItems : SuperLimits.freePhotoPDFItems
-        return usedCount < cap
+    func allowsPhotoPDF(usedCount: Int, existingMedicines: Int) -> Bool {
+        if isSuper { return usedCount < SuperLimits.superPhotoPDFItems }
+        // Free plan: keep scanning while medicine slots remain.
+        return existingMedicines < SuperLimits.freePrescriptions
     }
 
     @discardableResult
@@ -49,7 +54,7 @@ extension EntitlementStore {
             return false
         }
         if method == .photo || method == .pdf {
-            if !allowsPhotoPDF(usedCount: photoPDFUsed, existingTreatments: existingCount) {
+            if !allowsPhotoPDF(usedCount: photoPDFUsed, existingMedicines: existingCount) {
                 presentPaywall()
                 return false
             }
@@ -295,23 +300,44 @@ enum PrescriptionParser {
         let globalDose = findDose(in: cleaned)
         let globalFrequency = findFrequency(in: cleaned)
         let globalDuration = findDuration(in: cleaned)
+        let globalDoctor = findDoctorName(in: cleaned)
+        let globalDoctorId = findDoctorId(in: cleaned)
+        let globalHospital = findHospital(in: cleaned)
+        let globalNotes = findDoctorNotes(in: cleaned)
+        let globalPackage = findPackageAmount(in: cleaned)
         var drafts: [OnboardingPrescriptionDraft] = []
         var seen = Set<String>()
+
+        func enrich(_ draft: OnboardingPrescriptionDraft) -> OnboardingPrescriptionDraft {
+            var next = draft
+            next.doctorName = globalDoctor
+            next.doctorId = globalDoctorId
+            next.hospitalName = globalHospital
+            next.doctorNotes = globalNotes
+            if next.packageAmount.isEmpty {
+                next.packageAmount = globalPackage.amount
+                next.packageUnit = globalPackage.unit
+            }
+            next.form = MedicineForm.infer(from: next.dose, medicineName: next.medicine).rawValue
+            return next
+        }
 
         for (index, line) in lines.enumerated() {
             let nearby = nearbyText(lines: lines, index: index)
             for hit in strengthHits(in: line) {
-                let key = hit.name.lowercased()
+                let key = canonicalMedicineKey("\(hit.name) \(hit.strength)")
                 guard PrescriptionParser.keepsAsMedicineName(hit.name), seen.insert(key).inserted else { continue }
                 drafts.append(
-                    OnboardingPrescriptionDraft(
-                        medicine: "\(hit.name) \(hit.strength)",
-                        dose: nonempty(findDose(in: nearby), globalDose),
-                        frequency: nonempty(findFrequency(in: nearby), globalFrequency),
-                        duration: nonempty(findDuration(in: nearby), globalDuration),
-                        timesPerDay: nonempty(
-                            findTimesPerDay(in: nearby),
-                            findTimesPerDay(in: cleaned)
+                    enrich(
+                        OnboardingPrescriptionDraft(
+                            medicine: "\(hit.name) \(hit.strength)",
+                            dose: nonempty(findDose(in: nearby), globalDose),
+                            frequency: nonempty(findFrequency(in: nearby), globalFrequency),
+                            duration: nonempty(findDuration(in: nearby), globalDuration),
+                            timesPerDay: nonempty(
+                                findTimesPerDay(in: nearby),
+                                findTimesPerDay(in: cleaned)
+                            )
                         )
                     )
                 )
@@ -328,18 +354,20 @@ enum PrescriptionParser {
                     ?? strengthHits(in: follow).first?.strength
                     ?? ""
                 let name = strengthHits(in: item).first?.name ?? item
-                let key = name.lowercased()
-                guard keepsAsMedicineName(name), seen.insert(key).inserted else { continue }
                 let medicine = strength.isEmpty ? name : "\(name) \(strength)"
+                let key = canonicalMedicineKey(medicine)
+                guard keepsAsMedicineName(name), seen.insert(key).inserted else { continue }
                 drafts.append(
-                    OnboardingPrescriptionDraft(
-                        medicine: medicine,
-                        dose: nonempty(findDose(in: nearby), globalDose),
-                        frequency: nonempty(findFrequency(in: nearby), globalFrequency),
-                        duration: nonempty(findDuration(in: nearby), globalDuration),
-                        timesPerDay: nonempty(
-                            findTimesPerDay(in: nearby),
-                            findTimesPerDay(in: cleaned)
+                    enrich(
+                        OnboardingPrescriptionDraft(
+                            medicine: medicine,
+                            dose: nonempty(findDose(in: nearby), globalDose),
+                            frequency: nonempty(findFrequency(in: nearby), globalFrequency),
+                            duration: nonempty(findDuration(in: nearby), globalDuration),
+                            timesPerDay: nonempty(
+                                findTimesPerDay(in: nearby),
+                                findTimesPerDay(in: cleaned)
+                            )
                         )
                     )
                 )
@@ -358,15 +386,17 @@ enum PrescriptionParser {
                           let nameRange = Range(match.range(at: 1), in: cleaned)
                     else { continue }
                     let name = String(cleaned[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
-                    let key = name.lowercased()
+                    let key = canonicalMedicineKey(name)
                     guard keepsAsMedicineName(name), seen.insert(key).inserted else { continue }
                     drafts.append(
-                        OnboardingPrescriptionDraft(
-                            medicine: name,
-                            dose: globalDose,
-                            frequency: globalFrequency,
-                            duration: globalDuration,
-                            timesPerDay: findTimesPerDay(in: cleaned)
+                        enrich(
+                            OnboardingPrescriptionDraft(
+                                medicine: name,
+                                dose: globalDose,
+                                frequency: globalFrequency,
+                                duration: globalDuration,
+                                timesPerDay: findTimesPerDay(in: cleaned)
+                            )
                         )
                     )
                     if drafts.count >= limit { return drafts }
@@ -378,15 +408,17 @@ enum PrescriptionParser {
             for line in lines where line.count >= 5 && line.count <= 48 {
                 let words = line.split(separator: " ").map(String.init)
                 guard words.count <= 4, words.allSatisfy({ $0.first?.isLetter == true }) else { continue }
-                let key = line.lowercased()
+                let key = canonicalMedicineKey(line)
                 guard isPlausibleName(line), looksLikeDrugToken(line), seen.insert(key).inserted else { continue }
                 drafts.append(
-                    OnboardingPrescriptionDraft(
-                        medicine: line,
-                        dose: globalDose,
-                        frequency: globalFrequency,
-                        duration: globalDuration,
-                        timesPerDay: findTimesPerDay(in: cleaned)
+                    enrich(
+                        OnboardingPrescriptionDraft(
+                            medicine: line,
+                            dose: globalDose,
+                            frequency: globalFrequency,
+                            duration: globalDuration,
+                            timesPerDay: findTimesPerDay(in: cleaned)
+                        )
                     )
                 )
                 if drafts.count >= limit { return drafts }
@@ -441,6 +473,12 @@ enum PrescriptionParser {
 
     private static func findTimesPerDay(in raw: String) -> String {
         let lower = raw.lowercased()
+        if let times = firstGroup(
+            #"(?i)\b(\d+)\s*[x×]\s*(?:daily|a day|ao dia|por dia|al día|al dia|par jour|die)?\b"#,
+            in: raw
+        ), let count = Int(times), (1...4).contains(count) {
+            return "\(count)"
+        }
         if lower.contains("qid") || lower.contains("4 times") || lower.contains("quatro vez") {
             return "4"
         }
@@ -475,20 +513,55 @@ enum PrescriptionParser {
     }
 
     private static func findFrequency(in raw: String) -> String {
-        let patterns = [
-            #"(?i)\b(\d+\s*[x×]\s*(?:daily|a day|ao dia|por dia|al día|al dia|par jour|die))\b"#,
-            #"(?i)\b((?:once|twice|one time|two times|three times|four times|1 time|2 times|3 times|4 times)\s+(?:daily|a day))\b"#,
-            #"(?i)\b((?:uma|duas|três|tres|quatro)\s+vezes?\s+(?:ao dia|por dia|al día|al dia|par jour))\b"#,
-            #"(?i)\b(every\s+\d+\s+hours?|cada\s+\d+\s+horas?|todas as\s+\d+\s+horas?|toutes les\s+\d+\s+heures?)\b"#,
+        let intervalPatterns = [
+            #"(?i)\b((?:every|cada|todas as|toutes les)\s+\d+\s+(?:hours?|horas?|heures?))\b"#,
             #"(?i)\b(as needed|quando necessário|quando necessario|si besoin|según necesidad|segun necesidad|prn)\b"#,
-            #"(?i)\b(bid|tid|qid|qd)\b"#,
         ]
-        for pattern in patterns {
+        for pattern in intervalPatterns {
             if let match = firstGroup(pattern, in: raw) {
-                return normalizeFrequency(match)
+                return intervalOnly(match)
             }
         }
         return ""
+    }
+
+    static func intervalOnly(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let interval = #"(?i)((?:every|cada|todas as|toutes les)\s+\d+\s*(?:h|hours?|horas?|heures?)|(?:as needed|quando necessário|quando necessario|si besoin|según necesidad|segun necesidad|prn))"#
+        if let match = firstGroup(interval, in: trimmed) {
+            return match.replacingOccurrences(of: "  ", with: " ")
+        }
+        var cleaned = trimmed
+        let dropTimes = [
+            #"(?i)\d+\s*[x×]\s*(?:daily|a day|ao dia|por dia|al día|al dia|par jour|die)"#,
+            #"(?i)(?:once|twice|one time|two times|three times|four times)\s+(?:daily|a day)"#,
+            #"(?i)(?:uma|duas|três|tres|quatro)\s+vezes?\s+(?:ao dia|por dia|al día|al dia)"#,
+            #"(?i)\b(?:daily|a day)\b"#,
+        ]
+        for pattern in dropTimes {
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                cleaned = regex.stringByReplacingMatches(
+                    in: cleaned,
+                    range: NSRange(cleaned.startIndex..., in: cleaned),
+                    withTemplate: " "
+                )
+            }
+        }
+        cleaned = cleaned.replacingOccurrences(of: "·", with: " ")
+        cleaned = cleaned.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func canonicalMedicineKey(_ name: String) -> String {
+        var folded = name.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        folded = folded.replacingOccurrences(
+            of: #"\d+([.,]\d+)?\s*(mg|mcg|µg|ug|g|ml|ui|iu|%|mg/ml)"#,
+            with: " ",
+            options: .regularExpression
+        )
+        folded = folded.replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+        return folded.split(whereSeparator: \.isWhitespace).joined(separator: " ")
     }
 
     private static func findDuration(in raw: String) -> String {
@@ -499,12 +572,67 @@ enum PrescriptionParser {
         return ""
     }
 
-    private static func normalizeFrequency(_ value: String) -> String {
-        let lower = value.lowercased()
-        if lower.contains("tid") || lower.contains("3") { return value }
-        if lower.contains("qid") || lower.contains("4") { return value }
-        if lower.contains("bid") || lower.contains("2") { return value }
-        return value
+    private static func findDoctorName(in raw: String) -> String {
+        let patterns = [
+            #"(?i)\b(?:dr\.?|dra\.?|doctor|doutor|doutora|médico|medico|docteur)\s*[:\-]?\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\.\- ]{2,50})"#,
+            #"(?i)\b(?:prescriber|prescritor|prescriptor)\s*[:\-]\s*([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\.\- ]{2,50})"#,
+        ]
+        for pattern in patterns {
+            if let match = firstGroup(pattern, in: raw) {
+                return match.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return ""
+    }
+
+    private static func findDoctorId(in raw: String) -> String {
+        let patterns = [
+            #"(?i)\b(?:CRM|CRP|NPI|license|licença|licencia|n[ºo°]?)\s*[:\-]?\s*([A-Z0-9\-\./]{4,20})"#,
+        ]
+        for pattern in patterns {
+            if let match = firstGroup(pattern, in: raw) {
+                return match.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return ""
+    }
+
+    private static func findHospital(in raw: String) -> String {
+        let patterns = [
+            #"(?i)\b(?:hospital|clínica|clinica|clinic|centro médico|centre médical)\s*[:\-]?\s*([A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9'’\.\- ]{2,60})"#,
+        ]
+        for pattern in patterns {
+            if let match = firstGroup(pattern, in: raw) {
+                return match.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return ""
+    }
+
+    private static func findDoctorNotes(in raw: String) -> String {
+        let patterns = [
+            #"(?i)\b(?:orientação|orientacao|instructions?|indicaciones|posologie|sig)\s*[:\-]\s*(.{8,160})"#,
+        ]
+        for pattern in patterns {
+            if let match = firstGroup(pattern, in: raw) {
+                return match.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return ""
+    }
+
+    private static func findPackageAmount(in raw: String) -> (amount: String, unit: String) {
+        let pattern = #"(?i)\b(\d+(?:[.,]\d+)?)\s*(ml|g|mg|comprimidos?|cápsulas?|capsulas?|tablets?|capsules?)\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)),
+              match.numberOfRanges > 2,
+              let amountRange = Range(match.range(at: 1), in: raw),
+              let unitRange = Range(match.range(at: 2), in: raw)
+        else { return ("", "") }
+        let amount = String(raw[amountRange])
+        let unitRaw = String(raw[unitRange]).lowercased()
+        let unit = MedicineUnit.parse(unitRaw)?.rawValue ?? unitRaw
+        return (amount, unit)
     }
 
     static func keepsAsMedicine(_ draft: OnboardingPrescriptionDraft) -> Bool {

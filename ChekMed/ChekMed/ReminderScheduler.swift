@@ -66,11 +66,41 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
     func handleLogAction(id: UUID, status: DoseLogStatus) {
         if let store {
             store.markLog(id: id, status: status)
+            if status == .taken {
+                scheduleStockDaysLeftIfNeeded(logId: id)
+            }
         } else {
             CheckMedStore.persistDoseStatus(id: id, status: status)
             pendingAction = (id, status)
         }
         reschedule()
+    }
+
+    func handleTakenSideEffects(logId: UUID) {
+        scheduleStockDaysLeftIfNeeded(logId: logId)
+        reschedule()
+    }
+
+    private func scheduleStockDaysLeftIfNeeded(logId: UUID) {
+        guard let store, let session,
+              let medicineId = store.medicineId(forLogId: logId),
+              let draft = store.stockDaysLeftDraft(for: medicineId)
+        else { return }
+        Task { @MainActor in
+            let center = UNUserNotificationCenter.current()
+            let settings = await center.notificationSettings()
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+            let content = UNMutableNotificationContent()
+            content.title = session.t(.notificationStockDaysTitle)
+            content.body = session.t(.notificationStockDaysBody, draft.medicine, draft.doseLabel)
+            content.sound = .default
+            content.userInfo = ["kind": draft.kind.rawValue]
+            CheckMedNotificationIcon.apply(to: content)
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+            try? await center.add(
+                UNNotificationRequest(identifier: draft.notificationId, content: content, trigger: trigger)
+            )
+        }
     }
 
     func applyIntent(logId: String, status: DoseLogStatus) {
@@ -91,9 +121,13 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             if draft.kind == .advance {
                 return entitlements?.canUseAdvanceReminder == true && ReminderPreferences.advanceHourEnabled
             }
-            if draft.kind == .refill { return false }
+            if draft.kind == .refill || draft.kind == .stockRefill || draft.kind == .stockDaysLeft {
+                return false
+            }
             return true
-        } + (entitlements?.canUseRefillReminder == true ? store.refillDrafts() : [])
+        }
+            + store.stockRefillDrafts()
+            + (entitlements?.canUseRefillReminder == true ? store.refillDrafts() : [])
         let locale = session.locale
         let theme = entitlements?.canChooseAlarmTheme == true
             ? ReminderPreferences.alarmTheme
@@ -142,6 +176,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             content.sound = sound
             content.userInfo = ["logId": draft.id.uuidString, "kind": draft.kind.rawValue]
             content.interruptionLevel = .active
+            CheckMedNotificationIcon.apply(to: content)
             switch draft.kind {
             case .dose:
                 content.title = session.t(.notificationDoseTitle)
@@ -158,6 +193,14 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             case .refill:
                 content.title = session.t(.notificationRefillTitle)
                 content.body = session.t(.notificationRefillBody, draft.medicine)
+                content.categoryIdentifier = ""
+            case .stockRefill:
+                content.title = session.t(.notificationStockRefillTitle)
+                content.body = session.t(.notificationStockRefillBody, draft.medicine)
+                content.categoryIdentifier = ""
+            case .stockDaysLeft:
+                content.title = session.t(.notificationStockDaysTitle)
+                content.body = session.t(.notificationStockDaysBody, draft.medicine, draft.doseLabel)
                 content.categoryIdentifier = ""
             }
             var components = calendar.dateComponents(
@@ -184,6 +227,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             content.title = session.t(.notificationWinBackTitle)
             content.body = session.t(.notificationWinBackBody)
             content.sound = .default
+            CheckMedNotificationIcon.apply(to: content)
             var components = calendar.dateComponents(
                 [.year, .month, .day, .hour, .minute],
                 from: winBack
@@ -207,6 +251,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             content.title = L10n.string(.unfinishedPlanHeadline, locale: locale)
             content.body = L10n.string(.leaveHealthWarning, locale: locale)
             content.sound = .default
+            CheckMedNotificationIcon.apply(to: content)
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
             try? await center.add(
                 UNNotificationRequest(identifier: Engagement.leaveSetupId, content: content, trigger: trigger)

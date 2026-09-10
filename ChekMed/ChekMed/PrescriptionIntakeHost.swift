@@ -77,6 +77,7 @@ struct AddPrescriptionIntakeHost: View {
                 OnboardingConfirmView(
                     drafts: $drafts,
                     isManual: method == .manual,
+                    existingMedicineCount: treatments.activeMedicineCount,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
                         phase = .planResume
@@ -119,7 +120,7 @@ struct AddPrescriptionIntakeHost: View {
         let ownerId = session.auth.userId
         guard entitlements.gatePrescriptionAdd(
             method: next,
-            existingCount: treatments.activeTreatmentCount,
+            existingCount: treatments.activeMedicineCount,
             photoPDFUsed: ImportUsage.photoPDFCount(ownerId: ownerId)
         ) else { return }
         method = next
@@ -156,19 +157,20 @@ struct AddPrescriptionIntakeHost: View {
     }
 
     private func cappedMedicines(_ parsed: [OnboardingPrescriptionDraft]) -> [OnboardingPrescriptionDraft] {
-        let named = parsed.filter(\.hasMedicineName)
-        let cap = entitlements.isSuper ? 12 : SuperLimits.freePrescriptions
-        let sliced = Array(named.prefix(cap))
-        return sliced.isEmpty ? [.empty] : sliced
+        var named = parsed.filter(\.hasMedicineName)
+        for index in named.indices { named[index].sanitizeScheduleFields() }
+        return named.cappedForPlan(
+            isSuper: entitlements.isSuper,
+            existingCount: treatments.activeMedicineCount
+        )
     }
 
     private func confirm() {
-        let named = drafts.filter(\.hasMedicineName)
-        let room = entitlements.isSuper
-            ? named.count
-            : min(named.count, SuperLimits.freePrescriptions)
         treatments.addFromDrafts(
-            Array(named.prefix(room)),
+            drafts.cappedForPlan(
+                isSuper: entitlements.isSuper,
+                existingCount: treatments.activeMedicineCount
+            ).filter(\.hasMedicineName),
             ownerId: session.auth.userId,
             profileId: session.profileId
         )

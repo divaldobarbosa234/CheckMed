@@ -19,6 +19,7 @@ enum FirstTimePhase: String, Equatable {
     case organize
     case notifications
     case alarmSetup
+    case trial
     case ready
 
     var requiresAuth: Bool {
@@ -144,12 +145,11 @@ struct FirstTimeOnboardingView: View {
                 OnboardingConfirmView(
                     drafts: $drafts,
                     isManual: addMethod == .manual,
+                    existingMedicineCount: 0,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
                         treatments.seedFromDrafts(
-                            Array(drafts.filter(\.hasMedicineName).prefix(
-                                entitlements.isSuper ? drafts.count : SuperLimits.freePrescriptions
-                            )),
+                            drafts.cappedForPlan(isSuper: entitlements.isSuper, existingCount: 0).filter(\.hasMedicineName),
                             ownerId: session.auth.userId,
                             profileId: session.profileId
                         )
@@ -165,6 +165,7 @@ struct FirstTimeOnboardingView: View {
             case .planResume:
                 PlanResumeView(
                     drafts: drafts.filter(\.hasMedicineName),
+                    showsAddMore: false,
                     onContinue: { advance(to: .notifications) },
                     onBack: { advance(to: .confirm) }
                 )
@@ -185,10 +186,16 @@ struct FirstTimeOnboardingView: View {
                 .transition(insert)
             case .alarmSetup:
                 AlarmSetupView(
-                    onEnable: { advance(to: .ready) },
-                    onSkip: { advance(to: .ready) },
+                    onEnable: { advance(to: .trial) },
+                    onSkip: { advance(to: .trial) },
                     onBack: { advance(to: .notifications) }
                 )
+                .transition(insert)
+            case .trial:
+                OnboardingSuperTrialView {
+                    session.markOnboardingPaywallOffered()
+                    advance(to: .ready)
+                }
                 .transition(insert)
             case .ready:
                 OnboardingPhilReadyView {
@@ -225,6 +232,7 @@ struct FirstTimeOnboardingView: View {
         }
         .onAppear {
             bootstrapPhase()
+            hydrateDraftsIfNeeded(for: phase)
             routeAfterAuthIfNeeded()
         }
         .task {
@@ -297,8 +305,18 @@ struct FirstTimeOnboardingView: View {
         withAnimation(.easeInOut(duration: 0.45)) {
             phase = next
         }
+        hydrateDraftsIfNeeded(for: next)
         if persist, next.persistable {
             session.setFirstTimePhaseRaw(next.rawValue)
+        }
+    }
+
+    private func hydrateDraftsIfNeeded(for step: FirstTimePhase) {
+        guard step == .planResume || step == .confirm else { return }
+        guard drafts.allSatisfy({ !$0.hasMedicineName }) else { return }
+        let stored = treatments.draftsFromActivePlan()
+        if stored.contains(where: \.hasMedicineName) {
+            drafts = stored
         }
     }
 
@@ -341,6 +359,12 @@ struct FirstTimeOnboardingView: View {
             if saved == .profile, !session.needsIdentityProfile {
                 return .addMedication
             }
+            if saved == .confirm, treatments.activeTreatmentCount > 0 {
+                return .planResume
+            }
+            if saved == .planResume, treatments.activeTreatmentCount > 0 {
+                return .planResume
+            }
             return saved
         }
         return .language
@@ -349,7 +373,7 @@ struct FirstTimeOnboardingView: View {
     private func startImport(_ next: OnboardingAddMethod, proceed: () -> Void) {
         guard entitlements.gatePrescriptionAdd(
             method: next,
-            existingCount: treatments.activeTreatmentCount,
+            existingCount: treatments.activeMedicineCount,
             photoPDFUsed: ImportUsage.photoPDFCount(ownerId: session.auth.userId)
         ) else { return }
         addMethod = next
@@ -381,10 +405,12 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func cappedMedicines(_ parsed: [OnboardingPrescriptionDraft]) -> [OnboardingPrescriptionDraft] {
-        let named = parsed.filter(\.hasMedicineName)
-        let cap = entitlements.isSuper ? 12 : SuperLimits.freePrescriptions
-        let sliced = Array(named.prefix(cap))
-        return sliced.isEmpty ? [.empty] : sliced
+        var named = parsed.filter(\.hasMedicineName)
+        for index in named.indices { named[index].sanitizeScheduleFields() }
+        return named.cappedForPlan(
+            isSuper: entitlements.isSuper,
+            existingCount: 0
+        )
     }
 }
 

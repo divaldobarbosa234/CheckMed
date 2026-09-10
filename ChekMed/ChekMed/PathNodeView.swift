@@ -92,7 +92,7 @@ struct PathNodeView: View {
         switch node.status {
         case .done: session.t(.logged)
         case .skipped: session.t(.skipped)
-        case .locked: session.t(.locked)
+        case .locked: session.t(.homeStatusLater)
         case .current: ""
         }
     }

@@ -35,6 +35,16 @@ private enum HomeDailyMood: String, CaseIterable, Identifiable {
         }
     }
 
+    func encouragement(_ session: SessionStore) -> String {
+        switch self {
+        case .great: session.t(.homeMoodNoteGreat)
+        case .good: session.t(.homeMoodNoteGood)
+        case .okay: session.t(.homeMoodNoteOkay)
+        case .notGreat: session.t(.homeMoodNoteNotGreat)
+        case .bad: session.t(.homeMoodNoteBad)
+        }
+    }
+
     var wash: Color { tint.opacity(0.18) }
 }
 
@@ -46,6 +56,7 @@ struct HomeView: View {
     @Environment(CheckMedStore.self) private var treatments
     @State private var navPath = NavigationPath()
     @State private var dailyMood: HomeDailyMood?
+    @State private var showMoodPicker = true
 
     private var greetingWord: String {
         let hour = session.foundationCalendar.component(.hour, from: Date())
@@ -86,7 +97,12 @@ struct HomeView: View {
                     }
                     quoteBanner
                     CheckMedButton(title: session.t(.homeScan)) {
-                        navPath.append(AppRoute.addPrescription)
+                        if !entitlements.isSuper,
+                           entitlements.freeMedicineSlotsRemaining(existingCount: treatments.activeMedicineCount) <= 0 {
+                            entitlements.presentPaywall()
+                        } else {
+                            navPath.append(AppRoute.addPrescription)
+                        }
                     }
                     SafetyCaption()
                         .frame(maxWidth: .infinity)
@@ -100,8 +116,11 @@ struct HomeView: View {
                 AppRouteView(route: route, path: $navPath)
             }
             .onAppear {
+                treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
                 path.reload()
-                dailyMood = HomeDailyMood(rawValue: UserDefaults.standard.string(forKey: moodKey) ?? "")
+                let saved = HomeDailyMood(rawValue: UserDefaults.standard.string(forKey: moodKey) ?? "")
+                dailyMood = saved
+                showMoodPicker = saved == nil
             }
             .sheet(item: feelingItem) { item in
                 FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
@@ -120,46 +139,98 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top) {
+        ZStack(alignment: .topTrailing) {
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [CheckMedTheme.surface, CheckMedTheme.mintWash],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+            Circle()
+                .fill(CheckMedTheme.primary.opacity(0.10))
+                .frame(width: 180, height: 180)
+                .offset(x: 38, y: 34)
+                .accessibilityHidden(true)
+
+            HStack(alignment: .bottom, spacing: 0) {
+                VStack(alignment: .leading, spacing: 7) {
                     Text(session.t(.homeGreetingFormat, greetingWord, greetingName))
-                        .font(.system(.title, design: .rounded).weight(.black))
+                        .font(.system(size: 30, weight: .black, design: .rounded))
                         .foregroundStyle(CheckMedTheme.ink)
-                    Spacer(minLength: 8)
-                    Button {
-                        navPath.append(AppRoute.settings)
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                            .frame(width: 36, height: 36)
-                            .background(CheckMedTheme.surface, in: Circle())
-                            .overlay(Circle().stroke(CheckMedTheme.hairline, lineWidth: 1.5))
+                        .minimumScaleFactor(0.78)
+                    Rectangle()
+                        .fill(CheckMedTheme.primary)
+                        .frame(width: 44, height: 4)
+                        .clipShape(Capsule())
+                    Text(session.t(.homeFeelAsk))
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                    Text(session.t(.homeFeelTogether))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if family.isViewingExtra, let extra = family.extra {
+                        Text(session.t(.familyLookingAt, extra.name))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.superAccent)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(session.t(.profileSettings))
                 }
-                Rectangle()
-                    .fill(CheckMedTheme.primary)
-                    .frame(width: 44, height: 4)
-                    .clipShape(Capsule())
-                Text(session.t(.homeFeelAsk))
-                    .font(.system(.title3, design: .rounded).weight(.heavy))
-                Text(session.t(.homeFeelTogether))
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                if family.isViewingExtra, let extra = family.extra {
-                    Text(session.t(.familyLookingAt, extra.name))
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.superAccent)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                PhilDoctor2DImage(size: 142)
+                    .offset(y: 12)
             }
-            PhilDoctor2DImage(size: 92)
+            .padding(.leading, 18)
+            .padding(.trailing, 4)
+            .padding(.vertical, 14)
+
+            Button {
+                navPath.append(AppRoute.settings)
+            } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .frame(width: 38, height: 38)
+                    .background(CheckMedTheme.surface.opacity(0.92), in: Circle())
+                    .shadow(color: CheckMedTheme.ink.opacity(0.08), radius: 8, y: 3)
+            }
+            .buttonStyle(.plain)
+            .padding(10)
+            .accessibilityLabel(session.t(.profileSettings))
         }
+        .frame(minHeight: 190)
+        .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
     }
 
     private var moodCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if showMoodPicker {
+                moodPicker
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .top)),
+                        removal: .opacity.combined(with: .scale(scale: 0.96))
+                    ))
+            } else if let dailyMood {
+                moodNote(dailyMood)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .bottom)),
+                        removal: .opacity
+                    ))
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        .animation(.easeInOut(duration: 0.38), value: showMoodPicker)
+    }
+
+    private var moodPicker: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Image(systemName: "face.smiling")
@@ -171,8 +242,11 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 ForEach(HomeDailyMood.allCases) { mood in
                     Button {
-                        dailyMood = mood
                         UserDefaults.standard.set(mood.rawValue, forKey: moodKey)
+                        withAnimation(.easeInOut(duration: 0.38)) {
+                            dailyMood = mood
+                            showMoodPicker = false
+                        }
                     } label: {
                         VStack(spacing: 6) {
                             Text(mood.symbol)
@@ -197,13 +271,33 @@ struct HomeView: View {
                 }
             }
         }
-        .padding(16)
-        .background(CheckMedTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-        )
+    }
+
+    private func moodNote(_ mood: HomeDailyMood) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
+                Text(mood.symbol)
+                    .font(.system(size: 28))
+                    .frame(width: 48, height: 48)
+                    .background(mood.wash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                Text(mood.title(session))
+                    .font(.system(.headline, design: .rounded).weight(.heavy))
+                Spacer()
+                Button(session.t(.homeMoodChange)) {
+                    withAnimation(.easeInOut(duration: 0.38)) {
+                        showMoodPicker = true
+                    }
+                }
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.flowDot)
+                .accessibilityLabel(session.t(.homeMoodChange))
+            }
+            Text(mood.encouragement(session))
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
     }
 
     private var medicationsCard: some View {
@@ -258,6 +352,7 @@ struct HomeView: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
         )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
     }
 
     private func doseRow(_ node: DoseNode) -> some View {
@@ -308,8 +403,8 @@ struct HomeView: View {
             icon = "clock.fill"
             tint = CheckMedTheme.flowDot
         case .locked:
-            label = session.t(.locked)
-            icon = "lock.fill"
+            label = session.t(.homeStatusLater)
+            icon = "clock"
             tint = CheckMedTheme.muted
         }
         return Button {

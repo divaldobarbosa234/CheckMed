@@ -18,6 +18,9 @@ final class SessionStore {
         case home
         case treatments
         case progress
+        case refill
+        case pharmacies
+        case reports
         case profile
     }
 
@@ -652,7 +655,10 @@ final class SessionStore {
         let identityComplete = hasCompleteIdentityProfile
         let userOnboarded = perUserOnboardingComplete
         let restoredComplete = isRestore && localOnboardingComplete
-        let returning = identityComplete && (userOnboarded || hasTreatments || restoredComplete)
+        let midFirstTimeSetup = !localOnboardingComplete && isPastIdentityOnboardingStep
+        let returning = identityComplete
+            && !midFirstTimeSetup
+            && (userOnboarded || hasTreatments || restoredComplete)
 
         if returning {
             if !isRestore {
@@ -678,7 +684,7 @@ final class SessionStore {
 
     private var isPastIdentityOnboardingStep: Bool {
         switch FirstTimePhase(rawValue: localFirstTimePhase) {
-        case .addMedication, .camera, .manualEntry, .analysing, .confirm, .planResume, .organize, .notifications, .alarmSetup, .ready:
+        case .addMedication, .camera, .manualEntry, .analysing, .confirm, .planResume, .organize, .notifications, .alarmSetup, .trial, .ready:
             true
         default:
             false

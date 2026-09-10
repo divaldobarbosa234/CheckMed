@@ -64,17 +64,18 @@ struct UnfinishedPlanPromptView: View {
 struct ResumePlanSetupFlow: View {
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
+    @Environment(EntitlementStore.self) private var entitlements
     @Environment(TodayPathStore.self) private var path
 
     @State private var phase: Phase
     @State private var drafts: [OnboardingPrescriptionDraft]
 
     private enum Phase {
-        case confirm, planResume, organize, notifications, alarmSetup, ready
+        case confirm, planResume, notifications, alarmSetup, trial, ready
     }
 
     init() {
-        _phase = State(initialValue: .confirm)
+        _phase = State(initialValue: .notifications)
         _drafts = State(initialValue: [.empty])
     }
 
@@ -85,10 +86,14 @@ struct ResumePlanSetupFlow: View {
                 OnboardingConfirmView(
                     drafts: $drafts,
                     isManual: false,
+                    existingMedicineCount: 0,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
                         treatments.seedFromDrafts(
-                            drafts.filter(\.hasMedicineName),
+                            drafts.cappedForPlan(
+                                isSuper: entitlements.isSuper,
+                                existingCount: 0
+                            ).filter(\.hasMedicineName),
                             ownerId: session.auth.userId,
                             profileId: session.profileId
                         )
@@ -100,11 +105,7 @@ struct ResumePlanSetupFlow: View {
             case .planResume:
                 PlanResumeView(
                     drafts: drafts.filter(\.hasMedicineName),
-                    onContinue: { phase = .notifications },
-                    onBack: { phase = .confirm }
-                )
-            case .organize:
-                OnboardingOrganizeView(
+                    showsAddMore: false,
                     onContinue: { phase = .notifications },
                     onBack: { phase = .confirm }
                 )
@@ -113,14 +114,19 @@ struct ResumePlanSetupFlow: View {
                     secondaryTitle: session.t(.skip),
                     onEnable: { phase = .alarmSetup },
                     onSecondary: { phase = .alarmSetup },
-                    onBack: { phase = .planResume }
+                    onBack: { session.showResumeSetup = false }
                 )
             case .alarmSetup:
                 AlarmSetupView(
-                    onEnable: { phase = .ready },
-                    onSkip: { phase = .ready },
+                    onEnable: { phase = .trial },
+                    onSkip: { phase = .trial },
                     onBack: { phase = .notifications }
                 )
+            case .trial:
+                OnboardingSuperTrialView {
+                    session.markOnboardingPaywallOffered()
+                    phase = .ready
+                }
             case .ready:
                 OnboardingPhilReadyView {
                     session.finishResumeSetup()
@@ -130,6 +136,9 @@ struct ResumePlanSetupFlow: View {
         .onAppear {
             if drafts.allSatisfy({ !$0.hasMedicineName }) {
                 drafts = treatments.draftsFromActivePlan()
+            }
+            if phase == .notifications, !drafts.contains(where: \.hasMedicineName) {
+                phase = .confirm
             }
         }
     }
