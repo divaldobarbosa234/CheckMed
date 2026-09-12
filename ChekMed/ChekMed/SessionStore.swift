@@ -1,4 +1,5 @@
 import Foundation
+import UserNotifications
 
 @Observable
 final class SessionStore {
@@ -24,6 +25,42 @@ final class SessionStore {
         case profile
     }
 
+    /// Linear post-journey chain after confirm → journey Continue.
+    /// Always: notifications → alarms → trial (unless Super) → Phil → Home.
+    enum PostJourneyStep: String, Equatable {
+        case notifications
+        case alarms
+        case trial
+        case philReady
+        case done
+    }
+
+    /// Single root UI destination. RootView MUST only switch on this.
+    /// Priority (highest first) is encoded in `rootDestination`.
+    enum RootDestination: Equatable, CustomStringConvertible {
+        case restoring
+        case resolvingPostAuth
+        case firstTime
+        case resumeSetup
+        case returningWelcome
+        case accountProfile
+        case addPrescription
+        case home
+
+        var description: String {
+            switch self {
+            case .restoring: return "restoring"
+            case .resolvingPostAuth: return "resolvingPostAuth"
+            case .firstTime: return "firstTime"
+            case .resumeSetup: return "resumeSetup"
+            case .returningWelcome: return "returningWelcome"
+            case .accountProfile: return "accountProfile"
+            case .addPrescription: return "addPrescription"
+            case .home: return "home"
+            }
+        }
+    }
+
     let auth = AuthManager()
     private var guestUnlocked = false
     private var localDisplayName = "there"
@@ -35,10 +72,15 @@ final class SessionStore {
     private var localGender = ""
     private var localNotificationsPrompted = false
     private var localPrivacyAcknowledged = false
+    private var localLanguageChosen = false
+    private var localHowItWorksSeen = false
+    /// User finished the Sign-in screen (provider, email, or guest) in this install.
+    private var localSignInScreenSeen = false
     private var localOptionalAnalytics = false
     private var localOptionalMarketing = false
     private var localOnboardingComplete = false
     private var localOnboardingPaywallOffered = false
+    private var localMedicationPlanConfirmed = false
     private var localFirstTimePhase = "language"
     private var localAppearance = AppearanceMode.light
     private var localIntroSplashSeen = false
@@ -48,6 +90,12 @@ final class SessionStore {
         static let display = "checkmed.displayName"
         static let companion = "checkmed.companionName"
         static let language = "checkmed.language"
+        static let languageChosen = "checkmed.languageChosen"
+        static let howItWorksSeen = "checkmed.howItWorksSeen"
+        /// Present only in this install's UserDefaults. Missing after app delete.
+        static let preAuthInstallStamp = "checkmed.preAuthInstallStamp"
+        /// Forced false on a new container so leftover Keychain session cannot skip Sign-in.
+        static let signInScreenSeenThisInstall = "checkmed.signInScreenSeenThisInstall"
         static let timeZone = "checkmed.timeZone"
         static let birthDate = "checkmed.birthDate"
         static let pronouns = "checkmed.pronouns"
@@ -63,6 +111,13 @@ final class SessionStore {
         static let appearance = "checkmed.appearanceMode"
         static let introSplashSeen = "checkmed.introSplashSeen"
         static let showWelcomeBack = "checkmed.showWelcomeBack"
+        /// User confirmed a prescription (onboarding / add / resume). Gates Home doses + alarms.
+        static let medicationPlanConfirmed = "checkmed.medicationPlanConfirmed"
+        /// One-time wipe of unconfirmed / leftover plans after ownership hardening.
+        static let purgedUnconfirmedPlansV1 = "checkmed.purgedUnconfirmedPlans.v1"
+        /// Stable on-device owner for guest / pre-auth local plans (SwiftData requires non-nil owner).
+        static let localOwnerId = "checkmed.localOwnerId"
+        static let localProfileId = "checkmed.localProfileId"
     }
 
     init() {
@@ -91,11 +146,12 @@ final class SessionStore {
             localGender = stored
         }
         localNotificationsPrompted = UserDefaults.standard.bool(forKey: Keys.notificationsPrompted)
-        localPrivacyAcknowledged = UserDefaults.standard.bool(forKey: Keys.privacyAcknowledged)
+        loadPreAuthFlagsFromUserDefaults()
         localOptionalAnalytics = UserDefaults.standard.bool(forKey: Keys.optionalAnalytics)
         localOptionalMarketing = UserDefaults.standard.bool(forKey: Keys.optionalMarketing)
         localOnboardingComplete = UserDefaults.standard.bool(forKey: Keys.onboardingComplete)
         localOnboardingPaywallOffered = UserDefaults.standard.bool(forKey: Keys.onboardingPaywallOffered)
+        localMedicationPlanConfirmed = UserDefaults.standard.bool(forKey: Keys.medicationPlanConfirmed)
         if let stored = UserDefaults.standard.string(forKey: Keys.firstTimePhase), !stored.isEmpty {
             localFirstTimePhase = stored
         }
@@ -103,11 +159,73 @@ final class SessionStore {
         UserDefaults.standard.set(AppearanceMode.light.rawValue, forKey: Keys.appearance)
         localIntroSplashSeen = UserDefaults.standard.bool(forKey: Keys.introSplashSeen)
         localShowWelcomeBack = UserDefaults.standard.bool(forKey: Keys.showWelcomeBack)
+        // Never copy Keychain onboarded into language / how-it-works / privacy.
+        // After delete, wait until sign-in to hydrate ProfileSetupKeychain identity.
+        if !CheckMedAuthPersistence.skipRestoreThisProcess {
+            hydrateIdentityFromKeychainIfNeeded(userId: nil)
+        }
         auth.onBeforeAuthenticated = { [weak self] isRestore in
             self?.preparePostAuth(isRestore: isRestore)
         }
         auth.onAuthenticated = { [weak self] isRestore in
             await self?.handleAuthenticated(isRestore: isRestore)
+        }
+        #if DEBUG
+        print(
+            "[CheckMed] preAuth init langChosen=\(localLanguageChosen) "
+                + "howItWorks=\(localHowItWorksSeen) privacy=\(localPrivacyAcknowledged) "
+                + "signInSeen=\(localSignInScreenSeen) "
+                + "preAuth=\(hasFinishedPreAuthFunnel) "
+                + "root=\(computeRootDestination()) "
+                + "keychainOnboarded=\(ProfileSetupKeychain.isOnboardingComplete(for: nil)) "
+                + "keychainProfile=\(ProfileSetupKeychain.load().isComplete)"
+        )
+        #endif
+    }
+
+    /// Language / how-it-works / privacy live only in UserDefaults (wiped on delete).
+    /// A missing install stamp means a new container — never inherit pre-auth from
+    /// Keychain, iCloud profile language, or an older build's privacy-only flag.
+    /// Also discard Keychain *session* tokens so delete+reinstall is signed out.
+    private func loadPreAuthFlagsFromUserDefaults() {
+        let defaults = UserDefaults.standard
+        let isNewContainer = defaults.object(forKey: Keys.preAuthInstallStamp) == nil
+        if isNewContainer {
+            CheckMedAuthPersistence.discardPersistedSession()
+            localPrivacyAcknowledged = false
+            localLanguageChosen = false
+            localHowItWorksSeen = false
+            localSignInScreenSeen = false
+            localIntroSplashSeen = false
+            localFirstTimePhase = "language"
+            defaults.removeObject(forKey: Keys.privacyAcknowledged)
+            defaults.removeObject(forKey: Keys.languageChosen)
+            defaults.removeObject(forKey: Keys.howItWorksSeen)
+            defaults.removeObject(forKey: Keys.signInScreenSeenThisInstall)
+            defaults.removeObject(forKey: Keys.introSplashSeen)
+            defaults.removeObject(forKey: Keys.firstTimePhase)
+            defaults.set(ISO8601DateFormatter().string(from: Date()), forKey: Keys.preAuthInstallStamp)
+            return
+        }
+        localPrivacyAcknowledged = defaults.bool(forKey: Keys.privacyAcknowledged)
+        localLanguageChosen = defaults.bool(forKey: Keys.languageChosen)
+        localHowItWorksSeen = defaults.bool(forKey: Keys.howItWorksSeen)
+        localSignInScreenSeen = loadSignInScreenSeen(from: defaults)
+    }
+
+    /// New flag: missing on upgrades. Do not force Sign-in again if this install already
+    /// passed it (onboarded or a post-sign-in first-time phase). Delete/reinstall never hits this.
+    private func loadSignInScreenSeen(from defaults: UserDefaults) -> Bool {
+        if defaults.object(forKey: Keys.signInScreenSeenThisInstall) != nil {
+            return defaults.bool(forKey: Keys.signInScreenSeenThisInstall)
+        }
+        if defaults.bool(forKey: Keys.onboardingComplete) { return true }
+        let phase = FirstTimePhase(rawValue: defaults.string(forKey: Keys.firstTimePhase) ?? "") ?? .language
+        switch phase {
+        case .splash, .language, .howItWorks, .privacy, .signIn:
+            return false
+        default:
+            return true
         }
     }
 
@@ -119,23 +237,187 @@ final class SessionStore {
     private(set) var isResolvingPostAuth = false
     private(set) var postAuthKind: PostAuthKind = .undetermined
     var selectedMainTab: MainTab = .home
-    /// Returning sign-in (not a session restore): miss-you screen before tabs.
+    /// Locked gate: onboarded returning user sees miss-you once per process before Home.
     var showReturningWelcome = false
+    /// Sticky miss-you intent for this process. `preparePostAuth` must never clear this —
+    /// that race was splash→Home after delete+reinstall (auth restore cleared the soft flag).
+    private var pendingReturningWelcome = false
+    /// Once true, do not re-present ReturningWelcome until sign-out / process restart.
+    /// Always starts false each process (in-memory only).
+    private var showedReturningWelcomeThisSession = false
     var showResumeSetup = false
     var startFreshPrescription = false
     var showLeaveHealthWarning = false
     var didOfferUnfinishedPlanThisSession = false
+    /// Armed on confirm (seed/add); becomes an active step queue after journey Continue.
+    private var postJourneyArmed = false
+    /// Active linear queue. Nil when idle. Never skip notifications for this chain.
+    private(set) var postJourneyStep: PostJourneyStep?
+    /// True while armed or mid-queue (before `.done` is cleared).
+    var pendingPostJourneySetup: Bool {
+        postJourneyArmed || (postJourneyStep != nil && postJourneyStep != .done)
+    }
     private var didBackgroundIncompleteSetup = false
     /// First `FirstTimeOnboardingView` bootstrap in this process.
     private static var didHandleLaunchOnboarding = false
+    /// Last logged root destination (DEBUG) — avoid spam when flags re-publish.
+    @ObservationIgnored
+    private var lastLoggedRootDestination: RootDestination?
 
     /// Awaits treatment sync and reports whether this owner already has treatments.
     @ObservationIgnored
     var onPostAuthSync: (() async -> Bool)?
 
+    // MARK: - Single root router
+
+    /// Exactly one destination. RootView switches only on this — no parallel if/else races.
+    ///
+    /// Priority (highest first):
+    /// 1. pre-auth funnel incomplete (UserDefaults: language→howItWorks→privacy→**sign-in**)
+    /// 2. auth restoring / post-auth resolving
+    /// 3. unlocked + active post-journey / resume setup
+    /// 4. unlocked + showReturningWelcome (miss-you)
+    /// 5. unlocked + needsIdentityProfile
+    /// 6. unlocked + startFreshPrescription (user-initiated only)
+    /// 7. unlocked + !onboardingComplete → first-time meds flow
+    /// 8. MainTab Home
+    ///
+    /// Delete+reinstall: session tokens cleared; user is signed out until Sign-in.
+    /// Then ProfileSetupKeychain → miss-you (old account) or name/birth (new).
+    var rootDestination: RootDestination {
+        computeRootDestination()
+    }
+
+    /// Call from RootView when the presented destination may have changed.
+    func noteRootDestinationPresented() {
+        logRootDestinationIfChanged(computeRootDestination())
+    }
+
+    private func computeRootDestination() -> RootDestination {
+        // Pre-auth is UserDefaults-only. Hold miss-you / profile / Home until
+        // language, how-it-works, privacy, AND this-install Sign-in are done.
+        if !hasFinishedLegalPreAuth || !hasCompletedSignInThisInstall {
+            return .firstTime
+        }
+        if auth.isRestoring { return .restoring }
+        if isResolvingPostAuth, isSessionUnlocked { return .resolvingPostAuth }
+        if !isSessionUnlocked {
+            return .firstTime
+        }
+
+        if let step = postJourneyStep, step != .done {
+            return .resumeSetup
+        }
+        if showResumeSetup || pendingPostJourneySetup {
+            return .resumeSetup
+        }
+        // Returning onboarded: miss-you BEFORE Home, once per cold start.
+        if needsReturningWelcomeGate {
+            return .returningWelcome
+        }
+        if needsIdentityProfile {
+            return .accountProfile
+        }
+        if startFreshPrescription {
+            return .addPrescription
+        }
+        if !hasCompletedOnboarding {
+            return .firstTime
+        }
+
+        return .home
+    }
+
+    /// True when a returning (Keychain/onboarded) user must see miss-you before Home this process.
+    private var needsReturningWelcomeGate: Bool {
+        (pendingReturningWelcome || showReturningWelcome) && !showedReturningWelcomeThisSession
+    }
+
+    private func logRootDestinationIfChanged(_ dest: RootDestination) {
+        guard dest != lastLoggedRootDestination else { return }
+        lastLoggedRootDestination = dest
+        #if DEBUG
+        let step = postJourneyStep?.rawValue ?? "nil"
+        print(
+            "[CheckMed] rootDestination=\(dest) flags="
+                + "unlocked=\(isSessionUnlocked) "
+                + "preAuth=\(hasFinishedPreAuthFunnel) "
+                + "langChosen=\(localLanguageChosen) "
+                + "howItWorks=\(localHowItWorksSeen) "
+                + "privacy=\(localPrivacyAcknowledged) "
+                + "signInSeen=\(localSignInScreenSeen) "
+                + "onboarded=\(hasCompletedOnboarding) "
+                + "returningWelcome=\(showReturningWelcome) "
+                + "pendingRW=\(pendingReturningWelcome) "
+                + "showedRW=\(showedReturningWelcomeThisSession) "
+                + "needsIdentity=\(needsIdentityProfile) "
+                + "freshRx=\(startFreshPrescription) "
+                + "resume=\(showResumeSetup) "
+                + "postJourney=\(step) "
+                + "pendingPJ=\(pendingPostJourneySetup) "
+                + "postAuth=\(String(describing: postAuthKind)) "
+                + "phase=\(localFirstTimePhase) "
+                + "keychainProfile=\(ProfileSetupKeychain.isComplete(for: auth.userId)) "
+                + "keychainOnboarded=\(ProfileSetupKeychain.isOnboardingComplete(for: auth.userId))"
+        )
+        #endif
+    }
+
     var kind: Kind {
         if auth.isAuthenticated { return .authenticated }
+        if guestUnlocked { return .guest }
         return .welcome
+    }
+
+    /// Signed in or guest — may continue past sign-in into profile / home.
+    var isSessionUnlocked: Bool {
+        kind == .authenticated || kind == .guest
+    }
+
+    /// Auth user id when signed in; otherwise a persisted on-device id so guest seeds are owned + visible.
+    var planOwnerId: UUID {
+        auth.userId ?? Self.persistedLocalOwnerId()
+    }
+
+    /// Remote profile when synced; otherwise a persisted local profile for guest SwiftData stamps.
+    var planProfileId: UUID {
+        profileId ?? Self.persistedLocalProfileId()
+    }
+
+    /// Local owner used before sign-in (for adopting guest rows onto the auth account).
+    var localPlanOwnerId: UUID { Self.persistedLocalOwnerId() }
+
+    private static func persistedLocalOwnerId() -> UUID {
+        let key = Keys.localOwnerId
+        if let raw = UserDefaults.standard.string(forKey: key), let id = UUID(uuidString: raw) {
+            return id
+        }
+        let id = UUID()
+        UserDefaults.standard.set(id.uuidString, forKey: key)
+        return id
+    }
+
+    private static func persistedLocalProfileId() -> UUID {
+        let key = Keys.localProfileId
+        if let raw = UserDefaults.standard.string(forKey: key), let id = UUID(uuidString: raw) {
+            return id
+        }
+        let id = UUID()
+        UserDefaults.standard.set(id.uuidString, forKey: key)
+        return id
+    }
+
+    /// Language → how-it-works → privacy Accept. UserDefaults; wiped on app delete.
+    var hasFinishedLegalPreAuth: Bool {
+        localLanguageChosen && localHowItWorksSeen && localPrivacyAcknowledged
+    }
+
+    /// User completed the Sign-in screen this install (not a silent Keychain restore).
+    var hasCompletedSignInThisInstall: Bool { localSignInScreenSeen }
+
+    /// Language → how-it-works → privacy → explicit Sign-in. All UserDefaults; wiped on app delete.
+    var hasFinishedPreAuthFunnel: Bool {
+        hasFinishedLegalPreAuth && hasCompletedSignInThisInstall
     }
 
     var displayName: String {
@@ -206,8 +488,14 @@ final class SessionStore {
     /// Policy/terms acknowledgement from Accept. Does not imply analytics or marketing.
     var hasAcknowledgedPrivacy: Bool { localPrivacyAcknowledged }
     var needsPrivacyAcknowledgement: Bool { !localPrivacyAcknowledged }
+    var hasChosenLanguage: Bool { localLanguageChosen }
+    var hasSeenHowItWorks: Bool { localHowItWorksSeen }
 
     var hasCompletedOnboarding: Bool { localOnboardingComplete || perUserOnboardingComplete }
+    /// True only after the user confirms a prescription (seed/add) or finishes resume of their plan.
+    var hasConfirmedMedicationPlan: Bool {
+        localMedicationPlanConfirmed || perUserMedicationPlanConfirmed
+    }
     var firstTimePhaseRaw: String { localFirstTimePhase }
     var shouldPlayIntroSplash: Bool { !localIntroSplashSeen }
 
@@ -215,16 +503,46 @@ final class SessionStore {
         guard !localIntroSplashSeen else { return }
         localIntroSplashSeen = true
         UserDefaults.standard.set(true, forKey: Keys.introSplashSeen)
+        #if DEBUG
+        print("[CheckMed] intro splash marked seen")
+        #endif
     }
     var shouldOfferOnboardingPaywall: Bool {
         localOnboardingComplete && !localOnboardingPaywallOffered
     }
 
     /// Identity fields collected after sign-in (name, DOB, pronouns, gender). Not language.
-    var needsIdentityProfile: Bool { needsCallYouScreen || needsAddressYouScreen }
+    /// Keychain completion (survives app delete) short-circuits so reinstall + same
+    /// Apple/Google account never replays name → birth → pronouns.
+    var needsIdentityProfile: Bool {
+        if ProfileSetupKeychain.isComplete(for: auth.userId) { return false }
+        if auth.isRestoring, ProfileSetupKeychain.load().isComplete { return false }
+        return !hasRawIdentityFields
+    }
 
     /// Saved profile has name, date of birth, pronouns, and gender.
     var hasCompleteIdentityProfile: Bool { !needsIdentityProfile }
+
+    /// Local UserDefaults fields only (ignores Keychain short-circuit).
+    private var hasRawIdentityFields: Bool {
+        guard hasPreferredName, localBirthDate != nil else { return false }
+        let pronouns = localPronouns.trimmingCharacters(in: .whitespacesAndNewlines)
+        let gender = localGender.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !pronouns.isEmpty && pronouns != ProfilePronoun.custom.rawValue
+            && !gender.isEmpty && gender != ProfileGender.custom.rawValue
+    }
+
+    /// Persist identity completion in Keychain (and UserDefaults fields already saved).
+    func markProfileSetupComplete() {
+        let name = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        ProfileSetupKeychain.markComplete(
+            userId: auth.userId ?? (kind == .guest ? Self.persistedLocalOwnerId() : nil),
+            displayName: (name.isEmpty || name == "there" || name == "friend") ? nil : name,
+            birthStamp: localBirthDate.map(BirthDateWheels.stamp),
+            pronouns: localPronouns.nilIfEmpty,
+            gender: localGender.nilIfEmpty
+        )
+    }
 
     var optionalAnalyticsEnabled: Bool { localOptionalAnalytics }
     var optionalMarketingEnabled: Bool { localOptionalMarketing }
@@ -234,6 +552,48 @@ final class SessionStore {
         guard !localPrivacyAcknowledged else { return }
         localPrivacyAcknowledged = true
         UserDefaults.standard.set(true, forKey: Keys.privacyAcknowledged)
+        #if DEBUG
+        print(
+            "[CheckMed] privacy accepted → preAuth=\(hasFinishedPreAuthFunnel) "
+                + "pendingRW=\(pendingReturningWelcome) showRW=\(showReturningWelcome)"
+        )
+        #endif
+    }
+
+    /// User confirmed a language on the language onboarding screen (not merely a default locale).
+    func markLanguageChosen() {
+        guard !localLanguageChosen else { return }
+        localLanguageChosen = true
+        UserDefaults.standard.set(true, forKey: Keys.languageChosen)
+        #if DEBUG
+        print("[CheckMed] language chosen → preAuth=\(hasFinishedPreAuthFunnel)")
+        #endif
+    }
+
+    /// User finished How it works (Let's get started).
+    func markHowItWorksSeen() {
+        guard !localHowItWorksSeen else { return }
+        localHowItWorksSeen = true
+        UserDefaults.standard.set(true, forKey: Keys.howItWorksSeen)
+        #if DEBUG
+        print("[CheckMed] how-it-works seen → preAuth=\(hasFinishedPreAuthFunnel)")
+        #endif
+    }
+
+    /// Call only after the user finishes Sign-in (provider/email) or Continue as guest.
+    /// Silent Keychain restore must never call this.
+    func markSignInScreenCompleted() {
+        guard !localSignInScreenSeen else { return }
+        localSignInScreenSeen = true
+        UserDefaults.standard.set(true, forKey: Keys.signInScreenSeenThisInstall)
+        #if DEBUG
+        print("[CheckMed] sign-in screen completed this install → preAuth=\(hasFinishedPreAuthFunnel)")
+        #endif
+    }
+
+    private func clearSignInScreenSeenThisInstall() {
+        localSignInScreenSeen = false
+        UserDefaults.standard.removeObject(forKey: Keys.signInScreenSeenThisInstall)
     }
 
     func setOptionalAnalyticsEnabled(_ enabled: Bool) {
@@ -249,7 +609,7 @@ final class SessionStore {
     }
 
     var needsAccountProfile: Bool {
-        kind == .authenticated && hasCompletedOnboarding && needsIdentityProfile
+        isSessionUnlocked && hasCompletedOnboarding && needsIdentityProfile
     }
 
     func setFirstTimePhaseRaw(_ raw: String) {
@@ -258,18 +618,20 @@ final class SessionStore {
         UserDefaults.standard.set(raw, forKey: Keys.firstTimePhase)
     }
 
-    /// Cold launch while setup is unfinished: splash → language → how it works → privacy.
-    /// Keeps the Apple/Google session; does not jump straight to Add prescription.
+    /// Cold launch while setup is unfinished.
+    /// Pre-auth incomplete → splash → language → how it works → privacy → sign-in.
+    /// Keychain onboarded / auth restored must not skip that funnel on a new install.
     func consumeIncompleteColdLaunchIfNeeded() -> Bool {
         if Self.didHandleLaunchOnboarding { return false }
         Self.didHandleLaunchOnboarding = true
-        guard !hasCompletedOnboarding else { return false }
+        if hasFinishedPreAuthFunnel {
+            return false
+        }
+
         localIntroSplashSeen = false
         localFirstTimePhase = "language"
-        localPrivacyAcknowledged = false
         UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
-        UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
         return true
     }
 
@@ -281,18 +643,27 @@ final class SessionStore {
         localOnboardingComplete = false
         localOnboardingPaywallOffered = false
         localPrivacyAcknowledged = false
+        localLanguageChosen = false
+        localHowItWorksSeen = false
+        clearSignInScreenSeenThisInstall()
         localFirstTimePhase = "language"
         localIntroSplashSeen = false
         isResolvingPostAuth = false
         postAuthKind = .undetermined
         showReturningWelcome = false
+        pendingReturningWelcome = false
+        showedReturningWelcomeThisSession = false
         showResumeSetup = false
         startFreshPrescription = false
+        clearPostJourneyQueue()
         didOfferUnfinishedPlanThisSession = false
         didBackgroundIncompleteSetup = false
         UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
         UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
         UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
+        UserDefaults.standard.removeObject(forKey: Keys.languageChosen)
+        UserDefaults.standard.removeObject(forKey: Keys.howItWorksSeen)
+        UserDefaults.standard.removeObject(forKey: Keys.signInScreenSeenThisInstall)
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
     }
@@ -301,36 +672,165 @@ final class SessionStore {
         localOnboardingComplete = true
         UserDefaults.standard.set(true, forKey: Keys.onboardingComplete)
         if let userId = auth.userId {
-            UserDefaults.standard.set(true, forKey: Self.onboardingCompleteKey(for: userId))
+            Self.persistPerUserOnboardingComplete(true, userId: userId)
+        } else {
+            ProfileSetupKeychain.markOnboardingComplete(
+                userId: kind == .guest ? Self.persistedLocalOwnerId() : nil
+            )
         }
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         localFirstTimePhase = "language"
+        showResumeSetup = false
+        startFreshPrescription = false
+        clearPostJourneyQueue()
+        selectedMainTab = .home
+    }
+
+    /// After journey for a newly confirmed plan: notifications → alarms → trial → Phil → Home.
+    /// True for first-time setup, and for add-prescription that starts a new plan (pending flag).
+    var needsPostConfirmSetup: Bool {
+        if pendingPostJourneySetup { return true }
+        guard hasConfirmedMedicationPlan else { return false }
+        return !hasCompletedOnboarding
+    }
+
+    /// Call when a new plan is confirmed (first setup or add-prescription seed/add) so the post-journey chain cannot be skipped.
+    func markPendingPostJourneySetup() {
+        postJourneyArmed = true
+    }
+
+    /// Journey Continue: start the linear queue at notifications (always show the screen).
+    func startPostJourneyQueue() {
+        postJourneyArmed = true
+        setPostJourneyStep(.notifications)
+    }
+
+    /// Align queue cursor with the screen currently shown (no debug log spam for same step).
+    func syncPostJourneyStep(_ step: PostJourneyStep) {
+        postJourneyArmed = true
+        guard postJourneyStep != step else { return }
+        setPostJourneyStep(step)
+    }
+
+    /// Advance one step. Pass `isSuper` so trial is skipped when already subscribed.
+    @discardableResult
+    func advancePostJourney(isSuper: Bool) -> PostJourneyStep {
+        let current = postJourneyStep ?? .notifications
+        let next: PostJourneyStep
+        switch current {
+        case .notifications:
+            next = .alarms
+        case .alarms:
+            next = isSuper ? .philReady : .trial
+        case .trial:
+            next = .philReady
+        case .philReady, .done:
+            next = .done
+        }
+        setPostJourneyStep(next)
+        return next
+    }
+
+    func clearPendingPostJourneySetup() {
+        clearPostJourneyQueue()
+    }
+
+    private func clearPostJourneyQueue() {
+        postJourneyArmed = false
+        postJourneyStep = nil
+    }
+
+    private func setPostJourneyStep(_ step: PostJourneyStep) {
+        postJourneyStep = step
+        #if DEBUG
+        let label: String
+        switch step {
+        case .notifications: label = "notifications"
+        case .alarms: label = "alarms"
+        case .trial: label = "trial"
+        case .philReady: label = "phil"
+        case .done: label = "home"
+        }
+        print("[CheckMed] postJourney → \(label)")
+        #endif
+        if step == .done {
+            clearPostJourneyQueue()
+        }
+    }
+
+    /// Kept for back-navigation hints only. Post-journey queue always shows notifications.
+    func shouldShowNotificationsScreen() async -> Bool {
+        true
+    }
+
+    func markMedicationPlanConfirmed() {
+        guard !hasConfirmedMedicationPlan else { return }
+        localMedicationPlanConfirmed = true
+        UserDefaults.standard.set(true, forKey: Keys.medicationPlanConfirmed)
+        if let userId = auth.userId {
+            UserDefaults.standard.set(true, forKey: Self.medicationPlanConfirmedKey(for: userId))
+        }
+    }
+
+    func clearMedicationPlanConfirmed() {
+        localMedicationPlanConfirmed = false
+        UserDefaults.standard.removeObject(forKey: Keys.medicationPlanConfirmed)
+        if let userId = auth.userId {
+            UserDefaults.standard.removeObject(forKey: Self.medicationPlanConfirmedKey(for: userId))
+        }
+    }
+
+    /// Device-level one-time migration marker (optionally scoped per owner).
+    func didPurgeUnconfirmedPlans(ownerId: UUID?) -> Bool {
+        UserDefaults.standard.bool(forKey: Self.purgedUnconfirmedPlansKey(ownerId: ownerId))
+    }
+
+    func markDidPurgeUnconfirmedPlans(ownerId: UUID?) {
+        UserDefaults.standard.set(true, forKey: Self.purgedUnconfirmedPlansKey(ownerId: ownerId))
     }
 
     func finishReturningWelcome(select tab: MainTab) {
         showReturningWelcome = false
+        pendingReturningWelcome = false
+        showedReturningWelcomeThisSession = true
         selectedMainTab = tab
         didOfferUnfinishedPlanThisSession = false
+        #if DEBUG
+        print("[CheckMed] finishReturningWelcome → tab=\(tab)")
+        #endif
     }
 
+    /// "This plan still needs you" — only mid abandoned setup, never after confirm.
     func needsUnfinishedPlan(treatments: CheckMedStore) -> Bool {
-        kind == .authenticated
-            && treatments.activeTreatmentCount > 0
+        guard !hasConfirmedMedicationPlan else { return false }
+        return kind == .authenticated
+            && treatments.hasExistingTreatments
             && (needsNotificationsPrompt || !treatments.hasMedicationDaysSet)
     }
 
     func beginResumeSetup() {
         showReturningWelcome = false
+        pendingReturningWelcome = false
+        showedReturningWelcomeThisSession = true
         startFreshPrescription = false
         showResumeSetup = true
         didOfferUnfinishedPlanThisSession = true
+        // If armed but queue not started (e.g. cold handoff), begin at notifications.
+        if postJourneyArmed, postJourneyStep == nil {
+            setPostJourneyStep(.notifications)
+        }
     }
 
     func beginFreshPlan() {
+        // Never open scan/add while identity profile is still required.
+        guard !needsIdentityProfile else { return }
         showReturningWelcome = false
+        pendingReturningWelcome = false
+        showedReturningWelcomeThisSession = true
         showResumeSetup = false
         startFreshPrescription = true
         didOfferUnfinishedPlanThisSession = true
+        clearMedicationPlanConfirmed()
     }
 
     func finishFreshPlan(select tab: MainTab) {
@@ -341,7 +841,17 @@ final class SessionStore {
 
     func finishResumeSetup() {
         showResumeSetup = false
+        startFreshPrescription = false
+        showReturningWelcome = false
+        pendingReturningWelcome = false
+        if postJourneyStep == .philReady {
+            setPostJourneyStep(.done)
+        } else {
+            clearPostJourneyQueue()
+        }
         markNotificationsPrompted()
+        markMedicationPlanConfirmed()
+        markOnboardingPaywallOffered()
         markOnboardingComplete()
     }
 
@@ -377,7 +887,7 @@ final class SessionStore {
     }
 
     var email: String? { auth.email }
-    var isGuest: Bool { false }
+    var isGuest: Bool { kind == .guest }
     var canSync: Bool { kind == .authenticated }
     var supabaseConfigured: Bool { auth.isConfigured }
     var googleConfigured: Bool { auth.isGoogleConfigured }
@@ -388,7 +898,9 @@ final class SessionStore {
 
     func continueAsGuest() {
         auth.clearMessages()
-        guestUnlocked = false
+        guestUnlocked = true
+        markSignInScreenCompleted()
+        branchAfterSignInScreenIfNeeded()
     }
 
     func saveOnboardingNames(displayName: String, companionName: String) {
@@ -467,6 +979,9 @@ final class SessionStore {
         localGender = gender.trimmingCharacters(in: .whitespacesAndNewlines)
         UserDefaults.standard.set(localPronouns, forKey: Keys.pronouns)
         UserDefaults.standard.set(localGender, forKey: Keys.gender)
+        if hasRawIdentityFields {
+            markProfileSetupComplete()
+        }
         queueProfileSync()
     }
 
@@ -507,6 +1022,9 @@ final class SessionStore {
         localOnboardingComplete = false
         localOnboardingPaywallOffered = false
         localPrivacyAcknowledged = false
+        localLanguageChosen = false
+        localHowItWorksSeen = false
+        clearSignInScreenSeenThisInstall()
         localNotificationsPrompted = false
         localFirstTimePhase = "language"
         profileId = nil
@@ -514,21 +1032,32 @@ final class SessionStore {
         postAuthKind = .undetermined
         selectedMainTab = .home
         showReturningWelcome = false
+        pendingReturningWelcome = false
+        showedReturningWelcomeThisSession = false
         showResumeSetup = false
         startFreshPrescription = false
+        clearPostJourneyQueue()
         didOfferUnfinishedPlanThisSession = false
         didBackgroundIncompleteSetup = false
+        // Keep Keychain profile/onboarding flags for the same Apple/Google user on re-sign-in.
+        // Only clear in-memory / UserDefaults identity so a different account cannot inherit it.
         clearLocalIdentity()
         UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
         UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
         UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
+        UserDefaults.standard.removeObject(forKey: Keys.languageChosen)
+        UserDefaults.standard.removeObject(forKey: Keys.howItWorksSeen)
+        UserDefaults.standard.removeObject(forKey: Keys.signInScreenSeenThisInstall)
         UserDefaults.standard.removeObject(forKey: Keys.notificationsPrompted)
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
+        UserDefaults.standard.removeObject(forKey: Keys.medicationPlanConfirmed)
+        localMedicationPlanConfirmed = false
         localIntroSplashSeen = false
     }
 
     func deleteAccount() {
+        let deletingUserId = auth.userId
         localDisplayName = "there"
         localCompanionName = "Phil"
         localLanguage = AppLocale.english.rawValue
@@ -544,20 +1073,28 @@ final class SessionStore {
         UserDefaults.standard.removeObject(forKey: Keys.notificationsPrompted)
         UserDefaults.standard.removeObject(forKey: Keys.pendingUpload)
         UserDefaults.standard.removeObject(forKey: Keys.privacyAcknowledged)
+        UserDefaults.standard.removeObject(forKey: Keys.languageChosen)
+        UserDefaults.standard.removeObject(forKey: Keys.howItWorksSeen)
+        UserDefaults.standard.removeObject(forKey: Keys.signInScreenSeenThisInstall)
         UserDefaults.standard.removeObject(forKey: Keys.optionalAnalytics)
         UserDefaults.standard.removeObject(forKey: Keys.optionalMarketing)
         UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
         UserDefaults.standard.removeObject(forKey: Keys.onboardingPaywallOffered)
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         UserDefaults.standard.removeObject(forKey: Keys.introSplashSeen)
+        UserDefaults.standard.removeObject(forKey: Keys.medicationPlanConfirmed)
         localOnboardingComplete = false
         localOnboardingPaywallOffered = false
+        localMedicationPlanConfirmed = false
         localFirstTimePhase = "language"
         localIntroSplashSeen = false
         localPronouns = ""
         localGender = ""
         localNotificationsPrompted = false
         localPrivacyAcknowledged = false
+        localLanguageChosen = false
+        localHowItWorksSeen = false
+        clearSignInScreenSeenThisInstall()
         localOptionalAnalytics = false
         localOptionalMarketing = false
         guestUnlocked = false
@@ -566,12 +1103,19 @@ final class SessionStore {
         postAuthKind = .undetermined
         selectedMainTab = .home
         showReturningWelcome = false
+        pendingReturningWelcome = false
+        showedReturningWelcomeThisSession = false
         showResumeSetup = false
         startFreshPrescription = false
+        clearPostJourneyQueue()
         didOfferUnfinishedPlanThisSession = false
         didBackgroundIncompleteSetup = false
-        if let userId = auth.userId {
+        if let userId = deletingUserId {
             UserDefaults.standard.removeObject(forKey: Self.onboardingCompleteKey(for: userId))
+            UserDefaults.standard.removeObject(forKey: Self.medicationPlanConfirmedKey(for: userId))
+            ProfileSetupKeychain.clear(for: userId)
+        } else {
+            ProfileSetupKeychain.clear()
         }
         Task { await auth.signOut() }
     }
@@ -614,28 +1158,56 @@ final class SessionStore {
     private func preparePostAuth(isRestore: Bool) {
         isResolvingPostAuth = true
         postAuthKind = .undetermined
+        // Do NOT clear pendingReturningWelcome / showedReturningWelcomeThisSession.
+        // Soft flag only — sticky pending survives token refresh / second auth events.
         showReturningWelcome = false
-        showResumeSetup = false
+        // Hard rule: auth restore / sign-in never auto-opens Add prescription.
+        // Only `beginFreshPlan()` (explicit tap) may set this true.
         startFreshPrescription = false
+        // Never wipe an in-flight post-journey chain on token refresh / re-auth.
+        if !pendingPostJourneySetup {
+            showResumeSetup = false
+        }
         if !isRestore {
             localOnboardingComplete = false
             UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
             selectedMainTab = .home
         }
+        #if DEBUG
+        print(
+            "[CheckMed] preparePostAuth restore=\(isRestore) "
+                + "pendingRW=\(pendingReturningWelcome) showedRW=\(showedReturningWelcomeThisSession) "
+                + "preAuth=\(hasFinishedPreAuthFunnel)"
+        )
+        #endif
     }
 
-    /// New vs returning: signed-in Supabase user + `profiles` name/DOB/pronouns/gender
-    /// **and** (per-user `onboardingComplete` or treatments in CheckMedStore/sync).
-    /// Incomplete identity always takes the first-time name/pronouns/… path.
+    /// New vs returning after sign-in / session restore.
+    /// Returning = Keychain onboarding OR treatments OR per-user/local onboarding OR
+    /// Keychain profile complete — never auto-scan; miss-you once, then Home / add by choice.
+    ///
+    /// Hard rules on auth restore / re-sign-in:
+    /// - NEVER set `firstTimePhase = addMedication`
+    /// - NEVER set `startFreshPrescription = true` (only `beginFreshPlan()`)
+    /// - If Keychain onboarded/profile complete → stamp ReturningWelcome (once per process)
     private func handleAuthenticated(isRestore: Bool) async {
         if !isResolvingPostAuth {
             preparePostAuth(isRestore: isRestore)
         }
         defer { isResolvingPostAuth = false }
+        // Interactive sign-in / confirm-account completes this-install Sign-in.
+        // New-install session wipe must never mark Sign-in seen.
+        if !isRestore {
+            markSignInScreenCompleted()
+        }
 
         let pending = UserDefaults.standard.bool(forKey: Keys.pendingUpload)
         let remote = await pullProfile()
         replaceIdentity(from: remote, overwriteEmpty: !isRestore)
+        if let userId = auth.userId {
+            ProfileSetupKeychain.associateUserIfNeeded(userId)
+            hydrateIdentityFromKeychainIfNeeded(userId: userId)
+        }
         if !hasPreferredName {
             let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
             if !inferred.isEmpty, inferred != "friend", inferred != "there" {
@@ -650,44 +1222,136 @@ final class SessionStore {
         } else if isRestore, remote == nil || remoteNeedsPush(remote) {
             await pushProfile()
         }
+        // Stamp Keychain whenever identity fields are present so delete+reinstall skips profile.
+        if hasRawIdentityFields {
+            markProfileSetupComplete()
+        }
 
         let hasTreatments = await syncedHasTreatments()
         let identityComplete = hasCompleteIdentityProfile
         let userOnboarded = perUserOnboardingComplete
         let restoredComplete = isRestore && localOnboardingComplete
-        let midFirstTimeSetup = !localOnboardingComplete && isPastIdentityOnboardingStep
-        let returning = identityComplete
-            && !midFirstTimeSetup
-            && (userOnboarded || hasTreatments || restoredComplete)
+        let keychainProfile = ProfileSetupKeychain.isComplete(for: auth.userId)
+        let keychainOnboarded = ProfileSetupKeychain.isOnboardingComplete(for: auth.userId)
+        // Any prior completion signal wins over stale UserDefaults `firstTimePhase=addMedication`.
+        let previouslyOnboarded = userOnboarded
+            || keychainOnboarded
+            || hasTreatments
+            || restoredComplete
+            || keychainProfile
 
-        if returning {
-            if !isRestore {
-                selectedMainTab = .progress
-                markOnboardingPaywallOffered()
-                showReturningWelcome = true
-            }
-            markOnboardingComplete()
-            postAuthKind = .returning
-        } else {
-            postAuthKind = .newAccount
-            selectedMainTab = .home
-            if isRestore {
-                if !identityComplete, !isPastIdentityOnboardingStep {
-                    setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
-                }
-            } else if !isPastIdentityOnboardingStep {
-                clearSessionOnboardingFlag()
-                setFirstTimePhaseRaw(identityComplete ? FirstTimePhase.addMedication.rawValue : FirstTimePhase.profile.rawValue)
-            }
+        // Hard rule: auth never auto-opens Add prescription.
+        startFreshPrescription = false
+
+        if previouslyOnboarded {
+            enterReturningAfterAuth(
+                hasTreatments: hasTreatments,
+                keychainProfile: keychainProfile,
+                keychainOnboarded: keychainOnboarded
+            )
+            return
         }
+
+        // True first-time account.
+        postAuthKind = .newAccount
+        selectedMainTab = .home
+        // Never force profile/meds over an incomplete language → how it works → privacy → sign-in funnel.
+        // Never set addMedication on session restore (stale phase fights ReturningWelcome later).
+        guard hasFinishedPreAuthFunnel else {
+            #if DEBUG
+            print("[CheckMed] auth → newAccount (waiting pre-auth; phase=\(localFirstTimePhase))")
+            #endif
+            return
+        }
+        if !isRestore {
+            clearSessionOnboardingFlag()
+            // Fresh sign-in only: land on profile or meds. Restore never writes addMedication.
+            if !identityComplete {
+                setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
+            } else {
+                setFirstTimePhaseRaw(FirstTimePhase.addMedication.rawValue)
+            }
+        } else if !identityComplete {
+            setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
+        }
+        #if DEBUG
+        print("[CheckMed] auth → newAccount (phase=\(localFirstTimePhase) identity=\(identityComplete) restore=\(isRestore))")
+        #endif
     }
 
-    private var isPastIdentityOnboardingStep: Bool {
-        switch FirstTimePhase(rawValue: localFirstTimePhase) {
-        case .addMedication, .camera, .manualEntry, .analysing, .confirm, .planResume, .organize, .notifications, .alarmSetup, .trial, .ready:
-            true
+    /// After the user finishes Sign-in (or guest), branch miss-you vs profile.
+    private func branchAfterSignInScreenIfNeeded() {
+        let keychainProfile = ProfileSetupKeychain.isComplete(for: auth.userId)
+            || ProfileSetupKeychain.load().isComplete
+        let keychainOnboarded = ProfileSetupKeychain.isOnboardingComplete(for: auth.userId)
+            || ProfileSetupKeychain.isOnboardingComplete(for: nil)
+        if keychainProfile || keychainOnboarded || localOnboardingComplete || perUserOnboardingComplete {
+            enterReturningAfterAuth(
+                hasTreatments: false,
+                keychainProfile: keychainProfile,
+                keychainOnboarded: keychainOnboarded
+            )
+            return
+        }
+        postAuthKind = .newAccount
+    }
+
+    /// Already-unlocked (Keychain restore) user taps Apple/Google/Continue on Sign-in.
+    func confirmRestoredAccountOnSignInScreen() {
+        guard isSessionUnlocked else { return }
+        markSignInScreenCompleted()
+        branchAfterSignInScreenIfNeeded()
+    }
+
+    /// Keychain / treatments / prior onboarding → miss-you once; clear stale addMedication phase.
+    private func enterReturningAfterAuth(
+        hasTreatments: Bool,
+        keychainProfile: Bool,
+        keychainOnboarded: Bool
+    ) {
+        postAuthKind = .returning
+        startFreshPrescription = false
+        // Kill stale FT phase that prior agents left as addMedication after delete+reinstall.
+        clearStaleFirstTimePhaseForReturning()
+
+        if pendingPostJourneySetup {
+            // Stay on post-journey chain; do not jump to Home / miss-you.
+            #if DEBUG
+            print("[CheckMed] auth → returning (post-journey; treatments=\(hasTreatments))")
+            #endif
+            return
+        }
+
+        selectedMainTab = .home
+        showResumeSetup = false
+        markOnboardingPaywallOffered()
+        // Force miss-you once per process for returning Keychain/onboarded users.
+        // Sticky pending survives preparePostAuth clearing the soft showReturningWelcome flag.
+        if !showedReturningWelcomeThisSession {
+            pendingReturningWelcome = true
+            showReturningWelcome = true
+        }
+        markOnboardingComplete()
+        #if DEBUG
+        print(
+            "[CheckMed] auth → returning (welcome=\(showReturningWelcome) pendingRW=\(pendingReturningWelcome) "
+                + "showedRW=\(showedReturningWelcomeThisSession) treatments=\(hasTreatments) "
+                + "keychainProfile=\(keychainProfile) keychainOnboarded=\(keychainOnboarded) "
+                + "preAuth=\(hasFinishedPreAuthFunnel))"
+        )
+        #endif
+    }
+
+    /// Returning users must not resume into Adicionar receita via saved firstTimePhase.
+    private func clearStaleFirstTimePhaseForReturning() {
+        let saved = FirstTimePhase(rawValue: localFirstTimePhase) ?? .language
+        switch saved {
+        case .addMedication, .camera, .manualEntry, .analysing, .confirm, .planResume,
+             .organize, .notifications, .alarmSetup, .trial, .ready, .profile, .signIn:
+            localFirstTimePhase = "language"
+            UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         default:
-            false
+            break
         }
     }
 
@@ -702,8 +1366,33 @@ final class SessionStore {
     }
 
     private var perUserOnboardingComplete: Bool {
+        guard let userId = auth.userId else {
+            return ProfileSetupKeychain.isOnboardingComplete(for: nil)
+        }
+        let defaults = UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey(for: userId))
+        if defaults { return true }
+        guard ProfileSetupKeychain.isOnboardingComplete(for: userId) else { return false }
+        // Mirror into UserDefaults only after this install finished pre-auth.
+        // Never treat Keychain onboarded as language / how-it-works / privacy done.
+        if hasFinishedPreAuthFunnel {
+            UserDefaults.standard.set(true, forKey: Self.onboardingCompleteKey(for: userId))
+        }
+        return true
+    }
+
+    private static func persistPerUserOnboardingComplete(_ complete: Bool, userId: UUID) {
+        let key = onboardingCompleteKey(for: userId)
+        if complete {
+            UserDefaults.standard.set(true, forKey: key)
+            ProfileSetupKeychain.markOnboardingComplete(userId: userId)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    private var perUserMedicationPlanConfirmed: Bool {
         guard let userId = auth.userId else { return false }
-        return UserDefaults.standard.bool(forKey: Self.onboardingCompleteKey(for: userId))
+        return UserDefaults.standard.bool(forKey: Self.medicationPlanConfirmedKey(for: userId))
     }
 
     private func clearSessionOnboardingFlag() {
@@ -713,6 +1402,17 @@ final class SessionStore {
 
     private static func onboardingCompleteKey(for userId: UUID) -> String {
         "checkmed.onboardingComplete.\(userId.uuidString)"
+    }
+
+    private static func medicationPlanConfirmedKey(for userId: UUID) -> String {
+        "checkmed.medicationPlanConfirmed.\(userId.uuidString)"
+    }
+
+    private static func purgedUnconfirmedPlansKey(ownerId: UUID?) -> String {
+        if let ownerId {
+            return "\(Keys.purgedUnconfirmedPlansV1).\(ownerId.uuidString)"
+        }
+        return Keys.purgedUnconfirmedPlansV1
     }
 
     private func clearLocalIdentity() {
@@ -726,15 +1426,50 @@ final class SessionStore {
         UserDefaults.standard.removeObject(forKey: Keys.gender)
     }
 
+    /// After sign-in, restore name/DOB from ProfileSetupKeychain so a returning
+    /// Apple/Google account can miss-you instead of replaying profile setup.
+    private func hydrateIdentityFromKeychainIfNeeded(userId: UUID?) {
+        let snap = ProfileSetupKeychain.load()
+        guard snap.isComplete else { return }
+        if let userId {
+            guard ProfileSetupKeychain.isComplete(for: userId) else { return }
+        }
+
+        if !hasPreferredName, let name = snap.displayName?.nilIfEmpty {
+            localDisplayName = name
+            UserDefaults.standard.set(name, forKey: Keys.display)
+        }
+        if localBirthDate == nil,
+           let stamp = snap.birthStamp?.nilIfEmpty,
+           let date = BirthDateWheels.date(fromStamp: stamp) {
+            localBirthDate = BirthDateWheels.clampedDate(date)
+            UserDefaults.standard.set(BirthDateWheels.stamp(from: localBirthDate!), forKey: Keys.birthDate)
+        }
+        if localPronouns.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let pronouns = snap.pronouns?.nilIfEmpty {
+            localPronouns = pronouns
+            UserDefaults.standard.set(pronouns, forKey: Keys.pronouns)
+        }
+        if localGender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let gender = snap.gender?.nilIfEmpty {
+            localGender = gender
+            UserDefaults.standard.set(gender, forKey: Keys.gender)
+        }
+    }
+
     /// Remote profile is the source of truth after a fresh sign-in. On session
     /// restore, keep name/DOB/pronouns already saved on this iPhone if the
     /// network row is missing or incomplete — otherwise every relaunch wipes
     /// identity and sends the user back to “How should we call you”.
     private func replaceIdentity(from profile: CheckMedProfile?, overwriteEmpty: Bool) {
+        // Never wipe local/Keychain-backed identity when the remote row is incomplete.
+        let protectIdentity = ProfileSetupKeychain.isComplete(for: auth.userId) || hasRawIdentityFields
+        let wipeEmpty = overwriteEmpty && !protectIdentity
+
         if let name = profile?.displayName?.nilIfEmpty {
             localDisplayName = name
             UserDefaults.standard.set(name, forKey: Keys.display)
-        } else if overwriteEmpty {
+        } else if wipeEmpty {
             localDisplayName = "there"
             UserDefaults.standard.removeObject(forKey: Keys.display)
         }
@@ -754,21 +1489,21 @@ final class SessionStore {
            let date = BirthDateWheels.date(fromStamp: raw) {
             localBirthDate = BirthDateWheels.clampedDate(date)
             UserDefaults.standard.set(BirthDateWheels.stamp(from: localBirthDate!), forKey: Keys.birthDate)
-        } else if overwriteEmpty {
+        } else if wipeEmpty {
             localBirthDate = nil
             UserDefaults.standard.removeObject(forKey: Keys.birthDate)
         }
         if let pronouns = profile?.pronouns?.nilIfEmpty {
             localPronouns = pronouns
             UserDefaults.standard.set(pronouns, forKey: Keys.pronouns)
-        } else if overwriteEmpty {
+        } else if wipeEmpty {
             localPronouns = ""
             UserDefaults.standard.removeObject(forKey: Keys.pronouns)
         }
         if let gender = profile?.gender?.nilIfEmpty {
             localGender = gender
             UserDefaults.standard.set(gender, forKey: Keys.gender)
-        } else if overwriteEmpty {
+        } else if wipeEmpty {
             localGender = ""
             UserDefaults.standard.removeObject(forKey: Keys.gender)
         }

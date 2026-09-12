@@ -95,10 +95,13 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             content.body = session.t(.notificationStockDaysBody, draft.medicine, draft.doseLabel)
             content.sound = .default
             content.userInfo = ["kind": draft.kind.rawValue]
-            CheckMedNotificationIcon.apply(to: content)
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
             try? await center.add(
-                UNNotificationRequest(identifier: draft.notificationId, content: content, trigger: trigger)
+                UNNotificationRequest(
+                    identifier: draft.notificationId,
+                    content: CheckMedNotificationIcon.decorate(content),
+                    trigger: trigger
+                )
             )
         }
     }
@@ -116,6 +119,18 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     private func rebuild() async {
         guard let store, let session else { return }
+
+        // No confirmed plan → clear pending dose alarms/notifications and stop.
+        guard session.hasConfirmedMedicationPlan, store.surfacesPlan else {
+            await DoseAlarmKit.syncDoseAlarms(drafts: [], locale: session.locale, theme: .philChime)
+            let center = UNUserNotificationCenter.current()
+            let existing = await center.pendingNotificationRequests()
+            let ours = existing.filter { $0.identifier.hasPrefix("checkmed.") }.map(\.identifier)
+            if !ours.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: ours)
+            }
+            return
+        }
 
         let drafts = store.reminderDrafts().filter { draft in
             if draft.kind == .advance {
@@ -140,6 +155,13 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         let ours = existing.filter { $0.identifier.hasPrefix("checkmed.") }.map(\.identifier)
         if !ours.isEmpty {
             center.removePendingNotificationRequests(withIdentifiers: ours)
+        }
+        let delivered = await center.deliveredNotifications()
+        let deliveredOurs = delivered
+            .map(\.request.identifier)
+            .filter { $0.hasPrefix("checkmed.") }
+        if !deliveredOurs.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: deliveredOurs)
         }
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
             return
@@ -176,7 +198,6 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             content.sound = sound
             content.userInfo = ["logId": draft.id.uuidString, "kind": draft.kind.rawValue]
             content.interruptionLevel = .active
-            CheckMedNotificationIcon.apply(to: content)
             switch draft.kind {
             case .dose:
                 content.title = session.t(.notificationDoseTitle)
@@ -211,7 +232,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             let request = UNNotificationRequest(
                 identifier: draft.notificationId,
-                content: content,
+                content: CheckMedNotificationIcon.decorate(content),
                 trigger: trigger
             )
             do {
@@ -227,7 +248,6 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             content.title = session.t(.notificationWinBackTitle)
             content.body = session.t(.notificationWinBackBody)
             content.sound = .default
-            CheckMedNotificationIcon.apply(to: content)
             var components = calendar.dateComponents(
                 [.year, .month, .day, .hour, .minute],
                 from: winBack
@@ -235,7 +255,11 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             components.second = 0
             let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
             try? await center.add(
-                UNNotificationRequest(identifier: Engagement.winBackId, content: content, trigger: trigger)
+                UNNotificationRequest(
+                    identifier: Engagement.winBackId,
+                    content: CheckMedNotificationIcon.decorate(content),
+                    trigger: trigger
+                )
             )
         }
     }
@@ -251,10 +275,13 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             content.title = L10n.string(.unfinishedPlanHeadline, locale: locale)
             content.body = L10n.string(.leaveHealthWarning, locale: locale)
             content.sound = .default
-            CheckMedNotificationIcon.apply(to: content)
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
             try? await center.add(
-                UNNotificationRequest(identifier: Engagement.leaveSetupId, content: content, trigger: trigger)
+                UNNotificationRequest(
+                    identifier: Engagement.leaveSetupId,
+                    content: CheckMedNotificationIcon.decorate(content),
+                    trigger: trigger
+                )
             )
         }
     }

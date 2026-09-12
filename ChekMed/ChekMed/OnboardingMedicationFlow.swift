@@ -115,47 +115,52 @@ struct OnboardingAddMedicationView: View {
     var onBack: () -> Void
     var showsChoosePhotos: Bool = true
 
-    private var medicineCount: Int { treatments.activeMedicineCount }
+    private var medicineCount: Int { treatments.storedMedicineCount }
     private var remainingSlots: Int {
         entitlements.freeMedicineSlotsRemaining(existingCount: medicineCount)
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            SetupStepHeader(title: session.t(.scanAddTitle))
-            Spacer(minLength: 8)
-            PhilView(size: 120, pose: .pointingDown, smiling: true)
-            Text(session.t(.scanOrganizeHint))
-                .font(.system(.body, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
-                .multilineTextAlignment(.center)
-            if !entitlements.isSuper, medicineCount > 0 {
-                Text(
-                    remainingSlots > 0
-                        ? session.t(.confirmRemainingSlots, medicineCount, remainingSlots)
-                        : session.t(.confirmFreePlanFull)
-                )
-                .font(.system(.caption, design: .rounded).weight(.semibold))
-                .foregroundStyle(CheckMedTheme.ink)
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(CheckMedTheme.primary.opacity(0.35))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 16) {
+                SetupStepHeader(title: session.t(.scanAddTitle))
+                PhilLibraryImage(asset: "phil_onboarding_02_photo", size: 168)
+                    .padding(.top, 4)
+                Text(session.t(.scanOrganizeHint))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !entitlements.isSuper, medicineCount > 0 {
+                    Text(
+                        remainingSlots > 0
+                            ? session.t(.confirmRemainingSlots, medicineCount, remainingSlots)
+                            : session.t(.confirmFreePlanFull)
+                    )
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(CheckMedTheme.mintWash)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                VStack(spacing: 12) {
+                    CheckMedButton(title: session.t(.scanTakePhoto), action: onPhoto)
+                    if showsChoosePhotos {
+                        CheckMedButton(title: session.t(.scanChoosePhotos), style: .secondary, action: onChoosePhotos)
+                            .keyboardShortcut("p", modifiers: [.command])
+                    }
+                    CheckMedButton(title: session.t(.scanUploadPDF), style: .secondary, action: onPDF)
+                    CheckMedButton(title: session.t(.scanSetManually), style: .secondary, action: onManual)
+                    CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+                }
+                .padding(.top, 6)
+                SafetyCaption()
+                    .frame(maxWidth: .infinity)
             }
-            Spacer(minLength: 8)
-            CheckMedButton(title: session.t(.scanTakePhoto), action: onPhoto)
-            if showsChoosePhotos {
-                CheckMedButton(title: session.t(.scanChoosePhotos), style: .secondary, action: onChoosePhotos)
-                    .keyboardShortcut("p", modifiers: [.command])
-            }
-            CheckMedButton(title: session.t(.scanUploadPDF), style: .secondary, action: onPDF)
-            CheckMedButton(title: session.t(.scanSetManually), style: .secondary, action: onManual)
-            CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
-            SafetyCaption()
-                .frame(maxWidth: .infinity)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 36)
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
     }
@@ -1353,23 +1358,48 @@ struct OnboardingPhilReadyView: View {
     @Environment(SessionStore.self) private var session
     var onContinue: () -> Void
 
+    @State private var appeared = false
+    @State private var didContinue = false
+
     var body: some View {
         VStack(spacing: 18) {
             Spacer()
             PhilView(size: 176, mood: .complete, smiling: true)
+                .scaleEffect(appeared ? 1 : 0.86)
+                .opacity(appeared ? 1 : 0.2)
             Text(session.t(.philReadyHeadline))
                 .font(.system(.title, design: .rounded).weight(.black))
                 .multilineTextAlignment(.center)
+                .opacity(appeared ? 1 : 0)
+                .offset(y: appeared ? 0 : 10)
             Text(session.t(.philReadyBody))
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .multilineTextAlignment(.center)
+                .opacity(appeared ? 1 : 0)
             Spacer()
-            CheckMedButton(title: session.t(.philReadyButton), action: onContinue)
+            CheckMedButton(title: session.t(.philReadyButton), action: continueNow)
+                .opacity(appeared ? 1 : 0)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
+        .onAppear {
+            withAnimation(.spring(duration: 0.55, bounce: 0.32)) {
+                appeared = true
+            }
+        }
+        .task {
+            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            guard !Task.isCancelled else { return }
+            continueNow()
+        }
+    }
+
+    private func continueNow() {
+        guard !didContinue else { return }
+        didContinue = true
+        onContinue()
     }
 }

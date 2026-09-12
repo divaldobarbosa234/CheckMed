@@ -1,5 +1,11 @@
 import SwiftUI
 
+private enum HomeMoodPhase: Equatable {
+    case picker
+    case note
+    case hidden
+}
+
 private enum HomeDailyMood: String, CaseIterable, Identifiable {
     case great, good, okay, notGreat, bad
 
@@ -35,14 +41,41 @@ private enum HomeDailyMood: String, CaseIterable, Identifiable {
         }
     }
 
-    func encouragement(_ session: SessionStore) -> String {
+    var noteKeys: [L10n.Key] {
         switch self {
-        case .great: session.t(.homeMoodNoteGreat)
-        case .good: session.t(.homeMoodNoteGood)
-        case .okay: session.t(.homeMoodNoteOkay)
-        case .notGreat: session.t(.homeMoodNoteNotGreat)
-        case .bad: session.t(.homeMoodNoteBad)
+        case .great:
+            [.homeMoodNoteGreat, .homeMoodNoteGreat2, .homeMoodNoteGreat3,
+             .homeMoodNoteGreat4, .homeMoodNoteGreat5, .homeMoodNoteGreat6]
+        case .good:
+            [.homeMoodNoteGood, .homeMoodNoteGood2, .homeMoodNoteGood3,
+             .homeMoodNoteGood4, .homeMoodNoteGood5, .homeMoodNoteGood6]
+        case .okay:
+            [.homeMoodNoteOkay, .homeMoodNoteOkay2, .homeMoodNoteOkay3,
+             .homeMoodNoteOkay4, .homeMoodNoteOkay5, .homeMoodNoteOkay6]
+        case .notGreat:
+            [.homeMoodNoteNotGreat, .homeMoodNoteNotGreat2, .homeMoodNoteNotGreat3,
+             .homeMoodNoteNotGreat4, .homeMoodNoteNotGreat5, .homeMoodNoteNotGreat6]
+        case .bad:
+            [.homeMoodNoteBad, .homeMoodNoteBad2, .homeMoodNoteBad3,
+             .homeMoodNoteBad4, .homeMoodNoteBad5, .homeMoodNoteBad6]
         }
+    }
+
+    /// Day-seeded pick from the pool, then a light shuffle so taps still feel fresh.
+    func noteForDay(session: SessionStore, dayOfYear: Int, lastKeyRaw: String?) -> (key: L10n.Key, text: String) {
+        let keys = noteKeys
+        guard !keys.isEmpty else {
+            return (.homeMoodNoteOkay, session.t(.homeMoodNoteOkay))
+        }
+        let preferred = ((dayOfYear % keys.count) + keys.count) % keys.count
+        // Rotate so today’s preferred message leads, then shuffle the rest for within-day variety.
+        var rotated = Array(keys[preferred...]) + Array(keys[..<preferred])
+        if rotated.count > 1, let lastKeyRaw, let last = L10n.Key(rawValue: lastKeyRaw) {
+            rotated.removeAll { $0 == last }
+            if rotated.isEmpty { rotated = keys }
+        }
+        let picked = rotated.randomElement() ?? keys[preferred]
+        return (picked, session.t(picked))
     }
 
     var wash: Color { tint.opacity(0.18) }
@@ -56,7 +89,9 @@ struct HomeView: View {
     @Environment(CheckMedStore.self) private var treatments
     @State private var navPath = NavigationPath()
     @State private var dailyMood: HomeDailyMood?
-    @State private var showMoodPicker = true
+    @State private var moodPhase: HomeMoodPhase = .picker
+    @State private var moodMessage = ""
+    @State private var hideMoodTask: Task<Void, Never>?
 
     private var greetingWord: String {
         let hour = session.foundationCalendar.component(.hour, from: Date())
@@ -76,13 +111,60 @@ struct HomeView: View {
         return raw.split(separator: " ").first.map(String.init) ?? raw
     }
 
-    private var todayStamp: String {
-        let comps = session.foundationCalendar.dateComponents([.year, .month, .day], from: Date())
-        return "\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
+    /// One dashboard row per distinct medicine scheduled today.
+    private var todayMedicines: [HomeMedicineRow] {
+        let grouped = Dictionary(grouping: path.nodes, by: \.medicineId)
+        return grouped.keys
+            .compactMap { medicineId -> HomeMedicineRow? in
+                guard let doses = grouped[medicineId], !doses.isEmpty else { return nil }
+                let ordered = doses.sorted { $0.scheduledAt < $1.scheduledAt }
+                let pending = ordered.filter { $0.status == .current || $0.status == .locked }
+                let display: DoseNode
+                let status: PathStatus
+                if let next = pending.first {
+                    display = next
+                    status = next.status
+                } else if let taken = ordered.last(where: { $0.status == .done }) {
+                    display = taken
+                    status = .done
+                } else if let skipped = ordered.last(where: { $0.status == .skipped }) {
+                    display = skipped
+                    status = .skipped
+                } else {
+                    display = ordered[0]
+                    status = display.status
+                }
+                return HomeMedicineRow(
+                    id: medicineId,
+                    medicine: display.medicine,
+                    detail: display.detail,
+                    time: display.time,
+                    status: status,
+                    takeDoseId: pending.first?.id,
+                    scheduledAt: display.scheduledAt
+                )
+            }
+            .sorted { lhs, rhs in
+                // Pending medicines first (by next dose), then completed alphabetically by time.
+                let lhsPending = lhs.takeDoseId != nil
+                let rhsPending = rhs.takeDoseId != nil
+                if lhsPending != rhsPending { return lhsPending && !rhsPending }
+                if lhs.scheduledAt != rhs.scheduledAt { return lhs.scheduledAt < rhs.scheduledAt }
+                return lhs.medicine.localizedCaseInsensitiveCompare(rhs.medicine) == .orderedAscending
+            }
     }
 
-    private var remainingCount: Int {
-        path.nodes.filter { $0.status == .current || $0.status == .locked }.count
+    private var remainingMedicineCount: Int {
+        todayMedicines.filter { $0.takeDoseId != nil }.count
+    }
+
+    private var progressStats: AdherenceSnapshot { treatments.adherence() }
+
+    private var hasActivePlan: Bool { treatments.activeMedicineCount > 0 }
+
+    private var progressWeekFraction: CGFloat {
+        guard let percent = progressStats.weekPercent else { return 0 }
+        return CGFloat(percent) / 100
     }
 
     var body: some View {
@@ -90,15 +172,29 @@ struct HomeView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     header
-                    moodCard
-                    medicationsCard
-                    if let days = treatments.daysUntilNextRevision(calendar: session.foundationCalendar), days >= 0 {
-                        revisionCard(days: days)
+                    if hasActivePlan {
+                        if moodPhase != .hidden {
+                            moodCard
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .move(edge: .top)),
+                                    removal: .opacity.combined(with: .scale(scale: 0.96))
+                                ))
+                        }
+                        progressWeekCard
+                        medicationsCard
+                        progressGlanceLinks
+                        if let days = treatments.daysUntilNextRevision(calendar: session.foundationCalendar), days >= 0 {
+                            revisionCard(days: days)
+                        }
+                        quoteBanner
+                    } else {
+                        emptyPlanCard
                     }
-                    quoteBanner
                     CheckMedButton(title: session.t(.homeScan)) {
+                        // Active-medicine free cap only — empty / under cap opens intake, not Super.
                         if !entitlements.isSuper,
-                           entitlements.freeMedicineSlotsRemaining(existingCount: treatments.activeMedicineCount) <= 0 {
+                           treatments.storedMedicineCount > 0,
+                           entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount) <= 0 {
                             entitlements.presentPaywall()
                         } else {
                             navPath.append(AppRoute.addPrescription)
@@ -118,10 +214,23 @@ struct HomeView: View {
             .onAppear {
                 treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
                 path.reload()
-                let saved = HomeDailyMood(rawValue: UserDefaults.standard.string(forKey: moodKey) ?? "")
-                dailyMood = saved
-                showMoodPicker = saved == nil
+                applyMoodVisibilityForToday()
             }
+            .onChange(of: session.selectedMainTab) { _, tab in
+                if tab == .home {
+                    applyMoodVisibilityForToday()
+                }
+            }
+            .onChange(of: navPath.count) { _, count in
+                if count == 0, session.selectedMainTab == .home {
+                    applyMoodVisibilityForToday()
+                }
+            }
+            .onDisappear {
+                hideMoodTask?.cancel()
+                hideMoodTask = nil
+            }
+            .animation(.easeInOut(duration: 0.38), value: moodPhase)
             .sheet(item: feelingItem) { item in
                 FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
             }
@@ -204,18 +313,23 @@ struct HomeView: View {
 
     private var moodCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if showMoodPicker {
+            switch moodPhase {
+            case .picker:
                 moodPicker
                     .transition(.asymmetric(
                         insertion: .opacity.combined(with: .move(edge: .top)),
                         removal: .opacity.combined(with: .scale(scale: 0.96))
                     ))
-            } else if let dailyMood {
-                moodNote(dailyMood)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .bottom)),
-                        removal: .opacity
-                    ))
+            case .note:
+                if let dailyMood {
+                    moodNote(dailyMood)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .bottom)),
+                            removal: .opacity
+                        ))
+                }
+            case .hidden:
+                EmptyView()
             }
         }
         .padding(16)
@@ -227,7 +341,6 @@ struct HomeView: View {
                 .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
         )
         .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
-        .animation(.easeInOut(duration: 0.38), value: showMoodPicker)
     }
 
     private var moodPicker: some View {
@@ -242,11 +355,7 @@ struct HomeView: View {
             HStack(spacing: 8) {
                 ForEach(HomeDailyMood.allCases) { mood in
                     Button {
-                        UserDefaults.standard.set(mood.rawValue, forKey: moodKey)
-                        withAnimation(.easeInOut(duration: 0.38)) {
-                            dailyMood = mood
-                            showMoodPicker = false
-                        }
+                        selectMood(mood)
                     } label: {
                         VStack(spacing: 6) {
                             Text(mood.symbol)
@@ -274,30 +383,101 @@ struct HomeView: View {
     }
 
     private func moodNote(_ mood: HomeDailyMood) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 10) {
-                Text(mood.symbol)
-                    .font(.system(size: 28))
-                    .frame(width: 48, height: 48)
-                    .background(mood.wash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                Text(mood.title(session))
-                    .font(.system(.headline, design: .rounded).weight(.heavy))
-                Spacer()
-                Button(session.t(.homeMoodChange)) {
-                    withAnimation(.easeInOut(duration: 0.38)) {
-                        showMoodPicker = true
-                    }
+        Button {
+            dismissMoodSection()
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(mood.symbol)
+                        .font(.system(size: 28))
+                        .frame(width: 48, height: 48)
+                        .background(mood.wash, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    Text(mood.title(session))
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                    Spacer()
                 }
-                .font(.system(.caption, design: .rounded).weight(.heavy))
-                .foregroundStyle(CheckMedTheme.flowDot)
-                .accessibilityLabel(session.t(.homeMoodChange))
+                Text(moodMessage)
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Text(mood.encouragement(session))
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .foregroundStyle(CheckMedTheme.ink)
-                .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
+    }
+
+    private var todayStamp: String {
+        let comps = session.foundationCalendar.dateComponents([.year, .month, .day], from: Date())
+        return "\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
+    }
+
+    private var moodAnsweredDateKey: String { "checkmed.homeMood.answeredDate" }
+
+    private func hasAnsweredMoodToday() -> Bool {
+        UserDefaults.standard.string(forKey: moodAnsweredDateKey) == todayStamp
+    }
+
+    private func markMoodAnsweredToday() {
+        UserDefaults.standard.set(todayStamp, forKey: moodAnsweredDateKey)
+    }
+
+    private func selectMood(_ mood: HomeDailyMood) {
+        let dayOfYear = session.foundationCalendar.ordinality(of: .day, in: .year, for: Date()) ?? 1
+        let lastKey = UserDefaults.standard.string(forKey: lastMoodNoteKey(for: mood))
+        let picked = mood.noteForDay(session: session, dayOfYear: dayOfYear, lastKeyRaw: lastKey)
+        UserDefaults.standard.set(picked.key.rawValue, forKey: lastMoodNoteKey(for: mood))
+        markMoodAnsweredToday()
+        moodMessage = picked.text
+        withAnimation(.easeInOut(duration: 0.38)) {
+            dailyMood = mood
+            moodPhase = .note
+        }
+        scheduleMoodSectionHide()
+    }
+
+    private func scheduleMoodSectionHide() {
+        hideMoodTask?.cancel()
+        hideMoodTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            guard !Task.isCancelled else { return }
+            dismissMoodSection()
+        }
+    }
+
+    private func dismissMoodSection() {
+        hideMoodTask?.cancel()
+        hideMoodTask = nil
+        markMoodAnsweredToday()
+        guard moodPhase != .hidden else { return }
+        withAnimation(.easeInOut(duration: 0.45)) {
+            moodPhase = .hidden
+        }
+    }
+
+    /// Once per calendar day: show picker until answered; after pick + fade, stay hidden until tomorrow.
+    private func applyMoodVisibilityForToday() {
+        if hasAnsweredMoodToday() {
+            hideMoodTask?.cancel()
+            hideMoodTask = nil
+            if moodPhase != .hidden {
+                withAnimation(.easeInOut(duration: 0.28)) {
+                    moodPhase = .hidden
+                }
+            }
+            return
+        }
+        // Mid-note flow: leave the encouragement visible until it fades.
+        if moodPhase == .note { return }
+        hideMoodTask?.cancel()
+        hideMoodTask = nil
+        dailyMood = nil
+        moodMessage = ""
+        withAnimation(.easeInOut(duration: 0.28)) {
+            moodPhase = .picker
+        }
     }
 
     private var medicationsCard: some View {
@@ -311,12 +491,12 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.t(.homeTodaysMeds))
                         .font(.system(.headline, design: .rounded).weight(.heavy))
-                    if path.nodes.isEmpty {
+                    if todayMedicines.isEmpty {
                         Text(session.t(.todayNothing))
                             .font(.system(.caption, design: .rounded).weight(.semibold))
                             .foregroundStyle(CheckMedTheme.muted)
                     } else {
-                        Text(session.t(.homeScheduledRemaining, path.nodes.count, remainingCount))
+                        Text(session.t(.homeScheduledRemaining, todayMedicines.count, remainingMedicineCount))
                             .font(.system(.caption, design: .rounded).weight(.semibold))
                             .foregroundStyle(CheckMedTheme.muted)
                     }
@@ -335,14 +515,40 @@ struct HomeView: View {
                 }
                 .buttonStyle(.plain)
             }
-            if path.nodes.isEmpty {
-                Text(session.t(.homeBubbleEmpty))
+            if todayMedicines.isEmpty {
+                Text(session.t(.homeBubbleEmpty, greetingName))
                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
             } else {
-                ForEach(path.nodes) { node in
-                    doseRow(node)
+                List {
+                    ForEach(todayMedicines) { row in
+                        medicineRow(row)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                navPath.append(AppRoute.medicationDetail(row.id))
+                            }
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                if let doseId = row.takeDoseId {
+                                    Button {
+                                        path.take(id: doseId)
+                                    } label: {
+                                        Label(session.t(.taken), systemImage: "checkmark")
+                                    }
+                                    .tint(Color(hex: 0x5FA86B))
+                                }
+                            }
+                    }
                 }
+                .listStyle(.plain)
+                .scrollDisabled(true)
+                .frame(height: CGFloat(todayMedicines.count) * 56)
+                .padding(.horizontal, -4)
+                Text(session.t(.homeSwipeToTake))
+                    .font(.system(.caption2, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
             }
         }
         .padding(16)
@@ -355,12 +561,41 @@ struct HomeView: View {
         .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
     }
 
-    private func doseRow(_ node: DoseNode) -> some View {
+    private var emptyPlanCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                PhilDoctor2DImage(size: 88)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(session.t(.noTreatmentInProgressHeadline))
+                        .font(.system(.title3, design: .rounded).weight(.heavy))
+                    Text(session.t(.homeBubbleEmpty, greetingName))
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Text(session.t(.noTreatmentInProgressBody))
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+    }
+
+    private func medicineRow(_ row: HomeMedicineRow) -> some View {
         HStack(spacing: 10) {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(statusBar(node.status))
+                .fill(statusBar(row.status))
                 .frame(width: 5, height: 44)
-            Text(node.time)
+            Text(row.time)
                 .font(.system(.caption, design: .rounded).weight(.heavy))
                 .foregroundStyle(CheckMedTheme.muted)
                 .frame(width: 48, alignment: .leading)
@@ -369,27 +604,27 @@ struct HomeView: View {
                 .frame(width: 36, height: 36)
                 .background(CheckMedTheme.philFlowCanvas, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
-                Text(node.medicine)
+                Text(row.medicine)
                     .font(.system(.subheadline, design: .rounded).weight(.heavy))
                     .lineLimit(1)
-                if !node.detail.isEmpty {
-                    Text(node.detail)
+                if !row.detail.isEmpty {
+                    Text(row.detail)
                         .font(.system(.caption2, design: .rounded).weight(.bold))
                         .foregroundStyle(CheckMedTheme.muted)
                         .lineLimit(1)
                 }
             }
             Spacer(minLength: 6)
-            statusChip(node)
+            statusChip(row)
         }
         .padding(.vertical, 4)
     }
 
-    private func statusChip(_ node: DoseNode) -> some View {
+    private func statusChip(_ row: HomeMedicineRow) -> some View {
         let label: String
         let icon: String
         let tint: Color
-        switch node.status {
+        switch row.status {
         case .done:
             label = session.t(.taken)
             icon = "checkmark"
@@ -407,26 +642,22 @@ struct HomeView: View {
             icon = "clock"
             tint = CheckMedTheme.muted
         }
-        return Button {
-            if node.status == .current { path.takeCurrent() }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .bold))
-                Text(label)
-                    .font(.system(.caption2, design: .rounded).weight(.heavy))
-            }
-            .foregroundStyle(node.status == .done ? Color.white : tint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                (node.status == .done ? tint : tint.opacity(0.16)),
-                in: Capsule()
-            )
+        // Status badge only — Taken is trailing swipe (next pending dose for this medicine).
+        return HStack(spacing: 4) {
+            Image(systemName: icon)
+                .font(.system(size: 10, weight: .bold))
+            Text(label)
+                .font(.system(.caption2, design: .rounded).weight(.heavy))
         }
-        .buttonStyle(.plain)
-        .disabled(node.status != .current)
+        .foregroundStyle(row.status == .done ? Color.white : tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(
+            (row.status == .done ? tint : tint.opacity(0.16)),
+            in: Capsule()
+        )
         .accessibilityLabel(label)
+        .accessibilityHint(row.takeDoseId != nil ? session.t(.homeSwipeToTake) : "")
     }
 
     private func statusBar(_ status: PathStatus) -> Color {
@@ -436,6 +667,171 @@ struct HomeView: View {
         case .skipped: CheckMedTheme.skip
         case .locked: CheckMedTheme.locked
         }
+    }
+
+    private var progressWeekCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.t(.progressWeekTitle))
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                    Text(session.t(.progressKeepGoing))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Text("🔥")
+                    Text("\(progressStats.streakDays) \(session.t(.homeStreak))")
+                        .font(.system(.caption2, design: .rounded).weight(.heavy))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(CheckMedTheme.belly, in: Capsule())
+            }
+
+            HStack(alignment: .center, spacing: 16) {
+                ZStack {
+                    Circle()
+                        .stroke(CheckMedTheme.hairline, lineWidth: 10)
+                    Circle()
+                        .trim(from: 0, to: progressWeekFraction)
+                        .stroke(CheckMedTheme.primary, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Text("\(progressStats.weekPercent ?? 0)%")
+                        .font(.system(.title2, design: .rounded).weight(.black))
+                }
+                .frame(width: 92, height: 92)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(session.t(.progressDosesTaken, progressStats.weekTaken, progressStats.weekPlanned))
+                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    HStack(spacing: 6) {
+                        Image(systemName: "pills.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(session.t(.progressNextSoon))
+                            .font(.system(.caption2, design: .rounded).weight(.bold))
+                    }
+                    .foregroundStyle(CheckMedTheme.primaryShadow)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(CheckMedTheme.mintWash, in: Capsule())
+                }
+
+                Spacer(minLength: 0)
+                Button {
+                    navPath.append(AppRoute.treatmentOverview)
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: "pills.fill")
+                            .foregroundStyle(CheckMedTheme.primaryShadow)
+                        Text("\(progressStats.treatmentCount)")
+                            .font(.system(.title3, design: .rounded).weight(.black))
+                        Text(session.t(.progressTreatmentsLabel))
+                            .font(.system(.caption2, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(10)
+                    .frame(width: 86)
+                    .background(CheckMedTheme.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(16)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+    }
+
+    /// Compact Progress glance — full Progress stays on + menu.
+    private var progressGlanceLinks: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(session.t(.progressQuickActions))
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                progressActionCard(
+                    title: session.t(.progressCalendar),
+                    hint: session.t(.progressCalendarHint),
+                    icon: "calendar",
+                    tint: Color(hex: 0x5FA86B)
+                ) { navPath.append(AppRoute.adherence) }
+                progressActionCard(
+                    title: session.t(.progressHistory),
+                    hint: session.t(.progressHistoryHint),
+                    icon: "clock.fill",
+                    tint: CheckMedTheme.flowDot
+                ) { navPath.append(AppRoute.treatmentHistory) }
+                progressActionCard(
+                    title: session.t(.journeyTitle),
+                    hint: session.t(.progressJourneyHint),
+                    icon: "chart.line.uptrend.xyaxis",
+                    tint: Color(hex: 0x9B7ED9)
+                ) { navPath.append(AppRoute.journeyReport) }
+                progressActionCard(
+                    title: session.t(.progressHeadline),
+                    hint: session.t(.progressSubhead),
+                    icon: "chart.bar.fill",
+                    tint: CheckMedTheme.primaryShadow
+                ) { navPath.append(AppRoute.progressDashboard) }
+            }
+        }
+    }
+
+    private func progressActionCard(
+        title: String,
+        hint: String,
+        icon: String,
+        tint: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(tint)
+                    .frame(width: 36, height: 36)
+                    .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                Text(title)
+                    .font(.system(.caption, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                Text(hint)
+                    .font(.system(.caption2, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(tint, in: Circle())
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, minHeight: 166, alignment: .topLeading)
+            .background(
+                LinearGradient(
+                    colors: [CheckMedTheme.surface, tint.opacity(0.08)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func revisionCard(days: Int) -> some View {
@@ -483,7 +879,9 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    private var moodKey: String { "checkmed.homeMood.\(todayStamp)" }
+    private func lastMoodNoteKey(for mood: HomeDailyMood) -> String {
+        "checkmed.homeMood.lastNote.\(mood.rawValue)"
+    }
 
     private var feelingItem: Binding<FeelingSheetItem?> {
         Binding(
@@ -493,6 +891,19 @@ struct HomeView: View {
             set: { if $0 == nil { path.clearPendingFeeling() } }
         )
     }
+}
+
+/// Home dashboard row: one entry per medicine for today (not every dose slot).
+private struct HomeMedicineRow: Identifiable {
+    let id: UUID
+    let medicine: String
+    let detail: String
+    /// Next pending dose time, or last completed/skipped time when finished for today.
+    let time: String
+    let status: PathStatus
+    /// Earliest pending dose log id — swipe Taken marks this dose.
+    let takeDoseId: String?
+    let scheduledAt: Date
 }
 
 private struct FeelingSheetItem: Identifiable {

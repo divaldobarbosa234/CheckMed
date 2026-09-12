@@ -20,6 +20,9 @@ struct AddPrescriptionIntakeHost: View {
     @State private var showPDFImporter = false
     @State private var photoItem: PhotosPickerItem?
     @State private var importToken = 0
+    @State private var didPersistPlan = false
+    @State private var medicineCountAtStart = 0
+    @State private var didCaptureStartCount = false
 
     private enum Phase {
         case choose, camera, manual, analysing, confirm, planResume
@@ -77,9 +80,10 @@ struct AddPrescriptionIntakeHost: View {
                 OnboardingConfirmView(
                     drafts: $drafts,
                     isManual: method == .manual,
-                    existingMedicineCount: treatments.activeMedicineCount,
+                    existingMedicineCount: medicineCountAtStart,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
+                        guard persistConfirmedDrafts() else { return }
                         phase = .planResume
                     },
                     onBack: {
@@ -89,7 +93,7 @@ struct AddPrescriptionIntakeHost: View {
             case .planResume:
                 PlanResumeView(
                     drafts: drafts.filter(\.hasMedicineName),
-                    onContinue: confirm,
+                    onContinue: finishIntake,
                     onBack: { phase = .confirm }
                 )
             }
@@ -114,13 +118,18 @@ struct AddPrescriptionIntakeHost: View {
             drafts = [.empty]
             goAnalysing()
         }
+        .onAppear {
+            guard !didCaptureStartCount else { return }
+            medicineCountAtStart = treatments.storedMedicineCount
+            didCaptureStartCount = true
+        }
     }
 
     private func start(_ next: OnboardingAddMethod, proceed: () -> Void) {
-        let ownerId = session.auth.userId
+        let ownerId = session.planOwnerId
         guard entitlements.gatePrescriptionAdd(
             method: next,
-            existingCount: treatments.activeMedicineCount,
+            existingCount: treatments.storedMedicineCount,
             photoPDFUsed: ImportUsage.photoPDFCount(ownerId: ownerId)
         ) else { return }
         method = next
@@ -161,26 +170,73 @@ struct AddPrescriptionIntakeHost: View {
         for index in named.indices { named[index].sanitizeScheduleFields() }
         return named.cappedForPlan(
             isSuper: entitlements.isSuper,
-            existingCount: treatments.activeMedicineCount
+            existingCount: medicineCountAtStart
         )
     }
 
-    private func confirm() {
-        treatments.addFromDrafts(
-            drafts.cappedForPlan(
-                isSuper: entitlements.isSuper,
-                existingCount: treatments.activeMedicineCount
-            ).filter(\.hasMedicineName),
-            ownerId: session.auth.userId,
-            profileId: session.profileId
-        )
-        if method == .photo || method == .pdf {
-            ImportUsage.incrementPhotoPDF(ownerId: session.auth.userId)
+    /// Persist on confirm (before journey) so Home never depends on PlanResume continue.
+    @discardableResult
+    private func persistConfirmedDrafts() -> Bool {
+        let capped = drafts.cappedForPlan(
+            isSuper: entitlements.isSuper,
+            existingCount: medicineCountAtStart
+        ).filter(\.hasMedicineName)
+        guard !capped.isEmpty else {
+            #if DEBUG
+            print("[CheckMed] add-intake confirm blocked: empty after cap")
+            #endif
+            if !entitlements.isSuper,
+               medicineCountAtStart >= SuperLimits.freePrescriptions {
+                entitlements.presentPaywall()
+            }
+            return false
+        }
+        let ok: Bool
+        if medicineCountAtStart == 0 {
+            ok = treatments.seedFromDrafts(
+                capped,
+                ownerId: session.planOwnerId,
+                profileId: session.planProfileId
+            )
+        } else if didPersistPlan {
+            // Already wrote this intake once; avoid duplicate rows on confirm → back → confirm.
+            ok = true
+        } else {
+            ok = treatments.addFromDrafts(
+                capped,
+                ownerId: session.planOwnerId,
+                profileId: session.planProfileId
+            )
+        }
+        guard ok else {
+            #if DEBUG
+            print("[CheckMed] persistConfirmedDrafts failed")
+            #endif
+            return false
+        }
+        let firstPersist = !didPersistPlan
+        didPersistPlan = true
+        session.markMedicationPlanConfirmed()
+        // Always arm post-journey chain after any successful confirm (seed or add).
+        session.markPendingPostJourneySetup()
+        treatments.setSurfacesPlan(true)
+        if firstPersist, method == .photo || method == .pdf {
+            ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
         }
         path.reload()
+        return true
+    }
+
+    private func finishIntake() {
+        if !didPersistPlan {
+            guard persistConfirmedDrafts() else { return }
+        }
+        // After journey: always notifications → alarms → Super → Phil before Home.
+        session.startPostJourneyQueue()
         if let onFinished {
             onFinished()
         } else {
+            session.beginResumeSetup()
             dismiss()
         }
     }

@@ -60,7 +60,7 @@ struct ChekMedApp: App {
                 .onChange(of: entitlements.isSuper) { _, isSuper in
                     if !isSuper {
                         family.selectPrimary()
-                        family.applyScope(to: treatments, primaryProfileId: session.profileId)
+                        family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
                     }
                     treatments.pruneDuplicateAndFreeCap(isSuper: isSuper)
                     ReminderScheduler.shared.reschedule()
@@ -69,10 +69,15 @@ struct ChekMedApp: App {
     }
 
     private func bindStores() {
-        family.load(ownerId: session.auth.userId)
-        treatments.bindIdentity(ownerId: session.auth.userId, profileId: session.profileId)
+        let ownerId = session.planOwnerId
+        let profileId = session.planProfileId
+        if let authId = session.auth.userId, authId != session.localPlanOwnerId {
+            treatments.adoptOwner(from: session.localPlanOwnerId, to: authId, profileId: profileId)
+        }
+        family.load(ownerId: session.auth.userId ?? ownerId)
+        treatments.bindIdentity(ownerId: ownerId, profileId: profileId)
         treatments.setTimeZone(session.foundationTimeZone)
-        family.applyScope(to: treatments, primaryProfileId: session.profileId)
+        family.applyScope(to: treatments, primaryProfileId: profileId)
         path.bind(store: treatments)
         syncEngine.bind(store: treatments, session: session)
         syncEngine.bindFamily(family)
@@ -87,12 +92,23 @@ struct ChekMedApp: App {
             voice: voice
         )
         session.onPostAuthSync = { [treatments, syncEngine, session, family] in
-            treatments.bindIdentity(ownerId: session.auth.userId, profileId: session.profileId)
+            let ownerId = session.planOwnerId
+            let profileId = session.planProfileId
+            if let authId = session.auth.userId, authId != session.localPlanOwnerId {
+                treatments.adoptOwner(from: session.localPlanOwnerId, to: authId, profileId: profileId)
+            }
+            treatments.bindIdentity(ownerId: ownerId, profileId: profileId)
             treatments.setTimeZone(session.foundationTimeZone)
             await syncEngine.syncIfSignedIn()
-            family.applyScope(to: treatments, primaryProfileId: session.profileId)
+            family.applyScope(to: treatments, primaryProfileId: profileId)
+            let purged = treatments.reconcileUnconfirmedMedicationPlan(session: session)
+            if purged {
+                await syncEngine.syncIfSignedIn()
+            }
             return treatments.hasExistingTreatments
         }
+        // Local / guest path: reconcile without waiting for auth sync.
+        _ = treatments.reconcileUnconfirmedMedicationPlan(session: session)
         path.reload()
         treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
         ReminderScheduler.shared.reschedule()

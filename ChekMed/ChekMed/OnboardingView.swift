@@ -59,35 +59,52 @@ struct FirstTimeOnboardingView: View {
             case .splash:
                 SplashView {
                     session.markIntroSplashSeen()
+                    #if DEBUG
+                    print(
+                        "[CheckMed] splash done → afterSplash=\(afterSplash) "
+                            + "preAuth=\(session.hasFinishedPreAuthFunnel) "
+                            + "unlocked=\(session.isSessionUnlocked) "
+                            + "onboarded=\(session.hasCompletedOnboarding) "
+                            + "postAuth=\(String(describing: session.postAuthKind)) "
+                            + "root=\(session.rootDestination)"
+                    )
+                    #endif
                     advance(to: afterSplash, persist: afterSplash.persistable)
                 }
                 .transition(.opacity)
             case .language:
                 LanguageOnboardingView {
+                    session.markLanguageChosen()
                     advance(to: .howItWorks)
                 }
                 .transition(insert)
             case .howItWorks:
-                HowItWorksView(onGetStarted: { advance(to: .privacy) })
-                    .transition(insert)
+                HowItWorksView(onGetStarted: {
+                    session.markHowItWorksSeen()
+                    advance(to: .privacy)
+                })
+                .transition(insert)
             case .privacy:
                 PrivacyConsentView(onAccept: {
-                    if session.kind == .authenticated {
-                        advance(to: session.needsIdentityProfile ? .profile : .addMedication)
-                    } else {
-                        advance(to: .signIn)
-                    }
+                    // PrivacyConsentView already called acknowledgePrivacy().
+                    // Always show Sign-in this install — restored Apple session must not skip it.
+                    advance(to: .signIn)
                 })
                 .transition(insert)
             case .signIn:
                 NavigationStack {
-                    SignInView(onAuthenticated: {})
+                    SignInView(onAuthenticated: {
+                        session.markSignInScreenCompleted()
+                    })
                 }
                 .transition(insert)
             case .profile:
                 AccountProfileSetupView(
                     showsSignOut: true,
-                    onFinished: { advance(to: .addMedication) }
+                    onFinished: {
+                        // Profile must finish before medication scan — never force PDF mid-profile.
+                        advance(to: .addMedication)
+                    }
                 )
                 .transition(insert)
             case .addMedication:
@@ -109,7 +126,13 @@ struct FirstTimeOnboardingView: View {
                             advance(to: .manualEntry)
                         }
                     },
-                    onBack: { advance(to: .profile) }
+                    onBack: {
+                        // Only reopen profile when identity is still incomplete.
+                        // Never re-enter name/birth/nouns after setup is done.
+                        if session.needsIdentityProfile {
+                            advance(to: .profile)
+                        }
+                    }
                 )
                 .transition(insert)
             case .camera:
@@ -148,13 +171,29 @@ struct FirstTimeOnboardingView: View {
                     existingMedicineCount: 0,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
-                        treatments.seedFromDrafts(
-                            drafts.cappedForPlan(isSuper: entitlements.isSuper, existingCount: 0).filter(\.hasMedicineName),
-                            ownerId: session.auth.userId,
-                            profileId: session.profileId
+                        let capped = drafts.cappedForPlan(isSuper: entitlements.isSuper, existingCount: 0).filter(\.hasMedicineName)
+                        guard !capped.isEmpty else {
+                            #if DEBUG
+                            print("[CheckMed] onboarding confirm blocked: empty after cap")
+                            #endif
+                            return
+                        }
+                        let ok = treatments.seedFromDrafts(
+                            capped,
+                            ownerId: session.planOwnerId,
+                            profileId: session.planProfileId
                         )
+                        guard ok else {
+                            #if DEBUG
+                            print("[CheckMed] onboarding seedFromDrafts failed")
+                            #endif
+                            return
+                        }
+                        session.markMedicationPlanConfirmed()
+                        session.markPendingPostJourneySetup()
+                        treatments.setSurfacesPlan(true)
                         if addMethod == .photo || addMethod == .pdf {
-                            ImportUsage.incrementPhotoPDF(ownerId: session.auth.userId)
+                            ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
                         }
                         path.reload()
                         advance(to: .planResume)
@@ -166,39 +205,42 @@ struct FirstTimeOnboardingView: View {
                 PlanResumeView(
                     drafts: drafts.filter(\.hasMedicineName),
                     showsAddMore: false,
-                    onContinue: { advance(to: .notifications) },
+                    onContinue: { advanceAfterJourney() },
                     onBack: { advance(to: .confirm) }
                 )
                 .transition(insert)
             case .organize:
-                OnboardingOrganizeView(
-                    onContinue: { advance(to: .notifications) },
-                    onBack: { advance(to: .confirm) }
-                )
-                .transition(insert)
+                // Legacy saved phase — jump into the post-journey permission chain.
+                Color.clear
+                    .onAppear { advanceAfterJourney() }
             case .notifications:
                 NotificationsPermissionView(
                     secondaryTitle: session.t(.skip),
-                    onEnable: { advance(to: .alarmSetup) },
-                    onSecondary: { advance(to: .alarmSetup) },
+                    onEnable: { advancePostJourneyFrom(.notifications) },
+                    onSecondary: { advancePostJourneyFrom(.notifications) },
                     onBack: { advance(to: .planResume) }
                 )
                 .transition(insert)
             case .alarmSetup:
                 AlarmSetupView(
-                    onEnable: { advance(to: .trial) },
-                    onSkip: { advance(to: .trial) },
+                    onEnable: { advancePostJourneyFrom(.alarms) },
+                    onSkip: { advancePostJourneyFrom(.alarms) },
                     onBack: { advance(to: .notifications) }
                 )
                 .transition(insert)
             case .trial:
                 OnboardingSuperTrialView {
                     session.markOnboardingPaywallOffered()
-                    advance(to: .ready)
+                    treatments.setSurfacesPlan(true)
+                    path.reload()
+                    advancePostJourneyFrom(.trial)
                 }
                 .transition(insert)
             case .ready:
                 OnboardingPhilReadyView {
+                    treatments.setSurfacesPlan(true)
+                    path.reload()
+                    session.advancePostJourney(isSuper: entitlements.isSuper)
                     session.markOnboardingComplete()
                 }
                 .transition(insert)
@@ -239,15 +281,17 @@ struct FirstTimeOnboardingView: View {
             bootstrapPhase()
         }
         .onChange(of: session.kind) { oldKind, kind in
-            if oldKind == .authenticated, kind != .authenticated {
+            if oldKind == .authenticated || oldKind == .guest, !session.isSessionUnlocked {
                 if phase.requiresAuth { return }
                 afterSplash = .language
                 didBootstrapPhase = false
                 advance(to: .splash, persist: false)
-            } else if kind == .authenticated {
-                if phase.requiresAuth { return }
-                didBootstrapPhase = false
-                bootstrapPhase()
+            } else if session.isSessionUnlocked {
+                // Stay on language / how it works / privacy / sign-in until this-install Sign-in completes.
+                afterSplash = destinationAfterSplash()
+                if phase == .signIn, session.hasCompletedSignInThisInstall {
+                    routeAfterAuthIfNeeded()
+                }
             }
         }
         .onChange(of: session.postAuthKind) { _, _ in
@@ -259,7 +303,7 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func replayOnboardingIfUnsignedAfterLeaving(_ phase: ScenePhase) {
-        guard session.kind != .authenticated else { return }
+        guard !session.isSessionUnlocked else { return }
         guard !session.auth.isRestoring, !session.isLoading else { return }
         if phase == .background {
             session.restartPreAuthOnboarding()
@@ -284,8 +328,12 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func routeAfterAuthIfNeeded() {
-        guard session.kind == .authenticated else { return }
-        guard session.postAuthKind == .newAccount else { return }
+        guard session.isSessionUnlocked else { return }
+        guard session.hasFinishedPreAuthFunnel else { return }
+        guard session.hasCompletedSignInThisInstall else { return }
+        // Returning / Keychain-complete: RootView owns ReturningWelcome — never push Adicionar receita.
+        if session.hasCompletedOnboarding || session.postAuthKind == .returning { return }
+        if session.kind == .authenticated, session.postAuthKind != .newAccount { return }
         guard phase == .signIn else { return }
         let next: FirstTimePhase = session.needsIdentityProfile ? .profile : .addMedication
         advance(to: next)
@@ -299,15 +347,23 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func advance(to next: FirstTimePhase, persist: Bool = true) {
-        if next == .analysing {
+        // Hard gate: never enter scan/medication while identity profile is incomplete.
+        let gated: FirstTimePhase
+        switch next {
+        case .addMedication, .camera, .manualEntry, .analysing, .confirm:
+            gated = session.needsIdentityProfile ? .profile : next
+        default:
+            gated = next
+        }
+        if gated == .analysing {
             importToken += 1
         }
         withAnimation(.easeInOut(duration: 0.45)) {
-            phase = next
+            phase = gated
         }
-        hydrateDraftsIfNeeded(for: next)
-        if persist, next.persistable {
-            session.setFirstTimePhaseRaw(next.rawValue)
+        hydrateDraftsIfNeeded(for: gated)
+        if persist, gated.persistable {
+            session.setFirstTimePhaseRaw(gated.rawValue)
         }
     }
 
@@ -322,17 +378,26 @@ struct FirstTimeOnboardingView: View {
 
     private func bootstrapPhase() {
         if !didBootstrapPhase, session.consumeIncompleteColdLaunchIfNeeded() {
-            afterSplash = .language
+            afterSplash = nextPreAuthPhase(saved: .language)
             didBootstrapPhase = true
             phase = .splash
             return
         }
         afterSplash = destinationAfterSplash()
-        if session.kind == .authenticated, phase == .signIn || phase == .splash || phase == .language || phase == .howItWorks || phase == .privacy {
-            didBootstrapPhase = false
+        if !session.hasFinishedPreAuthFunnel {
+            afterSplash = nextPreAuthPhase(saved: afterSplash)
         }
-        guard !didBootstrapPhase else { return }
-        if session.kind != .authenticated, !session.auth.isRestoring, !session.isLoading {
+        guard !didBootstrapPhase else {
+            routeAfterAuthIfNeeded()
+            return
+        }
+        if !session.hasFinishedPreAuthFunnel {
+            afterSplash = nextPreAuthPhase(saved: .language)
+            didBootstrapPhase = true
+            phase = .splash
+            return
+        }
+        if !session.isSessionUnlocked, !session.auth.isRestoring, !session.isLoading {
             session.restartPreAuthOnboarding()
             afterSplash = .language
         }
@@ -346,35 +411,94 @@ struct FirstTimeOnboardingView: View {
         routeAfterAuthIfNeeded()
     }
 
+    /// Notifications → alarms → trial → Phil. Never jump to Home from journey.
+    private func advanceAfterJourney() {
+        session.startPostJourneyQueue()
+        advance(to: .notifications)
+    }
+
+    private func advancePostJourneyFrom(_ step: SessionStore.PostJourneyStep) {
+        if session.postJourneyStep == nil {
+            session.startPostJourneyQueue()
+        }
+        // Keep queue aligned with the screen the user is leaving.
+        if session.postJourneyStep != step {
+            session.syncPostJourneyStep(step)
+        }
+        let next = session.advancePostJourney(isSuper: entitlements.isSuper)
+        advance(to: firstTimePhase(for: next))
+    }
+
+    private func firstTimePhase(for step: SessionStore.PostJourneyStep) -> FirstTimePhase {
+        switch step {
+        case .notifications: return .notifications
+        case .alarms: return .alarmSetup
+        case .trial: return .trial
+        case .philReady, .done: return .ready
+        }
+    }
+
     private func destinationAfterSplash() -> FirstTimePhase {
         var saved = FirstTimePhase(rawValue: session.firstTimePhaseRaw) ?? .language
         if saved == .splash || saved == .analysing { saved = .language }
-        if session.kind == .authenticated {
-            if session.hasCompletedOnboarding {
-                return session.needsIdentityProfile ? .profile : .ready
-            }
-            if !saved.requiresAuth || saved == .signIn {
-                return session.needsIdentityProfile ? .profile : .addMedication
-            }
-            if saved == .profile, !session.needsIdentityProfile {
-                return .addMedication
-            }
-            if saved == .confirm, treatments.activeTreatmentCount > 0 {
-                return .planResume
-            }
-            if saved == .planResume, treatments.activeTreatmentCount > 0 {
-                return .planResume
-            }
+
+        // Pre-auth funnel (UserDefaults) always wins — delete+reinstall clears these flags
+        // even when Keychain still says onboarded. Never jump to .ready / .addMedication here.
+        if !session.hasFinishedLegalPreAuth || !session.hasCompletedSignInThisInstall {
+            return nextPreAuthPhase(saved: saved)
+        }
+
+        // Funnel done but session still locked (shouldn't happen after Sign-in complete).
+        guard session.isSessionUnlocked else { return .signIn }
+
+        // Mid post-journey queue always wins over “already onboarded”.
+        if let step = session.postJourneyStep, step != .done {
+            return firstTimePhase(for: step)
+        }
+
+        // Returning / Keychain: RootView should have left FirstTimeOnboarding already.
+        // If we are still here, do not open Adicionar receita.
+        let keychainDone = ProfileSetupKeychain.isComplete(for: session.auth.userId)
+            || ProfileSetupKeychain.isOnboardingComplete(for: session.auth.userId)
+        if session.hasCompletedOnboarding || session.postAuthKind == .returning || keychainDone {
+            if session.pendingPostJourneySetup { return .notifications }
+            // Stay idle; root router will present ReturningWelcome / Home.
+            return .signIn
+        }
+
+        switch saved {
+        case .language, .howItWorks, .privacy, .signIn:
+            // Pre-auth already finished — continue post-auth path (new users only).
+            return session.needsIdentityProfile ? .profile : .addMedication
+        case .profile:
+            return session.needsIdentityProfile ? .profile : .addMedication
+        case .confirm where session.hasConfirmedMedicationPlan || treatments.activeTreatmentCount > 0,
+             .planResume where session.hasConfirmedMedicationPlan || treatments.activeTreatmentCount > 0:
+            return .planResume
+        case .organize:
+            return .notifications
+        case .notifications, .alarmSetup, .trial, .ready, .addMedication, .camera, .manualEntry:
+            return saved
+        default:
             return saved
         }
-        return .language
+    }
+
+    /// Resume the earliest unfinished pre-auth step (language → how it works → privacy → sign-in).
+    private func nextPreAuthPhase(saved: FirstTimePhase) -> FirstTimePhase {
+        if !session.hasChosenLanguage { return .language }
+        if !session.hasSeenHowItWorks { return .howItWorks }
+        if !session.hasAcknowledgedPrivacy { return .privacy }
+        if !session.hasCompletedSignInThisInstall { return .signIn }
+        _ = saved
+        return .signIn
     }
 
     private func startImport(_ next: OnboardingAddMethod, proceed: () -> Void) {
         guard entitlements.gatePrescriptionAdd(
             method: next,
-            existingCount: treatments.activeMedicineCount,
-            photoPDFUsed: ImportUsage.photoPDFCount(ownerId: session.auth.userId)
+            existingCount: treatments.storedMedicineCount,
+            photoPDFUsed: ImportUsage.photoPDFCount(ownerId: session.planOwnerId)
         ) else { return }
         addMethod = next
         proceed()

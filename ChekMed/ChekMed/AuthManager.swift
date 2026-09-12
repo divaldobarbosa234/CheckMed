@@ -80,6 +80,7 @@ final class AuthManager {
     func start() {
         guard !didStart else { return }
         didStart = true
+        let skipPersistedSession = CheckMedAuthPersistence.prepareLaunch()
         configureClient()
         configureGoogle()
         guard let client else {
@@ -87,6 +88,22 @@ final class AuthManager {
             return
         }
         listen(to: client)
+        if skipPersistedSession {
+            Task { [weak self] in
+                GIDSignIn.sharedInstance.signOut()
+                do {
+                    try await client.auth.signOut()
+                } catch {
+                    // Storage already wiped; SDK may error with no session.
+                }
+                await MainActor.run {
+                    guard let self else { return }
+                    self.apply(session: nil)
+                    self.sawInitialSession = true
+                    self.isRestoring = false
+                }
+            }
+        }
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             await MainActor.run {
@@ -316,6 +333,20 @@ final class AuthManager {
     }
 
     private func handleAuthChange(_ event: AuthChangeEvent, _ session: Session?) async {
+        if CheckMedAuthPersistence.skipRestoreThisProcess, event == .initialSession {
+            apply(session: nil)
+            sawInitialSession = true
+            isRestoring = false
+            if session != nil, let client {
+                do {
+                    try await client.auth.signOut()
+                } catch {}
+            }
+            return
+        }
+        if event == .signedIn {
+            CheckMedAuthPersistence.skipRestoreThisProcess = false
+        }
         let wasAuthenticated = isAuthenticated
         let sameUser = wasAuthenticated && session?.user.id != nil && session?.user.id == userId
         if event == .signedIn, sameUser {
@@ -568,8 +599,72 @@ final class AuthManager {
     }
 }
 
-/// Persists the Supabase session in UserDefaults (survives debug reinstalls and
-/// Keychain access-group changes) and mirrors into the default Keychain.
+/// UserDefaults is wiped on app delete; Keychain (`kSecAttrAccessibleAfterFirstUnlock`)
+/// is not. Gate Keychain session restore on an install token so delete → signed out.
+enum CheckMedAuthPersistence {
+    static let hasLaunchedThisInstallKey = "checkmed.hasLaunchedThisInstall"
+    static let installSessionTokenKey = "checkmed.installSessionToken"
+    private static let userDefaultsPrefix = "checkmed.auth."
+
+    /// When true, ignore leftover Keychain session tokens for this process.
+    static var skipRestoreThisProcess = false
+
+    /// Stamp this install. Discard happens in SessionStore when
+    /// `preAuthInstallStamp` is missing (true new container after delete).
+    /// Do not treat a missing `hasLaunchedThisInstall` alone as delete — that
+    /// would sign existing users out on this update.
+    @discardableResult
+    static func prepareLaunch() -> Bool {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: hasLaunchedThisInstallKey) == nil {
+            defaults.set(true, forKey: hasLaunchedThisInstallKey)
+        }
+        return skipRestoreThisProcess
+    }
+
+    static func discardPersistedSession() {
+        skipRestoreThisProcess = true
+        let defaults = UserDefaults.standard
+        let prefixed = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix(userDefaultsPrefix) }
+        var sessionKeys: Set<String> = [
+            "supabase.auth.token",
+            "supabase.session",
+            "supabase.auth.token-code-verifier"
+        ]
+        for key in prefixed {
+            sessionKeys.insert(String(key.dropFirst(userDefaultsPrefix.count)))
+        }
+        if let host = AuthConfig.supabaseURL?.host {
+            let project = host.split(separator: ".").first.map(String.init) ?? ""
+            if !project.isEmpty {
+                sessionKeys.insert("sb-\(project)-auth-token")
+                sessionKeys.insert("sb-\(project)-auth-token-code-verifier")
+            }
+        }
+        defaults.removeObject(forKey: installSessionTokenKey)
+        for key in prefixed {
+            defaults.removeObject(forKey: key)
+        }
+        let keychain = KeychainLocalStorage()
+        for key in sessionKeys {
+            try? keychain.remove(key: key)
+        }
+    }
+
+    fileprivate static func bindSessionToThisInstall() {
+        skipRestoreThisProcess = false
+        UserDefaults.standard.set(UUID().uuidString, forKey: installSessionTokenKey)
+    }
+
+    fileprivate static var mayRestoreKeychainSession: Bool {
+        !skipRestoreThisProcess
+            && UserDefaults.standard.object(forKey: installSessionTokenKey) != nil
+    }
+}
+
+/// Persists the Supabase session in UserDefaults for this install and mirrors
+/// into Keychain. Keychain is only read back when `installSessionToken` exists
+/// (UserDefaults — wiped on delete), so uninstall cannot silently log the user in.
 private struct CheckMedAuthStorage: AuthLocalStorage {
     private let prefix = "checkmed.auth."
     private let keychain = KeychainLocalStorage()
@@ -577,12 +672,15 @@ private struct CheckMedAuthStorage: AuthLocalStorage {
     func store(key: String, value: Data) throws {
         UserDefaults.standard.set(value, forKey: prefix + key)
         try? keychain.store(key: key, value: value)
+        CheckMedAuthPersistence.bindSessionToThisInstall()
     }
 
     func retrieve(key: String) throws -> Data? {
+        if CheckMedAuthPersistence.skipRestoreThisProcess { return nil }
         if let data = UserDefaults.standard.data(forKey: prefix + key) {
             return data
         }
+        guard CheckMedAuthPersistence.mayRestoreKeychainSession else { return nil }
         if let data = try? keychain.retrieve(key: key) {
             UserDefaults.standard.set(data, forKey: prefix + key)
             return data

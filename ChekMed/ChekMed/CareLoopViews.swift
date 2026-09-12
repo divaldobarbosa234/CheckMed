@@ -74,24 +74,23 @@ struct JourneyReportScreen: View {
     @Environment(CheckMedStore.self) private var treatments
     @Environment(EntitlementStore.self) private var entitlements
 
+    private var finishedReports: [JourneyReport] {
+        treatments.finishedJourneyReports()
+    }
+
     private var reports: [JourneyReport] {
-        let finished = treatments.finishedJourneyReports()
-        return finished.isEmpty ? treatments.journeyReports() : finished
+        // Prefer finished plans (e.g. after "See the report") so completing never looks like a wipe.
+        if !finishedReports.isEmpty { return finishedReports }
+        return treatments.journeyReports()
     }
 
     var body: some View {
         ScreenScaffold(
             title: session.t(.journeyTitle),
-            bubble: entitlements.canViewJourneyReport
-                ? session.t(.journeyBubble)
-                : session.t(.journeyLockedBubble)
+            bubble: session.t(.journeyBubble)
         ) {
-            if !entitlements.canViewJourneyReport {
-                SuperLockBadge()
-                Text(session.t(.journeyLockedBody))
-                    .font(.system(.body, design: .rounded).weight(.bold))
-                CheckMedButton(title: session.t(.profileSuper)) { entitlements.presentPaywall() }
-            } else if reports.isEmpty {
+            // Free users can browse/view; Super gates share/export.
+            if reports.isEmpty {
                 Text(session.t(.journeyEmpty))
                     .font(.system(.body, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.muted)
@@ -126,12 +125,18 @@ struct JourneyReportScreen: View {
             Text(session.t(.journeyNotAdvice))
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.safety)
-            if entitlements.canViewJourneyReport, !reports.isEmpty {
-                ShareLink(item: Self.shareText(reports: reports, session: session)) {
-                    Text(session.t(.journeyShare))
-                        .font(.system(.body, design: .rounded).weight(.heavy))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+            if !reports.isEmpty {
+                if entitlements.canViewJourneyReport {
+                    ShareLink(item: Self.shareText(reports: reports, session: session)) {
+                        Text(session.t(.journeyShare))
+                            .font(.system(.body, design: .rounded).weight(.heavy))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                } else {
+                    CheckMedButton(title: session.t(.journeyShare), style: .secondary) {
+                        entitlements.presentPaywall()
+                    }
                 }
             }
             CheckMedButton(title: session.t(.reportHeadline), style: .secondary) {
@@ -250,7 +255,6 @@ struct PharmacySearchScreen: View {
     @State private var results: [PharmacyResult] = []
     @State private var status = ""
     @State private var locator = PharmacyLocator()
-    @State private var didOfferPaywall = false
     @State private var userLocation: CLLocation?
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var selectedResultID: String?
@@ -260,37 +264,46 @@ struct PharmacySearchScreen: View {
             title: session.t(.pharmacyTitle),
             bubble: session.t(.pharmacyBubble)
         ) {
-            if !entitlements.canSearchPharmacies {
-                SuperLockBadge()
-                Text(session.t(.pharmacyLocked))
-                    .font(.system(.body, design: .rounded).weight(.bold))
-                CheckMedButton(title: session.t(.treatmentsTrySuper)) { entitlements.presentPaywall() }
-                CheckMedButton(title: session.t(.paywallNotNow), style: .ghost) {}
-            } else {
-                TextField(session.t(.pharmacyQuery), text: $query)
-                    .textInputAutocapitalization(.words)
-                    .padding(14)
-                    .background(CheckMedTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-                    )
-                    .onSubmit {
-                        Task { await search() }
-                    }
-                CheckMedButton(title: session.t(.pharmacySearch)) {
-                    Task { await search() }
+            // Free users can open the map UI; Super gates MapKit search only.
+            TextField(session.t(.pharmacyQuery), text: $query)
+                .textInputAutocapitalization(.words)
+                .padding(14)
+                .background(CheckMedTheme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+                )
+                .onSubmit {
+                    Task { await runSearchOrPaywall() }
                 }
+            CheckMedButton(title: session.t(.pharmacySearch)) {
+                Task { await runSearchOrPaywall() }
+            }
+            ZStack {
                 pharmacyMap
-                if !status.isEmpty {
-                    Text(status)
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
+                if !entitlements.canSearchPharmacies, results.isEmpty {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(CheckMedTheme.ink.opacity(0.28))
+                    VStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 22, weight: .bold))
+                        Text(session.t(.pharmacySearchHint))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                            .multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 24)
+                    .allowsHitTesting(false)
                 }
-                ForEach(results) { result in
-                    pharmacyCard(result)
-                }
+            }
+            if !status.isEmpty {
+                Text(status)
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            ForEach(results) { result in
+                pharmacyCard(result)
             }
             Text(session.t(.pharmacyDisclaimer))
                 .font(.system(.caption, design: .rounded).weight(.bold))
@@ -298,10 +311,6 @@ struct PharmacySearchScreen: View {
         }
         .onAppear {
             seedQueryIfNeeded()
-            if !entitlements.canSearchPharmacies, !didOfferPaywall {
-                didOfferPaywall = true
-                entitlements.presentPaywall()
-            }
         }
         .onChange(of: entitlements.isSuper) { _, isSuper in
             if isSuper {
@@ -320,6 +329,14 @@ struct PharmacySearchScreen: View {
                 await search()
             }
         }
+    }
+
+    private func runSearchOrPaywall() async {
+        guard entitlements.canSearchPharmacies else {
+            entitlements.presentPaywall()
+            return
+        }
+        await search()
     }
 
     private var pharmacyMap: some View {

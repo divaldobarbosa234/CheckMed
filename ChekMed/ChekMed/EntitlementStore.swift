@@ -25,7 +25,9 @@ final class EntitlementStore {
     var canChooseAlarmTheme: Bool { isSuper }
     var canUseVoiceReading: Bool { isSuper }
     var canUseAdvanceReminder: Bool { isSuper }
+    /// Share/export for journey reports (browse/view stays free).
     var canViewJourneyReport: Bool { isSuper }
+    /// MapKit pharmacy search only (screen + map UI stay free).
     var canSearchPharmacies: Bool { isSuper }
     var canUseRefillReminder: Bool { isSuper }
 

@@ -11,113 +11,40 @@ struct PhilView: View {
     var pose: PhilPose = .idle
     var smiling = false
 
-    private var showSmile: Bool { (smiling || pose == .pointingDown) && mood != .sad }
-    private var isSad: Bool { mood == .sad }
+    private var libraryAsset: String {
+        if pose == .pointingDown {
+            return "phil_thinking"
+        }
+        switch mood {
+        case .sad, .skip:
+            return "phil_sick"
+        case .celebrate, .complete:
+            return "phil_onboarding_05_healthy"
+        case .idle:
+            return smiling ? "phil_doctor_2d" : "phil_glasses"
+        }
+    }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Capsule()
-                .fill(CheckMedTheme.beak)
-                .frame(width: 18, height: 22)
-                .rotationEffect(.degrees(-18))
-                .offset(x: size * 0.04, y: -size * 0.02)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: size / 2.1, style: .continuous)
-                    .fill(CheckMedTheme.philYellow)
-                    .overlay(alignment: .bottom) {
-                        Capsule()
-                            .fill(CheckMedTheme.belly)
-                            .frame(width: size * 0.62, height: size * 0.48)
-                            .offset(y: -size * 0.08)
-                    }
-
-                HStack(spacing: size * 0.12) {
-                    eye(lookDown: pose == .pointingDown || isSad)
-                    eye(lookDown: pose == .pointingDown || isSad)
-                }
-                .offset(y: -size * 0.12)
-
-                if isSad {
-                    HStack(spacing: size * 0.14) {
-                        Capsule()
-                            .fill(CheckMedTheme.ink.opacity(0.55))
-                            .frame(width: size * 0.16, height: max(2, size * 0.028))
-                            .rotationEffect(.degrees(18))
-                        Capsule()
-                            .fill(CheckMedTheme.ink.opacity(0.55))
-                            .frame(width: size * 0.16, height: max(2, size * 0.028))
-                            .rotationEffect(.degrees(-18))
-                    }
-                    .offset(y: -size * 0.24)
-                }
-
-                Triangle()
-                    .fill(CheckMedTheme.beak)
-                    .frame(width: 12, height: 8)
-                    .offset(y: size * 0.02)
-
-                HStack {
-                    Capsule().fill(CheckMedTheme.cheek.opacity(isSad ? 0.4 : 0.85)).frame(width: 12, height: 8)
-                    Spacer()
-                    Capsule().fill(CheckMedTheme.cheek.opacity(isSad ? 0.4 : 0.85)).frame(width: 12, height: 8)
-                }
-                .padding(.horizontal, size * 0.16)
-                .offset(y: size * 0.08)
-
-                if showSmile {
-                    SmileArc()
-                        .stroke(CheckMedTheme.ink.opacity(0.72), style: StrokeStyle(lineWidth: max(2, size * 0.028), lineCap: .round))
-                        .frame(width: size * 0.22, height: size * 0.1)
-                        .offset(y: size * 0.16)
-                } else if isSad {
-                    FrownArc()
-                        .stroke(CheckMedTheme.ink.opacity(0.72), style: StrokeStyle(lineWidth: max(2, size * 0.028), lineCap: .round))
-                        .frame(width: size * 0.2, height: size * 0.1)
-                        .offset(y: size * 0.18)
-                }
-            }
-            .frame(width: size, height: size)
-            .overlay(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(CheckMedTheme.beak)
-                    .frame(height: 6)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: size / 2.1, style: .continuous))
-
-            if pose == .pointingDown {
-                pointingArm
-            }
-        }
-        .frame(width: pose == .pointingDown ? size * 1.22 : size, height: size * 1.16)
-        .rotationEffect(.degrees(pose == .pointingDown ? 6 : (isSad ? -5 : 0)))
+        PhilLibraryImage(asset: libraryAsset, size: size)
         .accessibilityLabel("Phil, the CheckMed companion")
     }
+}
 
-    private var pointingArm: some View {
-        Capsule(style: .continuous)
-            .fill(CheckMedTheme.philYellow)
-            .frame(width: size * 0.16, height: size * 0.42)
-            .overlay(alignment: .bottom) {
-                Capsule()
-                    .fill(CheckMedTheme.beak)
-                    .frame(width: size * 0.16, height: size * 0.12)
-            }
-            .rotationEffect(.degrees(42))
-            .offset(x: size * 0.46, y: size * 0.62)
+/// Real Phil artwork from the app asset library.
+struct PhilLibraryImage: View {
+    let asset: String
+    var size: CGFloat
+
+    var body: some View {
+        Image(asset)
+            .resizable()
+            .interpolation(.high)
+            .renderingMode(.original)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
             .accessibilityHidden(true)
-    }
-
-    private func eye(lookDown: Bool) -> some View {
-        Circle()
-            .fill(Color.white)
-            .frame(width: max(10, size * 0.16), height: max(10, size * 0.16))
-            .overlay {
-                Circle()
-                    .fill(CheckMedTheme.ink)
-                    .frame(width: max(5, size * 0.07), height: max(5, size * 0.07))
-                    .offset(y: lookDown ? max(2, size * 0.02) : 0)
-            }
     }
 }
 

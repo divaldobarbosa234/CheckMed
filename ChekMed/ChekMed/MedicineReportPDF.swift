@@ -551,11 +551,16 @@ private struct ReportLibraryCard: View {
                 .background(Color.white.opacity(0.45), in: Capsule())
 
                 Button(action: onDownload) {
-                    Label(featured ? session.t(.reportDownload) : "", systemImage: canExport ? "arrow.down.to.line" : "lock.fill")
-                        .frame(maxWidth: .infinity)
+                    Label(
+                        featured ? session.t(.reportDownload) : "",
+                        systemImage: canExport ? "arrow.down.to.line" : "lock.fill"
+                    )
+                    .frame(maxWidth: .infinity)
                 }
                 .foregroundStyle(.white)
                 .background(theme.accentColor, in: Capsule())
+                .accessibilityLabel(session.t(.reportDownload))
+                .accessibilityHint(canExport ? "" : session.t(.reportExportLockedHint))
             }
             .font(.system(size: featured ? 10 : 8, weight: .heavy, design: .rounded))
             .buttonStyle(.plain)
@@ -646,15 +651,15 @@ struct ReportBookstoreCard: View {
                     HStack(spacing: 6) {
                         Image(systemName: canExport ? "arrow.down.circle.fill" : "lock.fill")
                         Text(session.t(.reportDownload))
-                        if !canExport { SuperLockBadge() }
                     }
                     .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                    .foregroundStyle(canExport ? Color.white : CheckMedTheme.ink)
+                    .foregroundStyle(Color.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(canExport ? CheckMedTheme.primary : CheckMedTheme.locked, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(CheckMedTheme.primary, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .accessibilityHint(canExport ? "" : session.t(.reportExportLockedHint))
 
                 Button(action: onEdit) {
                     HStack(spacing: 6) {

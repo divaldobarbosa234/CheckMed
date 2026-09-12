@@ -50,15 +50,16 @@ enum DoseAlarmKit {
         let upcoming = Array(
             drafts.filter { $0.kind == .dose && $0.fireDate > Date().addingTimeInterval(8) }.prefix(16)
         )
-        guard !upcoming.isEmpty else { return [] }
-
-        var scheduled = Set<UUID>()
         let manager = AlarmManager.shared
+        // Always clear prior AlarmKit doses first so an empty plan leaves zero alarms.
         if let existing = try? manager.alarms {
             for alarm in existing {
                 try? manager.cancel(id: alarm.id)
             }
         }
+        guard !upcoming.isEmpty else { return [] }
+
+        var scheduled = Set<UUID>()
         if manager.authorizationState == .notDetermined {
             _ = try? await manager.requestAuthorization()
         }

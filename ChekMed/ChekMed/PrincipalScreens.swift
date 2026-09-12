@@ -296,12 +296,15 @@ struct TreatmentOverviewScreen: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(TodayPathStore.self) private var path
-    @State private var swipeOffsets: [UUID: CGFloat] = [:]
+    @State private var showFinishConfirm = false
 
     private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
     private var medicineCount: Int { medicines.count }
     private var remainingSlots: Int {
         entitlements.freeMedicineSlotsRemaining(existingCount: medicineCount)
+    }
+    private var incompleteMedicineNames: [String] {
+        treatments.incompleteMedicineNamesForActivePlan()
     }
 
     private let pillTints: [Color] = [
@@ -314,7 +317,7 @@ struct TreatmentOverviewScreen: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 18) {
                 header
                 philBanner
                 if medicines.isEmpty {
@@ -332,17 +335,18 @@ struct TreatmentOverviewScreen: View {
                     freeSlotsBanner
                 }
                 CheckMedButton(title: session.t(.homeScan), action: attemptAdd)
+                    .padding(.top, 2)
                 moreSection
                 if !medicines.isEmpty {
                     CheckMedButton(title: session.t(.completeTreatment), style: .ghost) {
-                        treatments.completeAllActiveTreatments()
-                        go(.journeyReport)
+                        showFinishConfirm = true
                     }
                 }
                 SafetyCaption()
                     .frame(maxWidth: .infinity)
             }
             .padding(16)
+            .padding(.bottom, 12)
         }
         .background(CheckMedTheme.background)
         .navigationTitle(session.t(.tabTreatments))
@@ -350,28 +354,68 @@ struct TreatmentOverviewScreen: View {
         .onAppear {
             treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
         }
+        .sheet(isPresented: $showFinishConfirm) {
+            FinishTreatmentConfirmSheet(
+                missingMedicineNames: incompleteMedicineNames,
+                onScanNew: {
+                    finishTreatment(then: .addPrescription)
+                },
+                onSeeReport: {
+                    finishTreatment(then: .journeyReport)
+                },
+                onCancel: {
+                    showFinishConfirm = false
+                }
+            )
+            .environment(session)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
+    }
+
+    private func finishTreatment(then route: AppRoute) {
+        // Mark completed — keep medicines/logs for journey history. Never soft-delete here.
+        treatments.completeAllActiveTreatments()
+        path.reload()
+        ReminderScheduler.shared.reschedule()
+        showFinishConfirm = false
+        // Defer navigation so the sheet can dismiss before pushing the report / scan route.
+        DispatchQueue.main.async {
+            go(route)
+        }
     }
 
     private var freeSlotsBanner: some View {
         let text: String = remainingSlots > 0
             ? session.t(.treatmentsSlotsLeft, medicineCount, remainingSlots)
             : session.t(.treatmentsSlotsFull)
-        return VStack(alignment: .leading, spacing: 10) {
-            Text(text)
-                .font(.system(.caption, design: .rounded).weight(.semibold))
-                .foregroundStyle(CheckMedTheme.ink)
-            if remainingSlots == 0 {
-                Button(session.t(.treatmentsTrySuper)) {
-                    entitlements.presentPaywall()
-                }
-                .font(.system(.caption, design: .rounded).weight(.heavy))
+        return HStack(alignment: .top, spacing: 11) {
+            Image(systemName: remainingSlots > 0 ? "checkmark.circle.fill" : "sparkles")
+                .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(CheckMedTheme.primaryShadow)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(text)
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if remainingSlots == 0 {
+                    Button(session.t(.treatmentsTrySuper)) {
+                        entitlements.presentPaywall()
+                    }
+                    .font(.system(.caption, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.primaryShadow)
+                }
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CheckMedTheme.primary.opacity(0.35))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(CheckMedTheme.mintWash)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(CheckMedTheme.primary.opacity(0.18), lineWidth: 1)
+        )
     }
 
     private func attemptAdd() {
@@ -417,9 +461,9 @@ struct TreatmentOverviewScreen: View {
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
-            HStack(alignment: .bottom, spacing: 4) {
-                PhilDoctor2DImage(size: 132)
-                    .offset(y: 8)
+            HStack(alignment: .bottom, spacing: 8) {
+                PhilDoctor2DImage(size: 112)
+                    .offset(y: 6)
                 VStack(alignment: .leading, spacing: 5) {
                     Text("Phil")
                         .font(.system(.caption, design: .rounded).weight(.heavy))
@@ -429,119 +473,81 @@ struct TreatmentOverviewScreen: View {
                         .foregroundStyle(CheckMedTheme.ink)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(15)
+                .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(CheckMedTheme.surface.opacity(0.94))
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                .shadow(color: CheckMedTheme.navy.opacity(0.08), radius: 10, y: 4)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             }
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
-        .frame(minHeight: 152)
-        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .frame(minHeight: 138)
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 
     private func medicineCard(_ med: CheckMedStore.MedicineSummary, tint: Color) -> some View {
-        let offset = swipeOffsets[med.id] ?? 0
-        return ZStack(alignment: .trailing) {
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                Button {
-                    deleteMedicine(med)
-                } label: {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 72, height: 72)
-                        .background(CheckMedTheme.danger, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(session.t(.treatmentsRemoveMedicine))
-            }
-            .padding(.trailing, 2)
-
-            HStack(alignment: .center, spacing: 10) {
-                Button {
-                    closeSwipes()
-                    go(.medicationDetail(med.id))
-                } label: {
-                    HStack(alignment: .center, spacing: 12) {
+        ZStack(alignment: .topTrailing) {
+            Button {
+                go(.medicationDetail(med.id))
+            } label: {
+                VStack(alignment: .leading, spacing: 13) {
+                    HStack(spacing: 12) {
                         Image(systemName: "pills.fill")
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(tint)
-                            .frame(width: 52, height: 52)
-                            .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(med.name)
-                                .font(.system(.headline, design: .rounded).weight(.heavy))
-                                .foregroundStyle(CheckMedTheme.ink)
-                                .multilineTextAlignment(.leading)
-                            HStack(spacing: 10) {
-                                meta(icon: "pills", text: med.doseLabel)
-                                meta(icon: "sun.max.fill", text: session.t(.timesPerDayFormat, med.timesPerDay))
-                                if !med.frequency.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    meta(icon: "clock.fill", text: med.frequency)
-                                }
-                                meta(icon: "calendar", text: med.duration)
-                            }
-                        }
-                        Spacer(minLength: 4)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(CheckMedTheme.muted)
+                            .frame(width: 50, height: 50)
+                            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        Text(med.name)
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.ink)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+                        Spacer(minLength: 44)
                     }
-                    .padding(14)
-                    .background(
-                        LinearGradient(
-                            colors: [CheckMedTheme.surface, tint.opacity(0.07)],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-                    )
-                    .shadow(color: CheckMedTheme.navy.opacity(0.055), radius: 12, y: 5)
+                    Rectangle()
+                        .fill(CheckMedTheme.hairline)
+                        .frame(height: 1)
+                    HStack(spacing: 4) {
+                        meta(icon: "pills", text: med.doseLabel)
+                        meta(icon: "sun.max.fill", text: session.t(.timesPerDayFormat, med.timesPerDay))
+                        meta(icon: "clock.fill", text: med.frequency)
+                        meta(icon: "calendar", text: med.duration)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(med.name)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    LinearGradient(
+                        colors: [CheckMedTheme.surface, tint.opacity(0.055)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(CheckMedTheme.hairline, lineWidth: 1.25)
+                )
+                .shadow(color: CheckMedTheme.navy.opacity(0.045), radius: 10, y: 4)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(med.name)
 
-                Button {
+            Menu {
+                Button(role: .destructive) {
                     deleteMedicine(med)
                 } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.danger)
-                        .frame(width: 44, height: 44)
-                        .background(CheckMedTheme.danger.opacity(0.12), in: Circle())
+                    Label(session.t(.treatmentsRemoveMedicine), systemImage: "trash")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(session.t(.treatmentsRemoveMedicine))
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .frame(width: 36, height: 36)
+                    .background(CheckMedTheme.surface.opacity(0.94), in: Circle())
             }
-            .offset(x: offset)
-            .highPriorityGesture(
-                DragGesture(minimumDistance: 20)
-                    .onChanged { value in
-                        let dx = value.translation.width
-                        if dx < 0 {
-                            swipeOffsets[med.id] = max(dx, -88)
-                        } else if offset < 0 {
-                            swipeOffsets[med.id] = min(0, offset + dx)
-                        }
-                    }
-                    .onEnded { value in
-                        withAnimation(.spring(duration: 0.28, bounce: 0.18)) {
-                            if value.translation.width < -40 || offset < -44 {
-                                swipeOffsets = [med.id: -88]
-                            } else {
-                                swipeOffsets[med.id] = 0
-                            }
-                        }
-                    }
-            )
+            .padding(10)
+            .accessibilityLabel(session.t(.treatmentsRemoveMedicine))
         }
         .contextMenu {
             Button(role: .destructive) {
@@ -552,16 +558,8 @@ struct TreatmentOverviewScreen: View {
         }
     }
 
-    private func closeSwipes() {
-        guard !swipeOffsets.isEmpty else { return }
-        withAnimation(.easeOut(duration: 0.2)) {
-            swipeOffsets = [:]
-        }
-    }
-
     private func deleteMedicine(_ med: CheckMedStore.MedicineSummary) {
         withAnimation(.easeInOut(duration: 0.25)) {
-            swipeOffsets[med.id] = nil
             treatments.deleteMedicine(id: med.id)
             path.reload()
         }
@@ -572,11 +570,11 @@ struct TreatmentOverviewScreen: View {
             Image(systemName: icon)
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(CheckMedTheme.muted)
-            Text(text.isEmpty ? "—" : text)
+            Text(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : text)
                 .font(.system(.caption2, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.62)
         }
         .frame(maxWidth: .infinity)
     }
@@ -632,6 +630,67 @@ struct TreatmentOverviewScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(session.t(.treatmentsNeedMore))
+        }
+    }
+}
+
+private struct FinishTreatmentConfirmSheet: View {
+    @Environment(SessionStore.self) private var session
+    let missingMedicineNames: [String]
+    let onScanNew: () -> Void
+    let onSeeReport: () -> Void
+    let onCancel: () -> Void
+
+    private var missingListLabel: String {
+        missingMedicineNames.joined(separator: ", ")
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(session.t(.finishTreatmentConfirmTitle))
+                        .font(.system(.title2, design: .rounded).weight(.heavy))
+                    Text(session.t(.finishTreatmentConfirmBody))
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if !missingMedicineNames.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(session.t(.finishTreatmentMissWarning, missingListLabel))
+                                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                                .foregroundStyle(CheckMedTheme.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                            ForEach(missingMedicineNames, id: \.self) { name in
+                                HStack(spacing: 10) {
+                                    Image(systemName: "pills.fill")
+                                        .font(.system(size: 13, weight: .bold))
+                                        .foregroundStyle(CheckMedTheme.danger)
+                                    Text(name)
+                                        .font(.system(.body, design: .rounded).weight(.heavy))
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(12)
+                                .background(CheckMedTheme.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(CheckMedTheme.mintWash.opacity(0.55), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(CheckMedTheme.danger.opacity(0.28), lineWidth: 1.5)
+                        )
+                    }
+
+                    CheckMedButton(title: session.t(.finishTreatmentScanNew), action: onScanNew)
+                    CheckMedButton(title: session.t(.finishTreatmentSeeReport), style: .secondary, action: onSeeReport)
+                    CheckMedButton(title: session.t(.cancel), style: .ghost, action: onCancel)
+                }
+                .padding(20)
+            }
+            .background(CheckMedTheme.background)
         }
     }
 }

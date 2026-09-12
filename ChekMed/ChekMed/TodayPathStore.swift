@@ -8,6 +8,8 @@ struct DoseNode: Identifiable {
     let id: String
     let time: String
     let medicine: String
+    /// Stable medicine key for Home dashboard grouping (one row per medicine).
+    var medicineId: UUID = UUID()
     var detail: String = ""
     var status: PathStatus
     var scheduledAt: Date = Date()
@@ -60,10 +62,19 @@ final class TodayPathStore {
     var pendingFeeling: (logId: UUID, medicine: String)?
 
     func takeCurrent() {
-        guard let current, let id = UUID(uuidString: current.id) else { return }
-        store?.markLog(id: id, status: .taken)
-        ReminderScheduler.shared.handleTakenSideEffects(logId: id)
-        pendingFeeling = (id, current.medicine)
+        guard let current else { return }
+        take(id: current.id)
+    }
+
+    /// Mark a specific dose taken (Home trailing swipe).
+    func take(id: String) {
+        guard let uuid = UUID(uuidString: id),
+              let node = nodes.first(where: { $0.id == id }),
+              node.status == .current || node.status == .locked
+        else { return }
+        store?.markLog(id: uuid, status: .taken)
+        ReminderScheduler.shared.handleTakenSideEffects(logId: uuid)
+        pendingFeeling = (uuid, node.medicine)
         mood = .celebrate
         reload()
     }

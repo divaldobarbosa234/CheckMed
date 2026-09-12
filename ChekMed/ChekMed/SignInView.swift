@@ -56,7 +56,8 @@ struct SignInView: View {
             }
         }
         .onChange(of: session.kind) { _, kind in
-            guard kind == .authenticated else { return }
+            guard kind == .authenticated || kind == .guest else { return }
+            session.markSignInScreenCompleted()
             if let onAuthenticated {
                 onAuthenticated()
             } else {
@@ -100,10 +101,10 @@ struct SignInView: View {
                     .font(.system(.body, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
                 provider(.apple, title: session.t(.signInWithApple), identifier: "auth-apple") {
-                    session.requestProvider(.apple)
+                    requestOrConfirmProvider(.apple)
                 }
                 provider(.google, title: session.t(.signInWithGoogle), identifier: "auth-google") {
-                    session.requestProvider(.google)
+                    requestOrConfirmProvider(.google)
                 }
                 Button(session.t(.continueWithEmail)) {
                     page = .form
@@ -113,6 +114,13 @@ struct SignInView: View {
                 .foregroundStyle(CheckMedTheme.ink)
                 .padding(.top, 4)
                 .accessibilityIdentifier("auth-continue-email")
+                Button(session.t(.continueAsGuest)) {
+                    session.continueAsGuest()
+                }
+                .font(.system(.footnote, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .padding(.top, 2)
+                .accessibilityIdentifier("auth-continue-guest")
             }
             .padding(.horizontal, 28)
             .padding(.top, 28)
@@ -234,10 +242,10 @@ struct SignInView: View {
                         orContinueDivider
                         VStack(spacing: 12) {
                             provider(.apple, title: session.t(.continueWithApple), identifier: "auth-apple-form") {
-                                session.requestProvider(.apple)
+                                requestOrConfirmProvider(.apple)
                             }
                             provider(.google, title: session.t(.continueWithGoogle), identifier: "auth-google-form") {
-                                session.requestProvider(.google)
+                                requestOrConfirmProvider(.google)
                             }
                         }
                     }
@@ -359,6 +367,14 @@ struct SignInView: View {
             session.requestProvider(.google)
         }
         #endif
+    }
+
+    private func requestOrConfirmProvider(_ provider: AuthProvider) {
+        if session.isSessionUnlocked {
+            session.confirmRestoredAccountOnSignInScreen()
+            return
+        }
+        session.requestProvider(provider)
     }
 
     private func toggleMode() {

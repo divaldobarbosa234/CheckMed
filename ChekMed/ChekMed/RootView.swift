@@ -8,36 +8,37 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if session.auth.isRestoring {
+            switch session.rootDestination {
+            case .restoring, .resolvingPostAuth:
                 restoring
-            } else if session.isResolvingPostAuth, session.hasCompletedOnboarding {
-                restoring
-            } else if session.kind == .authenticated, session.showResumeSetup {
-                ResumePlanSetupFlow()
-                    .transition(.opacity)
-            } else if !session.hasCompletedOnboarding || session.kind != .authenticated {
+            case .firstTime:
                 FirstTimeOnboardingView()
-            } else if session.needsPrivacyAcknowledgement {
-                PrivacyConsentView(onAccept: { session.acknowledgePrivacy() })
                     .transition(.opacity)
-            } else if session.startFreshPrescription {
+            case .resumeSetup:
+                ResumePlanSetupFlow()
+                    .onAppear {
+                        if session.pendingPostJourneySetup, !session.showResumeSetup {
+                            session.beginResumeSetup()
+                        }
+                    }
+                    .transition(.opacity)
+            case .returningWelcome:
+                ReturningWelcomeFlow()
+                    .transition(.opacity)
+            case .accountProfile:
+                AccountProfileSetupView(
+                    onFinished: { session.markProfileSetupComplete() }
+                )
+            case .addPrescription:
                 AddPrescriptionIntakeHost(
                     onFinished: {
-                        if session.needsNotificationsPrompt {
-                            session.beginResumeSetup()
-                        } else {
-                            session.finishFreshPlan(select: .treatments)
-                        }
+                        // Journey already started the post-journey queue — never jump Home.
+                        session.beginResumeSetup()
                     },
                     onCancel: { session.finishFreshPlan(select: .home) }
                 )
                 .transition(.opacity)
-            } else if session.showReturningWelcome {
-                ReturningWelcomeFlow()
-                    .transition(.opacity)
-            } else if session.kind == .authenticated, session.needsAccountProfile {
-                AccountProfileSetupView()
-            } else {
+            case .home:
                 MainTabView()
             }
         }
@@ -59,6 +60,10 @@ struct RootView: View {
         .preferredColorScheme(.light)
         .onAppear {
             Engagement.ping()
+            session.noteRootDestinationPresented()
+        }
+        .onChange(of: session.rootDestination) { _, _ in
+            session.noteRootDestinationPresented()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .background {
@@ -85,10 +90,13 @@ struct RootView: View {
     }
 
     private func noteIncompleteLeaveIfNeeded() {
-        let inResume = session.showResumeSetup
-        let inOnboardingTail = !session.hasCompletedOnboarding && session.kind == .authenticated
-        if inResume || inOnboardingTail || session.needsUnfinishedPlan(treatments: treatments) {
+        switch session.rootDestination {
+        case .resumeSetup, .firstTime:
             session.noteIncompleteSetupBackground()
+        default:
+            if session.needsUnfinishedPlan(treatments: treatments) {
+                session.noteIncompleteSetupBackground()
+            }
         }
     }
 }

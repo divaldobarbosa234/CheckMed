@@ -20,7 +20,10 @@ struct ReturningWelcomeFlow: View {
                         .transition(.opacity)
                 } else {
                     AddPrescriptionIntakeHost(
-                        onFinished: { session.finishReturningWelcome(select: .treatments) },
+                        onFinished: {
+                            // Journey started the post-journey queue — hand off, never Home.
+                            session.beginResumeSetup()
+                        },
                         onCancel: { addingPrescription = false }
                     )
                     .transition(.opacity)
@@ -60,9 +63,9 @@ struct ReturningWelcomeFlow: View {
             Spacer(minLength: 16)
             VStack(spacing: 12) {
                 CheckMedButton(title: session.t(.myProgress)) {
-                    session.finishReturningWelcome(select: .progress)
+                    session.finishReturningWelcome(select: .home)
                 }
-                CheckMedButton(title: session.t(.scanAddTitle), style: .secondary) {
+                CheckMedButton(title: session.t(.addOtherPrescription), style: .secondary) {
                     addingPrescription = true
                 }
             }

@@ -56,6 +56,8 @@ struct UnfinishedPlanPromptView: View {
 
     private func startNew() {
         treatments.deleteActiveTreatments()
+        session.clearMedicationPlanConfirmed()
+        treatments.setSurfacesPlan(false)
         path.reload()
         session.beginFreshPlan()
     }
@@ -67,21 +69,24 @@ struct ResumePlanSetupFlow: View {
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(TodayPathStore.self) private var path
 
-    @State private var phase: Phase
+    @State private var phase: Phase?
     @State private var drafts: [OnboardingPrescriptionDraft]
 
-    private enum Phase {
+    private enum Phase: Equatable {
         case confirm, planResume, notifications, alarmSetup, trial, ready
     }
 
     init() {
-        _phase = State(initialValue: .notifications)
+        _phase = State(initialValue: nil)
         _drafts = State(initialValue: [.empty])
     }
 
     var body: some View {
         Group {
             switch phase {
+            case .none:
+                Color.clear
+                    .onAppear { bootstrap() }
             case .confirm:
                 OnboardingConfirmView(
                     drafts: $drafts,
@@ -89,14 +94,30 @@ struct ResumePlanSetupFlow: View {
                     existingMedicineCount: 0,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
-                        treatments.seedFromDrafts(
-                            drafts.cappedForPlan(
-                                isSuper: entitlements.isSuper,
-                                existingCount: 0
-                            ).filter(\.hasMedicineName),
-                            ownerId: session.auth.userId,
-                            profileId: session.profileId
+                        let capped = drafts.cappedForPlan(
+                            isSuper: entitlements.isSuper,
+                            existingCount: 0
+                        ).filter(\.hasMedicineName)
+                        guard !capped.isEmpty else {
+                            #if DEBUG
+                            print("[CheckMed] resume confirm blocked: empty after cap")
+                            #endif
+                            return
+                        }
+                        let ok = treatments.seedFromDrafts(
+                            capped,
+                            ownerId: session.planOwnerId,
+                            profileId: session.planProfileId
                         )
+                        guard ok else {
+                            #if DEBUG
+                            print("[CheckMed] resume seedFromDrafts failed")
+                            #endif
+                            return
+                        }
+                        session.markMedicationPlanConfirmed()
+                        session.markPendingPostJourneySetup()
+                        treatments.setSurfacesPlan(true)
                         path.reload()
                         phase = .planResume
                     },
@@ -106,30 +127,34 @@ struct ResumePlanSetupFlow: View {
                 PlanResumeView(
                     drafts: drafts.filter(\.hasMedicineName),
                     showsAddMore: false,
-                    onContinue: { phase = .notifications },
+                    onContinue: { advanceAfterJourney() },
                     onBack: { phase = .confirm }
                 )
             case .notifications:
                 NotificationsPermissionView(
                     secondaryTitle: session.t(.skip),
-                    onEnable: { phase = .alarmSetup },
-                    onSecondary: { phase = .alarmSetup },
+                    onEnable: { advancePostJourneyFrom(.notifications) },
+                    onSecondary: { advancePostJourneyFrom(.notifications) },
                     onBack: { session.showResumeSetup = false }
                 )
             case .alarmSetup:
                 AlarmSetupView(
-                    onEnable: { phase = .trial },
-                    onSkip: { phase = .trial },
-                    onBack: { phase = .notifications }
+                    onEnable: { advancePostJourneyFrom(.alarms) },
+                    onSkip: { advancePostJourneyFrom(.alarms) },
+                    onBack: {
+                        session.syncPostJourneyStep(.notifications)
+                        phase = .notifications
+                    }
                 )
             case .trial:
                 OnboardingSuperTrialView {
-                    session.markOnboardingPaywallOffered()
-                    phase = .ready
+                    treatments.setSurfacesPlan(true)
+                    path.reload()
+                    advancePostJourneyFrom(.trial)
                 }
             case .ready:
                 OnboardingPhilReadyView {
-                    session.finishResumeSetup()
+                    finishToHome()
                 }
             }
         }
@@ -137,10 +162,85 @@ struct ResumePlanSetupFlow: View {
             if drafts.allSatisfy({ !$0.hasMedicineName }) {
                 drafts = treatments.draftsFromActivePlan()
             }
-            if phase == .notifications, !drafts.contains(where: \.hasMedicineName) {
-                phase = .confirm
+            if phase == nil {
+                bootstrap()
             }
         }
+        .onChange(of: session.postJourneyStep) { _, step in
+            guard let step, step != .done else { return }
+            // Keep UI in sync when RootView hands off after add-intake journey.
+            if phase == nil || isPostJourneyPhase(phase) {
+                phase = uiPhase(for: step)
+            }
+        }
+    }
+
+    private func isPostJourneyPhase(_ phase: Phase?) -> Bool {
+        switch phase {
+        case .notifications, .alarmSetup, .trial, .ready, .none:
+            true
+        default:
+            false
+        }
+    }
+
+    private func advanceAfterJourney() {
+        session.startPostJourneyQueue()
+        phase = .notifications
+    }
+
+    private func advancePostJourneyFrom(_ step: SessionStore.PostJourneyStep) {
+        if session.postJourneyStep == nil {
+            session.startPostJourneyQueue()
+        }
+        if session.postJourneyStep != step {
+            session.syncPostJourneyStep(step)
+        }
+        let next = session.advancePostJourney(isSuper: entitlements.isSuper)
+        if next == .done {
+            finishToHome()
+            return
+        }
+        phase = uiPhase(for: next)
+    }
+
+    private func uiPhase(for step: SessionStore.PostJourneyStep) -> Phase {
+        switch step {
+        case .notifications: return .notifications
+        case .alarms: return .alarmSetup
+        case .trial: return .trial
+        case .philReady, .done: return .ready
+        }
+    }
+
+    private func bootstrap() {
+        if drafts.allSatisfy({ !$0.hasMedicineName }) {
+            drafts = treatments.draftsFromActivePlan()
+        }
+        // Active post-journey queue (e.g. after add-from-Home journey) — never skip.
+        if let step = session.postJourneyStep, step != .done {
+            phase = uiPhase(for: step)
+            return
+        }
+        if session.pendingPostJourneySetup {
+            session.startPostJourneyQueue()
+            phase = .notifications
+            return
+        }
+        if !drafts.contains(where: \.hasMedicineName), !session.hasConfirmedMedicationPlan {
+            phase = .confirm
+            return
+        }
+        // Confirmed plan mid unfinished setup: start linear chain at notifications.
+        session.startPostJourneyQueue()
+        phase = .notifications
+    }
+
+    private func finishToHome() {
+        session.markOnboardingPaywallOffered()
+        treatments.setSurfacesPlan(true)
+        path.reload()
+        session.finishResumeSetup()
     }
 }
 
