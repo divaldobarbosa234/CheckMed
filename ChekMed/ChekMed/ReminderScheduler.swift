@@ -2,9 +2,12 @@ import Foundation
 import UserNotifications
 
 enum ReminderAction {
-    static let category = "CHECKMED_DOSE"
+    static let doseCategory = "CHECKMED_DOSE"
+    static let confirmCategory = "CHECKMED_CONFIRM"
     static let taken = "CHECKMED_TAKEN"
-    static let skip = "CHECKMED_SKIP"
+    static let snooze = "CHECKMED_SNOOZE"
+    static let remindLater = "CHECKMED_REMIND_LATER"
+    static let didNotTake = "CHECKMED_DID_NOT_TAKE"
 }
 
 @MainActor
@@ -21,27 +24,50 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
     private var voice: PhilVoice?
 
     private var rescheduleTask: Task<Void, Never>?
-    private var pendingAction: (id: UUID, status: DoseLogStatus)?
+    private var rescheduleGeneration = 0
+    private var lastRebuildAt: Date?
+    private var pendingAction: (id: UUID, action: DoseLoopAction)?
 
     func configure() {
-        let taken = UNNotificationAction(
-            identifier: ReminderAction.taken,
-            title: L10n.string(.taken, locale: .english),
-            options: []
-        )
-        let skip = UNNotificationAction(
-            identifier: ReminderAction.skip,
-            title: L10n.string(.skip, locale: .english),
-            options: []
-        )
-        let category = UNNotificationCategory(
-            identifier: ReminderAction.category,
-            actions: [taken, skip],
-            intentIdentifiers: [],
-            options: [.customDismissAction]
-        )
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        UNUserNotificationCenter.current().setNotificationCategories(Self.categories(locale: .english))
         UNUserNotificationCenter.current().delegate = self
+    }
+
+    private static func categories(locale: AppLocale) -> Set<UNNotificationCategory> {
+        let took = UNNotificationAction(
+            identifier: ReminderAction.taken,
+            title: L10n.string(.notificationActionTookIt, locale: locale),
+            options: []
+        )
+        let snooze = UNNotificationAction(
+            identifier: ReminderAction.snooze,
+            title: L10n.string(.notificationActionSnooze, locale: locale),
+            options: []
+        )
+        let later = UNNotificationAction(
+            identifier: ReminderAction.remindLater,
+            title: L10n.string(.notificationActionRemindLater, locale: locale),
+            options: []
+        )
+        let didNot = UNNotificationAction(
+            identifier: ReminderAction.didNotTake,
+            title: L10n.string(.missedDidNotTake, locale: locale),
+            options: []
+        )
+        return [
+            UNNotificationCategory(
+                identifier: ReminderAction.doseCategory,
+                actions: [took, snooze],
+                intentIdentifiers: [],
+                options: [.customDismissAction]
+            ),
+            UNNotificationCategory(
+                identifier: ReminderAction.confirmCategory,
+                actions: [took, later, didNot],
+                intentIdentifiers: [],
+                options: [.customDismissAction]
+            ),
+        ]
     }
 
     func bind(store: CheckMedStore, session: SessionStore, entitlements: EntitlementStore, voice: PhilVoice) {
@@ -50,28 +76,48 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         self.entitlements = entitlements
         self.voice = voice
         flushPendingAction()
-        reschedule()
+        reschedule(force: true)
+        FreezeDiag.log("ReminderScheduler.bind done")
     }
 
-    func reschedule() {
+    func reschedule(force: Bool = true) {
+        guard session?.restorationComplete == true else { return }
         guard session?.hasCompletedOnboarding == true else { return }
-        rescheduleTask?.cancel()
+        if !force, let lastRebuildAt, Date().timeIntervalSince(lastRebuildAt) < 20 {
+            return
+        }
+        if !force, rescheduleTask != nil {
+            return
+        }
+        LaunchLog.alarm("reschedule force=\(force)")
+        if force {
+            rescheduleTask?.cancel()
+        }
+        rescheduleGeneration += 1
+        let generation = rescheduleGeneration
         rescheduleTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: force ? 200_000_000 : 450_000_000)
+            guard !Task.isCancelled, generation == rescheduleGeneration else { return }
+            lastRebuildAt = Date()
             await rebuild()
+            if generation == rescheduleGeneration {
+                rescheduleTask = nil
+            }
         }
     }
 
-    func handleLogAction(id: UUID, status: DoseLogStatus) {
+    func handleLogAction(id: UUID, action: DoseLoopAction) {
+        if action == .confirmTaken || action == .didNotTake {
+            MissedDoseAcknowledgement.acknowledge(id)
+        }
         if let store {
-            store.markLog(id: id, status: status)
-            if status == .taken {
+            store.applyDoseAction(id: id, action: action)
+            if action == .confirmTaken {
                 scheduleStockDaysLeftIfNeeded(logId: id)
             }
         } else {
-            CheckMedStore.persistDoseStatus(id: id, status: status)
-            pendingAction = (id, status)
+            CheckMedStore.persistDoseAction(id: id, action: action)
+            pendingAction = (id, action)
         }
         reschedule()
     }
@@ -90,9 +136,10 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             let center = UNUserNotificationCenter.current()
             let settings = await center.notificationSettings()
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+            let remaining = remainingPhrase(for: medicineId)
             let content = UNMutableNotificationContent()
-            content.title = session.t(.notificationStockDaysTitle)
-            content.body = session.t(.notificationStockDaysBody, draft.medicine, draft.doseLabel)
+            content.title = session.t(.refillRunningLow)
+            content.body = remaining ?? session.t(.notificationStockDaysBody, draft.medicine, draft.doseLabel)
             content.sound = .default
             content.userInfo = ["kind": draft.kind.rawValue]
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
@@ -106,23 +153,63 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    func applyIntent(logId: String, status: DoseLogStatus) {
+    private func remainingPhrase(for medicineId: UUID) -> String? {
+        guard let session, let summary = store?.medicineSummaries().first(where: { $0.id == medicineId }),
+              summary.refillDataComplete,
+              let remaining = MedicineUnits.remainingDisplayAmount(
+                packageAmount: summary.packageAmount,
+                packageUnit: summary.packageUnit,
+                stockPercent: summary.stockPercent
+              )
+        else { return nil }
+        let amount = remaining.amount == remaining.amount.rounded()
+            ? String(Int(remaining.amount.rounded()))
+            : String(format: "%.1f", remaining.amount)
+        return session.t(.refillApproxRemaining, "\(amount) \(remaining.unit.rawValue)")
+    }
+
+    func applyIntent(logId: String, action: DoseLoopAction) {
         guard let id = UUID(uuidString: logId) else { return }
-        handleLogAction(id: id, status: status)
+        handleLogAction(id: id, action: action)
     }
 
     private func flushPendingAction() {
         guard let pendingAction, let store else { return }
-        store.markLog(id: pendingAction.id, status: pendingAction.status)
+        store.applyDoseAction(id: pendingAction.id, action: pendingAction.action)
         self.pendingAction = nil
+    }
+
+    private static func alarmKitCopy(locale: AppLocale, theme: AlarmTheme) -> DoseAlarmKit.Copy {
+        DoseAlarmKit.Copy(
+            title: L10n.string(.alarmDoseTitle, locale: locale),
+            snooze: L10n.string(.notificationActionSnooze, locale: locale),
+            stop: L10n.string(.cancel, locale: locale),
+            soundFileName: theme.soundFileName,
+            red: 0.18,
+            green: 0.72,
+            blue: 0.35
+        )
+    }
+
+    nonisolated private static func syncAlarmsOffMain(
+        drafts: [ReminderDraft],
+        copy: DoseAlarmKit.Copy
+    ) async -> Set<UUID> {
+        await Task.detached(priority: .utility) {
+            await DoseAlarmKit.syncDoseAlarms(drafts: drafts, copy: copy)
+        }.value
     }
 
     private func rebuild() async {
         guard let store, let session else { return }
+        LaunchLog.alarm("rebuild start")
+        FreezeDiag.context("ReminderScheduler.rebuild START", hasChanges: store.freezeDiagHasChanges())
+        defer {
+            FreezeDiag.context("ReminderScheduler.rebuild END", hasChanges: store.freezeDiagHasChanges())
+        }
 
-        // No confirmed plan → clear pending dose alarms/notifications and stop.
         guard session.hasConfirmedMedicationPlan, store.surfacesPlan else {
-            await DoseAlarmKit.syncDoseAlarms(drafts: [], locale: session.locale, theme: .philChime)
+            await Self.syncAlarmsOffMain(drafts: [], copy: Self.alarmKitCopy(locale: session.locale, theme: .philChime))
             let center = UNUserNotificationCenter.current()
             let existing = await center.pendingNotificationRequests()
             let ours = existing.filter { $0.identifier.hasPrefix("checkmed.") }.map(\.identifier)
@@ -136,18 +223,18 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             if draft.kind == .advance {
                 return entitlements?.canUseAdvanceReminder == true && ReminderPreferences.advanceHourEnabled
             }
-            if draft.kind == .refill || draft.kind == .stockRefill || draft.kind == .stockDaysLeft {
-                return false
-            }
             return true
         }
             + store.stockRefillDrafts()
-            + (entitlements?.canUseRefillReminder == true ? store.refillDrafts() : [])
+            + store.refillDrafts()
         let locale = session.locale
         let theme = entitlements?.canChooseAlarmTheme == true
             ? ReminderPreferences.alarmTheme
             : .philChime
-        let alarmKitDoseIds = await DoseAlarmKit.syncDoseAlarms(drafts: drafts, locale: locale, theme: theme)
+        let alarmKitDoseIds = await Self.syncAlarmsOffMain(
+            drafts: drafts,
+            copy: Self.alarmKitCopy(locale: locale, theme: theme)
+        )
 
         let center = UNUserNotificationCenter.current()
         let settings = await center.notificationSettings()
@@ -166,63 +253,47 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
             return
         }
-        let taken = UNNotificationAction(
-            identifier: ReminderAction.taken,
-            title: L10n.string(.taken, locale: locale),
-            options: []
-        )
-        let skip = UNNotificationAction(
-            identifier: ReminderAction.skip,
-            title: L10n.string(.skip, locale: locale),
-            options: []
-        )
-        center.setNotificationCategories([
-            UNNotificationCategory(
-                identifier: ReminderAction.category,
-                actions: [taken, skip],
-                intentIdentifiers: [],
-                options: [.customDismissAction]
-            )
-        ])
+        center.setNotificationCategories(Self.categories(locale: locale))
         let sound = UNNotificationSound(named: UNNotificationSoundName(theme.soundFileName))
         let calendar = session.foundationCalendar
 
         for draft in drafts.prefix(48) {
-            if draft.kind == .missed, isInQuietHours(draft.fireDate, calendar: calendar) {
+            if draft.kind == .confirm, isInQuietHours(draft.fireDate, calendar: calendar) {
                 continue
             }
             guard draft.fireDate > Date().addingTimeInterval(8) else { continue }
             if draft.kind == .dose, alarmKitDoseIds.contains(draft.id) { continue }
             let content = UNMutableNotificationContent()
-            content.categoryIdentifier = ReminderAction.category
             content.sound = sound
             content.userInfo = ["logId": draft.id.uuidString, "kind": draft.kind.rawValue]
             content.interruptionLevel = .active
             switch draft.kind {
             case .dose:
-                content.title = session.t(.notificationDoseTitle)
-                content.body = session.t(.notificationDoseBody, draft.medicine, draft.doseLabel, draft.time)
+                content.categoryIdentifier = ReminderAction.doseCategory
+                content.title = session.t(.alarmDoseTitle)
+                content.body = session.t(.alarmDoseBody, draft.medicine, draft.doseLabel)
+            case .confirm:
+                content.categoryIdentifier = ReminderAction.confirmCategory
+                content.title = session.t(.notificationConfirmTitle, draft.medicine)
+                content.body = session.t(.missedDoseDisclaimer)
             case .missed:
-                content.title = session.t(.notificationMissedTitle)
-                content.body = session.t(.notificationMissedBody, draft.medicine, draft.time)
+                content.categoryIdentifier = ReminderAction.confirmCategory
+                content.title = session.t(.missedYouMissedOne)
+                content.body = session.t(.missedDoseDisclaimer)
             case .advance:
                 guard entitlements?.canUseAdvanceReminder == true,
                       ReminderPreferences.advanceHourEnabled else { continue }
                 content.title = session.t(.notificationAdvanceTitle)
                 content.body = session.t(.notificationAdvanceBody, draft.medicine, draft.time)
-                content.categoryIdentifier = ""
             case .refill:
                 content.title = session.t(.notificationRefillTitle)
                 content.body = session.t(.notificationRefillBody, draft.medicine)
-                content.categoryIdentifier = ""
             case .stockRefill:
-                content.title = session.t(.notificationStockRefillTitle)
+                content.title = session.t(.refillRunningLow)
                 content.body = session.t(.notificationStockRefillBody, draft.medicine)
-                content.categoryIdentifier = ""
             case .stockDaysLeft:
-                content.title = session.t(.notificationStockDaysTitle)
+                content.title = session.t(.refillRunningLow)
                 content.body = session.t(.notificationStockDaysBody, draft.medicine, draft.doseLabel)
-                content.categoryIdentifier = ""
             }
             var components = calendar.dateComponents(
                 [.year, .month, .day, .hour, .minute],
@@ -310,9 +381,13 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         guard let raw = info["logId"] as? String, let id = UUID(uuidString: raw) else { return }
         switch response.actionIdentifier {
         case ReminderAction.taken:
-            await handleLogAction(id: id, status: .taken)
-        case ReminderAction.skip:
-            await handleLogAction(id: id, status: .skipped)
+            await handleLogAction(id: id, action: .confirmTaken)
+        case ReminderAction.snooze, ReminderAction.remindLater:
+            await handleLogAction(id: id, action: .snooze)
+        case ReminderAction.didNotTake:
+            await handleLogAction(id: id, action: .didNotTake)
+        case UNNotificationDismissActionIdentifier:
+            await handleLogAction(id: id, action: .stop)
         default:
             break
         }

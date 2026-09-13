@@ -522,88 +522,9 @@ struct ReportsTabView: View {
 
 struct ReportsHubScreen: View {
     var go: (AppRoute) -> Void
-    @Environment(SessionStore.self) private var session
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(session.t(.reportsHubTitle))
-                    .font(.system(.title, design: .rounded).weight(.black))
-                Text(session.t(.reportsHubSubhead))
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-
-                hubRow(
-                    icon: "flag.checkered",
-                    wash: CheckMedTheme.belly,
-                    tint: CheckMedTheme.primaryShadow,
-                    title: session.t(.journeyTitle),
-                    subtitle: session.t(.progressJourneyHint)
-                ) {
-                    go(.journeyReport)
-                }
-
-                hubRow(
-                    icon: "doc.richtext",
-                    wash: CheckMedTheme.mintWash,
-                    tint: Color(hex: 0x5FA86B),
-                    title: session.t(.reportHeadline),
-                    subtitle: session.t(.reportProgressHint)
-                ) {
-                    go(.medicineReport)
-                }
-
-                Text(session.t(.journeyNotAdvice))
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.safety)
-            }
-            .padding(16)
-        }
-        .background(CheckMedTheme.background)
-        .navigationTitle(session.t(.reportsHubTitle))
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func hubRow(
-        icon: String,
-        wash: Color,
-        tint: Color,
-        title: String,
-        subtitle: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: icon)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(tint)
-                    .frame(width: 40, height: 40)
-                    .background(wash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(.body, design: .rounded).weight(.heavy))
-                        .foregroundStyle(CheckMedTheme.ink)
-                    Text(subtitle)
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(CheckMedTheme.muted)
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CheckMedTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-            )
-            .shadow(color: CheckMedTheme.navy.opacity(0.055), radius: 12, y: 5)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        MedicineReportScreen(go: go)
     }
 }
 
@@ -643,32 +564,35 @@ struct FloatingPlusMenu: View {
     ]
 
     var body: some View {
+        let _ = FreezeDiag.log("FloatingPlusMenu body expanded=\(menuExpanded)")
         ZStack(alignment: .bottomTrailing) {
-            // Full-screen dim only while open — expands this ZStack; when collapsed
-            // the view shrinks to the FAB so hits pass through to TabView/content.
             if menuExpanded {
                 Color.black.opacity(0.28)
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
                     .onTapGesture { collapseMenu() }
-                    .transition(.opacity)
             }
-
-            VStack(alignment: .trailing, spacing: 12) {
-                if menuExpanded {
-                    menuCard
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                plusButton
-            }
-            .padding(.trailing, Self.trailingPadding)
-            .padding(.bottom, Self.tabBarClearance + Self.bottomGap)
+            plusAndCard
+                .padding(.trailing, Self.trailingPadding)
+                .padding(.bottom, Self.tabBarClearance + Self.bottomGap)
         }
+        .frame(maxWidth: menuExpanded ? .infinity : nil, maxHeight: menuExpanded ? .infinity : nil)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: menuExpanded)
         .sheet(item: $destination) { dest in
             PlusMenuDestinationHost(destination: dest)
         }
         .onChange(of: destination) { _, newValue in
             if newValue != nil { menuExpanded = false }
+        }
+    }
+
+    private var plusAndCard: some View {
+        VStack(alignment: .trailing, spacing: 12) {
+            if menuExpanded {
+                menuCard
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            plusButton
         }
     }
 
@@ -691,6 +615,7 @@ struct FloatingPlusMenu: View {
                 )
         }
         .buttonStyle(.plain)
+        .contentShape(Circle())
         .accessibilityIdentifier("floating-plus-menu")
         .accessibilityLabel(session.t(menuExpanded ? .cancel : .plusMenuA11y))
     }
@@ -823,41 +748,37 @@ struct MainTabView: View {
     ]
 
     var body: some View {
-        // bottomTrailing so the FAB anchors to the screen corner — not center.
-        ZStack(alignment: .bottomTrailing) {
-            TabView(selection: Binding(
-                get: { session.selectedMainTab },
-                set: { session.selectedMainTab = $0 }
-            )) {
-                Tab(session.t(.tabHome), systemImage: "house.fill", value: SessionStore.MainTab.home) {
-                    HomeView()
-                }
-                Tab(session.t(.tabTreatments), systemImage: "pills.fill", value: SessionStore.MainTab.treatments) {
-                    TreatmentsView()
-                }
-                Tab(session.t(.tabRefill), systemImage: "battery.75percent", value: SessionStore.MainTab.refill) {
-                    RefillTabView()
-                }
-                Tab(session.t(.tabProfile), systemImage: "person.fill", value: SessionStore.MainTab.profile) {
-                    ProfileView()
-                }
+        TabView(selection: Binding(
+            get: { session.selectedMainTab },
+            set: {
+                FreezeDiag.log("tab setter \($0) — SwiftUI received a tab selection")
+                session.selectedMainTab = $0
             }
-            .tint(CheckMedTheme.primaryShadow)
-
+        )) {
+            Tab(session.t(.tabHome), systemImage: "house.fill", value: SessionStore.MainTab.home) {
+                HomeView()
+            }
+            Tab(session.t(.tabTreatments), systemImage: "pills.fill", value: SessionStore.MainTab.treatments) {
+                TreatmentsView()
+            }
+            Tab(session.t(.tabRefill), systemImage: "battery.75percent", value: SessionStore.MainTab.refill) {
+                RefillTabView()
+            }
+            Tab(session.t(.tabProfile), systemImage: "person.fill", value: SessionStore.MainTab.profile) {
+                ProfileView()
+            }
+        }
+        .tint(CheckMedTheme.primaryShadow)
+        .overlay(alignment: .bottomTrailing) {
             FloatingPlusMenu()
-                .zIndex(100)
                 .allowsHitTesting(
-                    !session.showResumeSetup
-                        && !(showUnfinishedPrompt && session.needsUnfinishedPlan(treatments: treatments))
+                    !(showUnfinishedPrompt && session.needsUnfinishedPlan(treatments: treatments))
                 )
-
-            if session.showResumeSetup {
-                ResumePlanSetupFlow()
-                    .zIndex(200)
-                    .transition(.opacity)
-            } else if showUnfinishedPrompt, session.needsUnfinishedPlan(treatments: treatments) {
+        }
+        .overlay {
+            if showUnfinishedPrompt, session.needsUnfinishedPlan(treatments: treatments) {
+                let _ = FreezeDiag.log("UnfinishedPlanPromptView covering MainTabView")
                 UnfinishedPlanPromptView(kind: .afterReturn)
-                    .zIndex(200)
                     .transition(.opacity)
             }
         }
@@ -871,6 +792,7 @@ struct MainTabView: View {
             if active { showUnfinishedPrompt = false }
         }
         .task(id: "\(session.selectedMainTab)-\(session.needsUnfinishedPlan(treatments: treatments))") {
+            FreezeDiag.log("MainTabView.task tab=\(session.selectedMainTab) unfinished=\(session.needsUnfinishedPlan(treatments: treatments))")
             await offerUnfinishedPlanIfNeeded()
         }
     }
@@ -892,10 +814,7 @@ struct MainTabView: View {
             return
         }
         guard !session.didOfferUnfinishedPlanThisSession else { return }
-        try? await Task.sleep(nanoseconds: 3_000_000_000)
-        guard !Task.isCancelled else { return }
-        guard session.selectedMainTab == .home else { return }
-        guard session.needsUnfinishedPlan(treatments: treatments) else { return }
+        guard session.restorationComplete else { return }
         session.didOfferUnfinishedPlanThisSession = true
         showUnfinishedPrompt = true
     }

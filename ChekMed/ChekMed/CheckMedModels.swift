@@ -1,12 +1,6 @@
 import Foundation
 import SwiftData
 
-enum DoseLogStatus: String, Codable, Sendable {
-    case pending
-    case taken
-    case skipped
-}
-
 struct TreatmentSnapshot: Sendable {
     var id: UUID
     var ownerId: UUID?
@@ -261,26 +255,31 @@ final class MedicineRecord {
 
     func applyDoseDefaultsIfNeeded() {
         let parsed = MedicineUnits.parseDoseLabel(doseLabel)
-        if quantityPerDose <= 0 { quantityPerDose = parsed.quantity }
+        if quantityPerDose <= 0, quantityPerDose != parsed.quantity {
+            FreezeDiag.log("SWIFTDATA WRITE START source=applyDoseDefaultsIfNeeded.quantityPerDose")
+            FreezeDiag.log("SWIFTDATA WRITE object=\(id) kind=update medicine=\(id) oldStatus=- newStatus=- scheduledAt=- quantityPerDose \(quantityPerDose)->\(parsed.quantity)")
+            quantityPerDose = parsed.quantity
+            FreezeDiag.log("SWIFTDATA WRITE END source=applyDoseDefaultsIfNeeded.quantityPerDose")
+        }
         if doseUnit.isEmpty || doseUnit == MedicineUnit.other.rawValue {
-            doseUnit = parsed.unit.rawValue
-        }
-        if form.isEmpty || form == MedicineForm.other.rawValue {
-            form = MedicineForm.infer(from: doseLabel, medicineName: name).rawValue
-        }
-        if packageAmount <= 0 {
-            switch MedicineUnit(rawValue: doseUnit) ?? parsed.unit {
-            case .ml, .tsp, .tbsp, .oz, .drop:
-                packageAmount = 100
-                packageUnit = MedicineUnit.ml.rawValue
-            case .g, .mg, .mcg:
-                packageAmount = 30
-                packageUnit = MedicineUnit.g.rawValue
-            default:
-                packageAmount = 20
-                packageUnit = (MedicineUnit(rawValue: doseUnit) ?? .tablet).rawValue
+            let next = parsed.unit.rawValue
+            if doseUnit != next {
+                FreezeDiag.log("SWIFTDATA WRITE START source=applyDoseDefaultsIfNeeded.doseUnit")
+                FreezeDiag.log("SWIFTDATA WRITE object=\(id) kind=update medicine=\(id) oldStatus=- newStatus=- scheduledAt=- doseUnit '\(doseUnit)'->'\(next)'")
+                doseUnit = next
+                FreezeDiag.log("SWIFTDATA WRITE END source=applyDoseDefaultsIfNeeded.doseUnit")
             }
         }
+        if form.isEmpty || form == MedicineForm.other.rawValue {
+            let inferred = MedicineForm.infer(from: doseLabel, medicineName: name).rawValue
+            if form != inferred {
+                FreezeDiag.log("SWIFTDATA WRITE START source=applyDoseDefaultsIfNeeded.form")
+                FreezeDiag.log("SWIFTDATA WRITE object=\(id) kind=update medicine=\(id) oldStatus=- newStatus=- scheduledAt=- form '\(form)'->'\(inferred)'")
+                form = inferred
+                FreezeDiag.log("SWIFTDATA WRITE END source=applyDoseDefaultsIfNeeded.form")
+            }
+        }
+        // Never invent package size — refill stays incomplete until the user or scan provides it.
     }
 }
 
@@ -415,14 +414,14 @@ final class DoseLogRecord {
     }
 
     func apply(_ snapshot: DoseLogSnapshot) {
-        scheduleId = snapshot.scheduleId
-        ownerId = snapshot.ownerId
-        profileId = snapshot.profileId
-        scheduledAt = snapshot.scheduledAt
-        status = snapshot.status
-        loggedAt = snapshot.loggedAt
-        updatedAt = snapshot.updatedAt
-        deletedAt = snapshot.deletedAt
+        if scheduleId != snapshot.scheduleId { scheduleId = snapshot.scheduleId }
+        if ownerId != snapshot.ownerId { ownerId = snapshot.ownerId }
+        if profileId != snapshot.profileId { profileId = snapshot.profileId }
+        if scheduledAt != snapshot.scheduledAt { scheduledAt = snapshot.scheduledAt }
+        if status != snapshot.status { status = snapshot.status }
+        if loggedAt != snapshot.loggedAt { loggedAt = snapshot.loggedAt }
+        if updatedAt != snapshot.updatedAt { updatedAt = snapshot.updatedAt }
+        if deletedAt != snapshot.deletedAt { deletedAt = snapshot.deletedAt }
     }
 }
 
@@ -499,5 +498,38 @@ final class CommunityCommentRecord {
         self.author = author
         self.body = body
         self.createdAt = createdAt
+    }
+}
+
+enum PhilPlanStatus: String, Codable, Sendable {
+    case loading
+    case creating
+    case active
+    case needsUpdate
+    case error
+
+    /// Creating UI is not a persisted plan.
+    var planExists: Bool {
+        self == .active || self == .needsUpdate
+    }
+}
+
+@Model
+final class PhilPlanRecord {
+    @Attribute(.unique) var id: UUID
+    var ownerId: UUID
+    var status: String
+    var updatedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        ownerId: UUID,
+        status: String,
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.ownerId = ownerId
+        self.status = status
+        self.updatedAt = updatedAt
     }
 }

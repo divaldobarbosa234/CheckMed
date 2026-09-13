@@ -1,9 +1,12 @@
 import Foundation
 import SwiftData
+import CoreData
 
 struct AdherenceSnapshot: Equatable, Sendable {
     var streakDays: Int
     var takenCount: Int
+    var takenLateCount: Int
+    var missedCount: Int
     var plannedCount: Int
     var percent: Int?
     var treatmentCount: Int
@@ -18,6 +21,7 @@ struct AdherenceSnapshot: Equatable, Sendable {
 struct ReminderDraft: Identifiable, Sendable {
     enum Kind: String, Sendable {
         case dose
+        case confirm
         case missed
         case advance
         case refill
@@ -35,6 +39,7 @@ struct ReminderDraft: Identifiable, Sendable {
     var notificationId: String {
         switch kind {
         case .dose: "checkmed.dose.\(id.uuidString)"
+        case .confirm: "checkmed.confirm.\(id.uuidString)"
         case .missed: "checkmed.missed.\(id.uuidString)"
         case .advance: "checkmed.advance.\(id.uuidString)"
         case .refill: "checkmed.refill.\(id.uuidString)"
@@ -71,12 +76,15 @@ final class CheckMedStore {
     private var scopeProfileId: UUID?
     private var includeUnscoped = true
     private var calendar = Calendar(identifier: .gregorian)
-    private var cachedTreatments: [TreatmentRecord]?
-    private var cachedMedicines: [MedicineRecord]?
-    private var cachedSchedules: [DoseScheduleRecord]?
-    private var cachedLogs: [DoseLogRecord]?
-    private var logsEnsuredDay: Date?
-    private var logsEnsuredSignature: Int?
+    /// Bookkeeping only — must not invalidate SwiftUI. Writing these from a View
+    /// getter (Home adherence / today nodes) used to loop the Dashboard.
+    @ObservationIgnored private var cachedTreatments: [TreatmentRecord]?
+    @ObservationIgnored private var cachedMedicines: [MedicineRecord]?
+    @ObservationIgnored private var cachedSchedules: [DoseScheduleRecord]?
+    @ObservationIgnored private var cachedLogs: [DoseLogRecord]?
+    @ObservationIgnored private var logsEnsuredDay: Date?
+    @ObservationIgnored private var logsEnsuredSignature: Int?
+    @ObservationIgnored private var suppressNotify = false
     private(set) var revision = 0
     /// When false, Home / reminders / summaries hide plan rows even if SwiftData still has them.
     private(set) var surfacesPlan = false
@@ -113,10 +121,31 @@ final class CheckMedStore {
         context = ModelContext(container)
         context.autosaveEnabled = true
         calendar.timeZone = .current
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name.NSManagedObjectContextDidSave,
+            object: nil,
+            queue: .main
+        ) { _ in
+            FreezeDiag.log("SWIFTDATA AUTOSAVE/DIDSAVE NSManagedObjectContextDidSave")
+        }
+        NotificationCenter.default.addObserver(
+            forName: Notification.Name.NSManagedObjectContextWillSave,
+            object: nil,
+            queue: .main
+        ) { _ in
+            FreezeDiag.log("SWIFTDATA WILLSAVE NSManagedObjectContextWillSave")
+        }
     }
 
     func bindIdentity(ownerId: UUID?, profileId: UUID?) {
         let identityChanged = ownerId != self.ownerId
+        if !identityChanged,
+           ownerId != nil,
+           stampProfileId != nil,
+           profileId == nil || profileId == stampProfileId {
+            return
+        }
+        let previousStamp = stampProfileId
         self.ownerId = ownerId
         if identityChanged {
             stampProfileId = profileId
@@ -130,72 +159,33 @@ final class CheckMedStore {
         } else if let profileId {
             stampProfileId = profileId
         }
+        if let previousStamp, let profileId, previousStamp != profileId {
+            adoptProfile(from: previousStamp, to: profileId)
+        }
         stampIdentity()
         purgeUnownedOrphans()
-        ensureUpcomingLogs()
+        refreshDoseLogsForDisplay()
         notify()
     }
 
-    /// One-time: if the user never confirmed a medication plan, wipe leftover / sync-restored rows.
-    /// Completed intentional plans (days set + notifications done) are bootstrapped as confirmed.
-    /// Unfinished plans are kept for resume UI but stay hidden on Home until confirmed.
-    /// Never deletes after `hasConfirmedMedicationPlan` — confirm + seed win over migration.
+    /// Align Home visibility with a loaded plan. Never delete rows because auth/sync
+    /// is late, names look like a demo, or UserDefaults flags were cleared on sign-out.
     @discardableResult
     func reconcileUnconfirmedMedicationPlan(session: SessionStore) -> Bool {
-        if session.hasConfirmedMedicationPlan {
-            setSurfacesPlan(true)
-            let owner = ownerId
+        let owner = ownerId
+        let hasPlan = hasExistingTreatments
+        if session.hasConfirmedMedicationPlan || (session.hasCompletedOnboarding && hasPlan) {
+            if hasPlan { session.markMedicationPlanConfirmed() }
+            setSurfacesPlan(hasPlan || session.hasConfirmedMedicationPlan)
             if !session.didPurgeUnconfirmedPlans(ownerId: owner) {
                 session.markDidPurgeUnconfirmedPlans(ownerId: owner)
             }
             return false
         }
 
+        // Keep local/sync rows. Hide Home only for a true mid-setup plan.
         setSurfacesPlan(false)
-        let owner = ownerId
-        guard !session.didPurgeUnconfirmedPlans(ownerId: owner) else {
-            return false
-        }
-        session.markDidPurgeUnconfirmedPlans(ownerId: owner)
-
-        let medicineCount = medicines().count
-        if medicineCount == 0 {
-            return false
-        }
-
-        let fixture = looksLikeFixtureOrDemoPlan()
-        let daysSet = hasMedicationDaysSet
-        let notificationsDone = !session.needsNotificationsPrompt
-
-        // Returning user who finished setup before this flag existed — keep unless OCR fixture.
-        if daysSet && notificationsDone && session.hasCompletedOnboarding && !fixture {
-            session.markMedicationPlanConfirmed()
-            setSurfacesPlan(true)
-            return false
-        }
-
-        // Mid unfinished setup: keep rows for resume / unfinished prompt, hide from Home + alarms.
-        if !fixture && (session.needsNotificationsPrompt || !daysSet) {
-            return false
-        }
-
-        // Ghost / fixture / sync-restored leftover the user never confirmed.
-        deleteAllOwnedPlanData()
-        setSurfacesPlan(false)
-        return true
-    }
-
-    /// OCR test fixtures and common leftover demo names (Amoxidal is never a real catalog RX here).
-    private func looksLikeFixtureOrDemoPlan() -> Bool {
-        let names = medicines().map { $0.name.lowercased() }
-        guard !names.isEmpty else { return false }
-        if names.contains(where: { $0.contains("amoxidal") }) { return true }
-        let tokens = [
-            "amoxicilina", "amoxicillin", "paracetamol",
-            "ibuprofen", "ibuprofeno", "losartana", "metformina",
-        ]
-        let hits = names.filter { name in tokens.contains { name.contains($0) } }.count
-        return hits >= 2 && hits == names.count
+        return false
     }
 
     func setActiveScope(profileId: UUID?, includeUnscoped: Bool) {
@@ -205,7 +195,7 @@ final class CheckMedStore {
         guard changed else { return }
         logsEnsuredDay = nil
         invalidateCache()
-        ensureUpcomingLogs()
+        refreshDoseLogsForDisplay()
         notify()
     }
 
@@ -215,8 +205,51 @@ final class CheckMedStore {
         next.timeZone = timeZone
         calendar = next
         logsEnsuredDay = nil
-        ensureUpcomingLogs()
+        refreshDoseLogsForDisplay()
         notify()
+    }
+
+    func philPlanStatus() -> PhilPlanStatus {
+        guard let ownerId else { return .loading }
+        let defaults = UserDefaults.standard.string(forKey: Self.philPlanDefaultsKey(ownerId))
+        if let defaults, let status = PhilPlanStatus(rawValue: defaults) {
+            return status
+        }
+        if let keychain = ProfileSetupKeychain.philPlanStatus(for: ownerId),
+           let status = PhilPlanStatus(rawValue: keychain) {
+            return status
+        }
+        return hasExistingTreatments ? .active : .loading
+    }
+
+    func setPhilPlanStatus(_ status: PhilPlanStatus) {
+        guard let ownerId else { return }
+        UserDefaults.standard.set(status.rawValue, forKey: Self.philPlanDefaultsKey(ownerId))
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: Self.philPlanUpdatedKey(ownerId))
+        ProfileSetupKeychain.persistPhilPlanStatus(status.rawValue, userId: ownerId)
+        LaunchLog.plan("status=\(status.rawValue) owner=\(ownerId.uuidString)")
+    }
+
+    func applyRemotePhilPlan(status raw: String, ownerId: UUID, updatedAt: Date) {
+        guard let status = PhilPlanStatus(rawValue: raw), status.planExists || status == .error else { return }
+        let localUpdated = UserDefaults.standard.double(forKey: Self.philPlanUpdatedKey(ownerId))
+        if localUpdated > updatedAt.timeIntervalSince1970 { return }
+        setPhilPlanStatus(status)
+    }
+
+    func philPlanSnapshot() -> (status: String, updatedAt: Date)? {
+        guard let ownerId else { return nil }
+        guard let raw = UserDefaults.standard.string(forKey: Self.philPlanDefaultsKey(ownerId)) else { return nil }
+        let updated = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: Self.philPlanUpdatedKey(ownerId)))
+        return (raw, updated)
+    }
+
+    private static func philPlanDefaultsKey(_ ownerId: UUID) -> String {
+        "checkmed.philPlanStatus.\(ownerId.uuidString)"
+    }
+
+    private static func philPlanUpdatedKey(_ ownerId: UUID) -> String {
+        "checkmed.philPlanUpdated.\(ownerId.uuidString)"
     }
 
     /// Treatments already owned by the signed-in user. Ignores unowned leftover rows.
@@ -236,7 +269,10 @@ final class CheckMedStore {
     var activeMedicineCount: Int {
         _ = revision
         guard surfacesPlan else { return 0 }
-        return medicineSummaries().count
+        FreezeDiag.context("activeMedicineCount BEFORE summaries", hasChanges: context.hasChanges)
+        let count = medicineSummaries().count
+        FreezeDiag.context("activeMedicineCount AFTER summaries", hasChanges: context.hasChanges)
+        return count
     }
 
     /// Active-plan medicine count for free-plan caps / scan gates.
@@ -301,12 +337,83 @@ final class CheckMedStore {
         var scheduleTimes: [String]
         var daysOnTreatment: Int
         var missedCount: Int
+        var refillDataComplete: Bool
     }
 
     func medicineSummaries() -> [MedicineSummary] {
+        summaries(treatments: activeTreatments(), requireSurfacesPlan: true)
+    }
+
+    /// Report reads the same medicine/treatment rows as Home / Journey / Plan.
+    /// Ungated from `surfacesPlan` so a saved Rx is visible mid post-journey.
+    /// Includes finished treatments (history) without creating extra active slots.
+    func reportMedicineSummaries() -> [MedicineSummary] {
+        summaries(treatments: treatments(), requireSurfacesPlan: false)
+    }
+
+    func reportCurrentMedicines() -> [MedicineSummary] {
+        reportMedicineSummaries().filter { $0.treatmentStatus == "active" }
+    }
+
+    struct PrescriptionHistoryItem: Identifiable {
+        var id: UUID
+        var title: String
+        var date: Date
+        var doctorName: String
+        var medicines: [String]
+        var isActive: Bool
+    }
+
+    func reportPrescriptionHistory() -> [PrescriptionHistoryItem] {
         _ = revision
-        guard surfacesPlan else { return [] }
-        let treatmentsById = Dictionary(uniqueKeysWithValues: activeTreatments().map { ($0.id, $0) })
+        return treatments().compactMap { treatment in
+            let meds = medicines(for: treatment.id)
+            guard !meds.isEmpty else { return nil }
+            let doctors = meds.map(\.doctorName).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+            return PrescriptionHistoryItem(
+                id: treatment.id,
+                title: treatment.title,
+                date: treatment.startDate,
+                doctorName: doctors.first ?? "",
+                medicines: meds.map(\.name),
+                isActive: treatment.status == "active"
+            )
+        }
+        .sorted { $0.date > $1.date }
+    }
+
+    struct PrescriptionSourceItem: Identifiable {
+        var id: UUID
+        var title: String
+        var date: Date
+        var url: URL
+        var isPDF: Bool
+    }
+
+    func reportPrescriptionSources() -> [PrescriptionSourceItem] {
+        _ = revision
+        return treatments().compactMap { treatment in
+            guard let url = PrescriptionSourceArchive.url(for: treatment.id) else { return nil }
+            return PrescriptionSourceItem(
+                id: treatment.id,
+                title: treatment.title,
+                date: treatment.startDate,
+                url: url,
+                isPDF: url.pathExtension.lowercased() == "pdf"
+            )
+        }
+        .sorted { $0.date > $1.date }
+    }
+
+    func archiveImportedSource(_ pending: PendingPrescriptionImport) {
+        guard let treatment = activeTreatments().first else { return }
+        PrescriptionSourceArchive.saveIfAbsent(pending, treatmentId: treatment.id)
+    }
+
+    private func summaries(treatments treatmentList: [TreatmentRecord], requireSurfacesPlan: Bool) -> [MedicineSummary] {
+        _ = revision
+        if requireSurfacesPlan, !surfacesPlan { return [] }
+        let treatmentsById = Dictionary(uniqueKeysWithValues: treatmentList.map { ($0.id, $0) })
         let now = Date()
         return medicines().compactMap { medicine in
             guard let treatment = treatmentsById[medicine.treatmentId] else { return nil }
@@ -314,18 +421,24 @@ final class CheckMedStore {
             let medSchedules = schedules(for: medicine.id)
             let times = max(1, medSchedules.count)
             let scheduleTimes = medSchedules.map(\.timeOfDay).sorted()
-            let days = MedicineUnits.daysLeft(
+            let refillComplete = MedicineUnits.hasCompleteRefillData(
+                packageAmount: medicine.packageAmount,
+                quantityPerDose: medicine.quantityPerDose,
+                packageUnit: medicine.packageMedicineUnit,
+                doseUnit: medicine.doseMedicineUnit
+            )
+            let days = refillComplete ? MedicineUnits.daysLeft(
                 packageAmount: medicine.packageAmount,
                 packageUnit: medicine.packageMedicineUnit,
                 stockPercent: medicine.stockPercent,
                 quantityPerDose: medicine.quantityPerDose,
                 doseUnit: medicine.doseMedicineUnit,
                 timesPerDay: times
-            )
+            ) : nil
             let scheduleIds = Set(medSchedules.map(\.id))
             let medLogs = allLogs().filter { scheduleIds.contains($0.scheduleId) && $0.deletedAt == nil }
             let missed = medLogs.filter {
-                $0.scheduledAt <= now && $0.status == DoseLogStatus.skipped.rawValue
+                $0.scheduledAt <= now && DoseLogStatus(rawValue: $0.status)?.isMissedLike == true
             }.count
             let daysOn = max(
                 1,
@@ -357,7 +470,8 @@ final class CheckMedStore {
                 daysLeft: days,
                 scheduleTimes: scheduleTimes,
                 daysOnTreatment: daysOn,
-                missedCount: missed
+                missedCount: missed,
+                refillDataComplete: refillComplete
             )
         }
     }
@@ -435,6 +549,49 @@ final class CheckMedStore {
         #endif
     }
 
+    /// Guest / pre-profile SwiftData used a device profile UUID. After the real
+    /// `profiles.id` arrives, rewrite so Home scope and Supabase FK both match.
+    func adoptProfile(from previousProfileId: UUID, to newProfileId: UUID) {
+        guard previousProfileId != newProfileId else { return }
+        let now = Date()
+        var changed = false
+        func claim(_ pid: UUID?) -> Bool { pid == nil || pid == previousProfileId }
+        for treatment in allTreatments() where matchesBoundOwner(treatment.ownerId) && claim(treatment.profileId) {
+            treatment.profileId = newProfileId
+            treatment.updatedAt = now
+            changed = true
+        }
+        for medicine in allMedicines() where matchesBoundOwner(medicine.ownerId) && claim(medicine.profileId) {
+            medicine.profileId = newProfileId
+            medicine.updatedAt = now
+            changed = true
+        }
+        for schedule in allSchedules() where matchesBoundOwner(schedule.ownerId) && claim(schedule.profileId) {
+            schedule.profileId = newProfileId
+            schedule.updatedAt = now
+            changed = true
+        }
+        for log in allLogs() where matchesBoundOwner(log.ownerId) && claim(log.profileId) {
+            log.profileId = newProfileId
+            log.updatedAt = now
+            changed = true
+        }
+        if stampProfileId == nil || stampProfileId == previousProfileId {
+            stampProfileId = newProfileId
+        }
+        if scopeProfileId == nil || scopeProfileId == previousProfileId {
+            scopeProfileId = newProfileId
+        }
+        guard changed else { return }
+        invalidateCache()
+        logsEnsuredDay = nil
+        save()
+        notify()
+        #if DEBUG
+        print("[CheckMed] adoptProfile \(previousProfileId) → \(newProfileId)")
+        #endif
+    }
+
     @discardableResult
     private func persistDrafts(
         _ drafts: [OnboardingPrescriptionDraft],
@@ -443,6 +600,7 @@ final class CheckMedStore {
         replacePlan: Bool
     ) -> Bool {
         let named = drafts.filter(\.hasMedicineName)
+        ScanLog.confirmed(named)
         guard let ownerId else {
             #if DEBUG
             print("[CheckMed] persistDrafts aborted: missing ownerId (named=\(named.count))")
@@ -475,6 +633,7 @@ final class CheckMedStore {
             )
         }
         let saved = medicines().count
+        ScanLog.saved(named)
         #if DEBUG
         print("[CheckMed] persistDrafts ok replace=\(replacePlan) seeded=\(named.count) stored=\(saved) surfacesPlan=\(surfacesPlan)")
         #endif
@@ -507,6 +666,14 @@ final class CheckMedStore {
             return
         }
 
+        let start = ScanPipeline.resolvedTreatmentStart(draft: draft, now: now, calendar: calendar)
+        let end = Self.endDate(fromDuration: draft.duration, start: start, calendar: calendar)
+        ScanLog.med(
+            "name=\(medicineName) prescriptionDate=\(draft.prescriptionDate.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil") "
+            + "scanDate=\(ScanPipeline.iso(draft.scanDate, calendar: calendar)) "
+            + "treatmentStartDate=\(ScanPipeline.iso(start, calendar: calendar)) "
+            + "treatmentEndDate=\(end.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil")"
+        )
         let treatment: TreatmentRecord
         if let ontoTreatment {
             treatment = ontoTreatment
@@ -515,7 +682,8 @@ final class CheckMedStore {
             existing.updatedAt = now
             existing.deletedAt = nil
             existing.status = "active"
-            existing.endDate = Self.endDate(fromDuration: draft.duration, start: existing.startDate, calendar: calendar)
+            existing.startDate = start
+            existing.endDate = end
             stamp(existing)
             treatment = existing
         } else {
@@ -523,8 +691,8 @@ final class CheckMedStore {
                 ownerId: self.ownerId,
                 profileId: writeProfileId,
                 title: medicineName,
-                startDate: now,
-                endDate: Self.endDate(fromDuration: draft.duration, start: now, calendar: calendar),
+                startDate: start,
+                endDate: end,
                 updatedAt: now
             )
             context.insert(treatment)
@@ -630,32 +798,219 @@ final class CheckMedStore {
         requestSync()
     }
 
-    func markLog(id: UUID, status: DoseLogStatus) {
+    func updateMedicineDetails(
+        id: UUID,
+        name: String? = nil,
+        doseLabel: String? = nil,
+        frequency: String? = nil,
+        duration: String? = nil,
+        doctorName: String? = nil,
+        doctorId: String? = nil,
+        hospitalName: String? = nil,
+        doctorNotes: String? = nil,
+        reason: String? = nil
+    ) {
+        guard let medicine = medicines().first(where: { $0.id == id }) else { return }
+        if let name {
+            let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { medicine.name = trimmed }
+        }
+        if let doseLabel {
+            let trimmed = doseLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                medicine.doseLabel = trimmed
+                let parsed = MedicineUnits.parseDoseLabel(trimmed)
+                medicine.quantityPerDose = parsed.quantity
+                medicine.doseUnit = parsed.unit.rawValue
+            }
+        }
+        if let frequency {
+            medicine.frequency = PrescriptionParser.intervalOnly(frequency)
+        }
+        if let duration {
+            medicine.duration = duration.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let doctorName { medicine.doctorName = doctorName }
+        if let doctorId { medicine.doctorId = doctorId }
+        if let hospitalName { medicine.hospitalName = hospitalName }
+        if let doctorNotes { medicine.doctorNotes = doctorNotes }
+        if let reason { medicine.reason = reason }
+        medicine.updatedAt = Date()
+        stamp(medicine)
+        if let treatment = treatments().first(where: { $0.id == medicine.treatmentId }) {
+            treatment.updatedAt = Date()
+            stamp(treatment)
+        }
+        save()
+        notify()
+        requestSync()
+    }
+
+    func markLog(id: UUID, status: DoseLogStatus, now: Date = Date()) {
+        applyDoseAction(id: id, next: status, now: now)
+    }
+
+    func applyDoseAction(id: UUID, action: DoseLoopAction, now: Date = Date()) {
         guard let log = allLogs().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
-        let wasPending = log.status == DoseLogStatus.pending.rawValue
-        log.status = status.rawValue
-        log.loggedAt = Date()
-        log.updatedAt = Date()
+        let previous = DoseLogStatus(rawValue: log.status) ?? .pending
+        let next = DoseLoop.apply(
+            action,
+            current: previous,
+            scheduledAt: log.scheduledAt,
+            now: now,
+            grace: ReminderPreferences.confirmationGraceInterval
+        )
+        applyDoseAction(id: id, next: next, now: now)
+    }
+
+    func confirmDoseTaken(id: UUID, now: Date = Date()) {
+        applyDoseAction(id: id, action: .confirmTaken, now: now)
+    }
+
+    private func applyDoseAction(id: UUID, next: DoseLogStatus, now: Date) {
+        guard let log = allLogs().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+        let previous = DoseLogStatus(rawValue: log.status) ?? .pending
+        if previous.isConfirmedTaken, !next.isConfirmedTaken { return }
+        if previous == next, next != .snoozed { return }
+        FreezeDiag.log("SWIFTDATA WRITE START source=applyDoseAction")
+        FreezeDiag.log(
+            "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(previous.rawValue) newStatus=\(next.rawValue) scheduledAt=\(log.scheduledAt)"
+        )
+        log.status = next.rawValue
+        log.loggedAt = now
+        log.updatedAt = now
         stamp(log)
-        if status == .taken, wasPending,
+        FreezeDiag.log("SWIFTDATA WRITE END source=applyDoseAction")
+        if DoseLoop.shouldConsumeStock(from: previous, to: next),
            let schedule = schedules().first(where: { $0.id == log.scheduleId }),
            let medicine = medicines().first(where: { $0.id == schedule.medicineId }) {
             medicine.applyDoseDefaultsIfNeeded()
-            if let next = MedicineUnits.stockPercentAfterDose(
+            if MedicineUnits.hasCompleteRefillData(
+                packageAmount: medicine.packageAmount,
+                quantityPerDose: medicine.quantityPerDose,
+                packageUnit: medicine.packageMedicineUnit,
+                doseUnit: medicine.doseMedicineUnit
+            ), let stock = MedicineUnits.stockPercentAfterDose(
                 packageAmount: medicine.packageAmount,
                 packageUnit: medicine.packageMedicineUnit,
                 stockPercent: medicine.stockPercent,
                 quantityPerDose: medicine.quantityPerDose,
                 doseUnit: medicine.doseMedicineUnit
             ) {
-                medicine.stockPercent = next
-                medicine.updatedAt = Date()
+                medicine.stockPercent = stock
+                medicine.updatedAt = now
                 stamp(medicine)
             }
         }
         save()
         notify()
         requestSync()
+    }
+
+    /// Create upcoming logs + expire overdue ones. Call from lifecycle / sync /
+    /// alarm rebuild — never from a SwiftUI View body getter.
+    func refreshDoseLogsForDisplay() {
+        FreezeDiag.context("refreshDoseLogs START", hasChanges: context.hasChanges)
+        let t0 = Date()
+        let previous = suppressNotify
+        suppressNotify = true
+        ensureUpcomingLogs()
+        reconcileExpiredDoseLogs()
+        suppressNotify = previous
+        FreezeDiag.context(
+            String(format: "refreshDoseLogs END %.0fms", Date().timeIntervalSince(t0) * 1000),
+            hasChanges: context.hasChanges
+        )
+    }
+
+    func reconcileExpiredDoseLogs(now: Date = Date()) {
+        FreezeDiag.context("reconcileExpiredDoseLogs START", hasChanges: context.hasChanges)
+        let grace = ReminderPreferences.confirmationGraceInterval
+        let snooze = ReminderPreferences.snoozeInterval
+        let window = now.addingTimeInterval(-36 * 60 * 60)
+        var changed = 0
+        for log in allLogs() where log.deletedAt == nil {
+            guard changed < 24 else { break }
+            guard log.scheduledAt >= window else { continue }
+            let status = DoseLogStatus(rawValue: log.status) ?? .pending
+            guard DoseLoop.shouldMarkMissed(
+                status: status,
+                scheduledAt: log.scheduledAt,
+                loggedAt: log.loggedAt,
+                now: now,
+                grace: grace,
+                snooze: snooze
+            ) else { continue }
+            FreezeDiag.log("SWIFTDATA WRITE START source=reconcileExpiredDoseLogs")
+            FreezeDiag.log(
+                "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(status.rawValue) newStatus=missed scheduledAt=\(log.scheduledAt)"
+            )
+            log.status = DoseLogStatus.missed.rawValue
+            log.loggedAt = log.loggedAt ?? now
+            log.updatedAt = now
+            stamp(log)
+            FreezeDiag.log("SWIFTDATA WRITE END source=reconcileExpiredDoseLogs")
+            changed += 1
+        }
+        if changed == 0 {
+            FreezeDiag.context("reconcileExpiredDoseLogs END no writes", hasChanges: context.hasChanges)
+            return
+        }
+        save()
+        if !suppressNotify {
+            notify()
+            requestSync()
+        }
+        FreezeDiag.context("reconcileExpiredDoseLogs END changed=\(changed)", hasChanges: context.hasChanges)
+    }
+
+    struct UnresolvedDose: Identifiable, Equatable {
+        var id: UUID
+        var medicine: String
+        var doseLabel: String
+        var time: String
+        var scheduledAt: Date
+        var status: DoseLogStatus
+    }
+
+    func unresolvedDosesForSummary(now: Date = Date()) -> [UnresolvedDose] {
+        _ = revision
+        guard surfacesPlan else { return [] }
+        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
+        let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
+        let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        let window = now.addingTimeInterval(-36 * 60 * 60)
+        return logs().compactMap { log in
+            let status = DoseLogStatus(rawValue: log.status) ?? .pending
+            let needsDialogue = status == .pendingConfirmation
+                || status == .missed
+                || (status == .pending && log.scheduledAt < now)
+                || status == .snoozed && log.scheduledAt < now
+            guard needsDialogue else { return nil }
+            guard log.scheduledAt >= window else { return nil }
+            guard let schedule = schedulesById[log.scheduleId],
+                  let medicine = medicinesById[schedule.medicineId],
+                  activeTreatmentIds.contains(medicine.treatmentId) else { return nil }
+            if let treatment = activeTreatments().first(where: { $0.id == medicine.treatmentId }),
+               calendar.isDate(treatment.startDate, inSameDayAs: now),
+               log.scheduledAt < now,
+               status != .pendingConfirmation {
+                // Same-day import: backfilled morning slots are not a miss.
+                return nil
+            }
+            guard !MissedDoseAcknowledgement.contains(log.id) else { return nil }
+            return UnresolvedDose(
+                id: log.id,
+                medicine: medicine.name,
+                doseLabel: medicine.doseLabel,
+                time: schedule.timeOfDay,
+                scheduledAt: log.scheduledAt,
+                status: status
+            )
+        }
+        .sorted { $0.scheduledAt < $1.scheduledAt }
+        .prefix(8)
+        .map { $0 }
     }
 
     func completeTreatment(id: UUID) {
@@ -682,7 +1037,6 @@ final class CheckMedStore {
     /// Medicines on the active plan that still have missed/pending expected doses, or a course that is not fully taken yet.
     func incompleteMedicineNamesForActivePlan() -> [String] {
         _ = revision
-        ensureUpcomingLogs()
         let now = Date()
         let today = calendar.startOfDay(for: now)
         let treatmentsById = Dictionary(uniqueKeysWithValues: activeTreatments().map { ($0.id, $0) })
@@ -694,10 +1048,11 @@ final class CheckMedStore {
             let medLogs = logs().filter { scheduleIds.contains($0.scheduleId) }
             let dueLogs = medLogs.filter { $0.scheduledAt <= now }
             let dueIncomplete = dueLogs.contains {
-                $0.status == DoseLogStatus.pending.rawValue || $0.status == DoseLogStatus.skipped.rawValue
+                let status = DoseLogStatus(rawValue: $0.status) ?? .pending
+                return status.isOpen || status.isMissedLike
             }
             let neverFullyTaken = !dueLogs.isEmpty
-                && !dueLogs.contains { $0.status == DoseLogStatus.taken.rawValue }
+                && !dueLogs.contains { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }
             let courseStillOpen = treatment.endDate.map { calendar.startOfDay(for: $0) > today } ?? false
             guard dueIncomplete || neverFullyTaken || courseStillOpen else { continue }
             let key = Self.medicineKey(medicine.name)
@@ -748,15 +1103,17 @@ final class CheckMedStore {
                 daysLeft: nil,
                 scheduleTimes: schedules(for: medicine.id).map(\.timeOfDay).sorted(),
                 daysOnTreatment: 1,
-                missedCount: 0
+                missedCount: 0,
+                refillDataComplete: false
             )
         }
     }
 
     func draftsFromActivePlan() -> [OnboardingPrescriptionDraft] {
         _ = revision
+        let activeIds = Set(activeTreatments().map(\.id))
         let drafts = medicines().compactMap { medicine -> OnboardingPrescriptionDraft? in
-            guard medicine.deletedAt == nil else { return nil }
+            guard medicine.deletedAt == nil, activeIds.contains(medicine.treatmentId) else { return nil }
             let times = schedules(for: medicine.id).map(\.timeOfDay).sorted()
             return OnboardingPrescriptionDraft(
                 medicine: medicine.name,
@@ -1018,7 +1375,7 @@ final class CheckMedStore {
     }
 
     /// Used when AlarmKit / notification actions fire before the SwiftUI store is bound.
-    static func persistDoseStatus(id: UUID, status: DoseLogStatus) {
+    static func persistDoseAction(id: UUID, action: DoseLoopAction, now: Date = Date()) {
         let schema = Schema([
             TreatmentRecord.self,
             MedicineRecord.self,
@@ -1035,16 +1392,70 @@ final class CheckMedStore {
             predicate: #Predicate { row in row.id == target && row.deletedAt == nil }
         )
         guard let log = try? context.fetch(descriptor).first else { return }
-        log.status = status.rawValue
-        log.loggedAt = Date()
-        log.updatedAt = Date()
+        let previous = DoseLogStatus(rawValue: log.status) ?? .pending
+        let next = DoseLoop.apply(
+            action,
+            current: previous,
+            scheduledAt: log.scheduledAt,
+            now: now,
+            grace: ReminderPreferences.confirmationGraceInterval
+        )
+        if previous.isConfirmedTaken, !next.isConfirmedTaken { return }
+        FreezeDiag.log("SWIFTDATA WRITE START source=persistDoseAction")
+        FreezeDiag.log(
+            "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(previous.rawValue) newStatus=\(next.rawValue) scheduledAt=\(log.scheduledAt)"
+        )
+        log.status = next.rawValue
+        log.loggedAt = now
+        log.updatedAt = now
+        if DoseLoop.shouldConsumeStock(from: previous, to: next) {
+            let scheduleId = log.scheduleId
+            let scheduleDesc = FetchDescriptor<DoseScheduleRecord>(
+                predicate: #Predicate { row in row.id == scheduleId && row.deletedAt == nil }
+            )
+            if let schedule = try? context.fetch(scheduleDesc).first {
+                let medicineId = schedule.medicineId
+                let medDesc = FetchDescriptor<MedicineRecord>(
+                    predicate: #Predicate { row in row.id == medicineId && row.deletedAt == nil }
+                )
+                if let medicine = try? context.fetch(medDesc).first,
+                   MedicineUnits.hasCompleteRefillData(
+                    packageAmount: medicine.packageAmount,
+                    quantityPerDose: medicine.quantityPerDose,
+                    packageUnit: medicine.packageMedicineUnit,
+                    doseUnit: medicine.doseMedicineUnit
+                   ),
+                   let stock = MedicineUnits.stockPercentAfterDose(
+                    packageAmount: medicine.packageAmount,
+                    packageUnit: medicine.packageMedicineUnit,
+                    stockPercent: medicine.stockPercent,
+                    quantityPerDose: medicine.quantityPerDose,
+                    doseUnit: medicine.doseMedicineUnit
+                   ) {
+                    medicine.stockPercent = stock
+                    medicine.updatedAt = now
+                }
+            }
+        }
         try? context.save()
+        FreezeDiag.log("SWIFTDATA WRITE END source=persistDoseAction")
+    }
+
+    static func persistDoseStatus(id: UUID, status: DoseLogStatus) {
+        let action: DoseLoopAction
+        switch status {
+        case .taken, .takenLate: action = .confirmTaken
+        case .snoozed: action = .snooze
+        case .pendingConfirmation: action = .stop
+        case .missed, .skipped: action = .didNotTake
+        case .pending: return
+        }
+        persistDoseAction(id: id, action: action)
     }
 
     func todayNodes() -> [DoseNode] {
         _ = revision
         guard surfacesPlan else { return [] }
-        ensureUpcomingLogs()
         let activeTreatmentIds = Set(activeTreatments().map(\.id))
         guard !activeTreatmentIds.isEmpty else { return [] }
         let dayLogs = todayLogs().sorted { $0.scheduledAt < $1.scheduledAt }
@@ -1076,11 +1487,16 @@ final class CheckMedStore {
     }
 
     func adherence() -> AdherenceSnapshot {
+        FreezeDiag.context("adherence START revision=\(revision)", hasChanges: context.hasChanges)
+        let t0 = Date()
         _ = revision
         guard surfacesPlan else {
+            FreezeDiag.log("adherence END (no plan)")
             return AdherenceSnapshot(
                 streakDays: 0,
                 takenCount: 0,
+                takenLateCount: 0,
+                missedCount: 0,
                 plannedCount: 0,
                 percent: nil,
                 treatmentCount: 0,
@@ -1092,7 +1508,6 @@ final class CheckMedStore {
                 weekPercent: nil
             )
         }
-        ensureUpcomingLogs()
         let now = Date()
         let today = calendar.startOfDay(for: now)
         let activeTreatmentIds = Set(activeTreatments().map(\.id))
@@ -1103,11 +1518,14 @@ final class CheckMedStore {
                   let medicine = medicinesById[schedule.medicineId] else { return false }
             return activeTreatmentIds.contains(medicine.treatmentId)
         }
-        let todayTaken = dayLogs.filter { $0.status == DoseLogStatus.taken.rawValue }.count
+        let todayTaken = dayLogs.filter { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }.count
         let todayTotal = dayLogs.count
         let history = logs()
         let due = history.filter { $0.scheduledAt <= now }
-        let takenCount = due.filter { $0.status == DoseLogStatus.taken.rawValue }.count
+        let takenLateCount = due.filter { $0.status == DoseLogStatus.takenLate.rawValue }.count
+        let takenOnTime = due.filter { $0.status == DoseLogStatus.taken.rawValue }.count
+        let missedCount = due.filter { DoseLogStatus(rawValue: $0.status)?.isMissedLike == true }.count
+        let takenCount = takenOnTime + takenLateCount
         let plannedCount = due.count
         let percent: Int? = plannedCount == 0 ? nil : Int((Double(takenCount) / Double(plannedCount) * 100).rounded())
         var weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? today
@@ -1119,12 +1537,19 @@ final class CheckMedStore {
                   let medicine = medicinesById[schedule.medicineId] else { return false }
             return activeTreatmentIds.contains(medicine.treatmentId)
         }
-        let weekTaken = weekLogs.filter { $0.status == DoseLogStatus.taken.rawValue }.count
+        let weekTaken = weekLogs.filter { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }.count
         let weekPlanned = weekLogs.count
         let weekPercent: Int? = weekPlanned == 0 ? nil : Int((Double(weekTaken) / Double(weekPlanned) * 100).rounded())
+        let streak = streakDays(now: now, today: today)
+        FreezeDiag.context(
+            String(format: "adherence END logs=%d revision=%d %.0fms", history.count, revision, Date().timeIntervalSince(t0) * 1000),
+            hasChanges: context.hasChanges
+        )
         return AdherenceSnapshot(
-            streakDays: streakDays(now: now, today: today),
+            streakDays: streak,
             takenCount: takenCount,
+            takenLateCount: takenLateCount,
+            missedCount: missedCount,
             plannedCount: plannedCount,
             percent: percent,
             treatmentCount: activeTreatments().count,
@@ -1139,56 +1564,48 @@ final class CheckMedStore {
 
     func reminderDrafts(now: Date = Date()) -> [ReminderDraft] {
         guard surfacesPlan else { return [] }
-        ensureUpcomingLogs()
         let activeTreatmentIds = Set(activeTreatments().map(\.id))
         guard !activeTreatmentIds.isEmpty else { return [] }
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
         let horizon = calendar.date(byAdding: .day, value: 7, to: now) ?? now
-        let grace: TimeInterval = 45 * 60
+        let grace = ReminderPreferences.confirmationGraceInterval
+        let snooze = ReminderPreferences.snoozeInterval
         var drafts: [ReminderDraft] = []
-        for log in logs() where log.status == DoseLogStatus.pending.rawValue {
-            guard log.scheduledAt < horizon else { continue }
+        for log in logs() {
+            let status = DoseLogStatus(rawValue: log.status) ?? .pending
+            guard status.isOpen else { continue }
+            guard log.scheduledAt < horizon || status == .snoozed || status == .pendingConfirmation else { continue }
             guard let schedule = schedulesById[log.scheduleId],
                   let medicine = medicinesById[schedule.medicineId],
                   activeTreatmentIds.contains(medicine.treatmentId) else { continue }
-            if log.scheduledAt > now.addingTimeInterval(8) {
+            func append(_ fire: Date, kind: ReminderDraft.Kind) {
+                guard fire > now.addingTimeInterval(8), fire < horizon.addingTimeInterval(grace) else { return }
                 drafts.append(
                     ReminderDraft(
                         id: log.id,
-                        fireDate: log.scheduledAt,
+                        fireDate: fire,
                         medicine: medicine.name,
                         doseLabel: medicine.doseLabel,
                         time: schedule.timeOfDay,
-                        kind: .dose
+                        kind: kind
                     )
                 )
-                let advanceAt = log.scheduledAt.addingTimeInterval(-3600)
-                if advanceAt > now.addingTimeInterval(8) {
-                    drafts.append(
-                        ReminderDraft(
-                            id: log.id,
-                            fireDate: advanceAt,
-                            medicine: medicine.name,
-                            doseLabel: medicine.doseLabel,
-                            time: schedule.timeOfDay,
-                            kind: .advance
-                        )
-                    )
-                }
             }
-            let missedAt = log.scheduledAt.addingTimeInterval(grace)
-            if missedAt > now.addingTimeInterval(8), missedAt < horizon {
-                drafts.append(
-                    ReminderDraft(
-                        id: log.id,
-                        fireDate: missedAt,
-                        medicine: medicine.name,
-                        doseLabel: medicine.doseLabel,
-                        time: schedule.timeOfDay,
-                        kind: .missed
-                    )
-                )
+            switch status {
+            case .pending:
+                append(log.scheduledAt, kind: .dose)
+                let advanceAt = log.scheduledAt.addingTimeInterval(-3600)
+                if log.scheduledAt > now.addingTimeInterval(8) {
+                    append(advanceAt, kind: .advance)
+                }
+            case .snoozed:
+                append(DoseLoop.snoozeFireDate(loggedAt: log.loggedAt ?? now, snooze: snooze, now: now), kind: .dose)
+            case .pendingConfirmation:
+                let followUp = (log.loggedAt ?? now).addingTimeInterval(grace)
+                append(followUp, kind: .confirm)
+            case .taken, .takenLate, .missed, .skipped:
+                break
             }
         }
         return drafts.sorted { $0.fireDate < $1.fireDate }
@@ -1216,9 +1633,9 @@ final class CheckMedStore {
                 cells.append((number, "today"))
             } else if dayLogs.isEmpty {
                 cells.append((number, "soon"))
-            } else if dayLogs.contains(where: { $0.status == DoseLogStatus.pending.rawValue && $0.scheduledAt < now }) {
+            } else if dayLogs.contains(where: { DoseLogStatus(rawValue: $0.status)?.isMissedLike == true || ($0.status == DoseLogStatus.pending.rawValue && $0.scheduledAt < now) }) {
                 cells.append((number, "miss"))
-            } else if dayLogs.contains(where: { $0.status == DoseLogStatus.taken.rawValue }) {
+            } else if dayLogs.contains(where: { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }) {
                 cells.append((number, "done"))
             } else {
                 cells.append((number, "done"))
@@ -1293,8 +1710,8 @@ final class CheckMedStore {
         let medIds = Set(meds.map(\.id))
         let scheduleIds = Set(schedules().filter { medIds.contains($0.medicineId) }.map(\.id))
         let related = logs().filter { scheduleIds.contains($0.scheduleId) && $0.scheduledAt <= Date() }
-        let taken = related.filter { $0.status == DoseLogStatus.taken.rawValue }.count
-        let skipped = related.filter { $0.status == DoseLogStatus.skipped.rawValue }.count
+        let taken = related.filter { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }.count
+        let skipped = related.filter { DoseLogStatus(rawValue: $0.status)?.isMissedLike == true }.count
         let planned = related.count
         let percent = planned == 0 ? 0 : Int((Double(taken) / Double(planned) * 100).rounded())
         let names = Set(meds.map(\.name))
@@ -1346,6 +1763,22 @@ final class CheckMedStore {
 
     // MARK: - Sync support
 
+    /// True when this owner already has an active (not completed/deleted) treatment.
+    var hasActivePlan: Bool {
+        guard let ownerId else { return false }
+        return allTreatments().contains {
+            $0.deletedAt == nil && $0.ownerId == ownerId && $0.status == "active"
+        }
+    }
+
+    /// Existing valid plan for this owner — load it; do not create a duplicate.
+    func existingActivePlanId() -> UUID? {
+        guard let ownerId else { return nil }
+        return allTreatments().first {
+            $0.deletedAt == nil && $0.ownerId == ownerId && $0.status == "active"
+        }?.id
+    }
+
     /// Only push rows owned by the signed-in user. Never upload unowned leftover SwiftData.
     func treatmentSnapshots() -> [TreatmentSnapshot] { syncable(ownedExact(allTreatments())).map(\.snapshot) }
     func medicineSnapshots() -> [MedicineSnapshot] { syncable(ownedExact(allMedicines())).map(\.snapshot) }
@@ -1353,50 +1786,172 @@ final class CheckMedStore {
     func logSnapshots() -> [DoseLogSnapshot] { syncable(ownedExact(allLogs())).map(\.snapshot) }
 
     func mergeTreatment(_ row: TreatmentSnapshot) {
-        if let existing = allTreatments().first(where: { $0.id == row.id }) {
-            guard row.updatedAt >= existing.updatedAt else { return }
-            existing.apply(row)
-        } else {
-            context.insert(TreatmentRecord(snapshot: row))
-            invalidateCache()
-        }
+        mergeTreatments([row])
     }
 
     func mergeMedicine(_ row: MedicineSnapshot) {
-        if let existing = allMedicines().first(where: { $0.id == row.id }) {
-            guard row.updatedAt >= existing.updatedAt else { return }
-            existing.apply(row)
-        } else {
-            context.insert(MedicineRecord(snapshot: row))
-            invalidateCache()
-        }
+        mergeMedicines([row])
     }
 
     func mergeSchedule(_ row: DoseScheduleSnapshot) {
-        if let existing = allSchedules().first(where: { $0.id == row.id }) {
-            guard row.updatedAt >= existing.updatedAt else { return }
-            existing.apply(row)
-        } else {
-            context.insert(DoseScheduleRecord(snapshot: row))
-            invalidateCache()
-        }
+        mergeSchedules([row])
     }
 
     func mergeLog(_ row: DoseLogSnapshot) {
-        if let existing = allLogs().first(where: { $0.id == row.id }) {
-            guard row.updatedAt >= existing.updatedAt else { return }
-            existing.apply(row)
-        } else {
-            context.insert(DoseLogRecord(snapshot: row))
-            invalidateCache()
+        mergeLogs([row])
+    }
+
+    func applyRemoteReplica(
+        treatments: [TreatmentSnapshot],
+        medicines: [MedicineSnapshot],
+        schedules: [DoseScheduleSnapshot],
+        logs: [DoseLogSnapshot]
+    ) async {
+        let previous = suppressNotify
+        suppressNotify = true
+        mergeTreatments(treatments)
+        await Task.yield()
+        mergeMedicines(medicines)
+        await Task.yield()
+        mergeSchedules(schedules)
+        await Task.yield()
+        let cutoff = Date().addingTimeInterval(-36 * 60 * 60)
+        let recentLogs = logs.filter { row in
+            if row.status == DoseLogStatus.pending.rawValue
+                || row.status == DoseLogStatus.snoozed.rawValue {
+                return row.scheduledAt >= cutoff
+            }
+            return true
         }
+        await mergeLogsYielding(recentLogs)
+        suppressNotify = previous
     }
 
     func saveAfterSync() {
+        let previous = suppressNotify
+        suppressNotify = true
         logsEnsuredDay = nil
         save()
-        ensureUpcomingLogs()
+        suppressNotify = previous
         notify()
+    }
+
+    private func mergeTreatments(_ rows: [TreatmentSnapshot]) {
+        guard !rows.isEmpty else { return }
+        var byId = Dictionary(uniqueKeysWithValues: allTreatments().map { ($0.id, $0) })
+        var inserted = false
+        for row in rows {
+            if let existing = byId[row.id] {
+                guard row.updatedAt >= existing.updatedAt else { continue }
+                existing.apply(row)
+            } else {
+                let record = TreatmentRecord(snapshot: row)
+                context.insert(record)
+                byId[row.id] = record
+                inserted = true
+            }
+        }
+        if inserted { invalidateCache() }
+    }
+
+    private func mergeMedicines(_ rows: [MedicineSnapshot]) {
+        guard !rows.isEmpty else { return }
+        var byId = Dictionary(uniqueKeysWithValues: allMedicines().map { ($0.id, $0) })
+        var inserted = false
+        for row in rows {
+            if let existing = byId[row.id] {
+                guard row.updatedAt >= existing.updatedAt else { continue }
+                existing.apply(row)
+            } else {
+                let record = MedicineRecord(snapshot: row)
+                context.insert(record)
+                byId[row.id] = record
+                inserted = true
+            }
+        }
+        if inserted { invalidateCache() }
+    }
+
+    private func mergeSchedules(_ rows: [DoseScheduleSnapshot]) {
+        guard !rows.isEmpty else { return }
+        var byId = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+        var inserted = false
+        for row in rows {
+            if let existing = byId[row.id] {
+                guard row.updatedAt >= existing.updatedAt else { continue }
+                existing.apply(row)
+            } else {
+                let record = DoseScheduleRecord(snapshot: row)
+                context.insert(record)
+                byId[row.id] = record
+                inserted = true
+            }
+        }
+        if inserted { invalidateCache() }
+    }
+
+    private func mergeLogs(_ rows: [DoseLogSnapshot]) {
+        guard !rows.isEmpty else { return }
+        var byId = Dictionary(uniqueKeysWithValues: allLogs().map { ($0.id, $0) })
+        let inserted = mergeLogs(rows, into: &byId)
+        if inserted { invalidateCache() }
+    }
+
+    @discardableResult
+    private func mergeLogs(
+        _ rows: [DoseLogSnapshot],
+        into byId: inout [UUID: DoseLogRecord]
+    ) -> Bool {
+        var inserted = false
+        for row in rows {
+            if let existing = byId[row.id] {
+                guard row.updatedAt >= existing.updatedAt else { continue }
+                let statusChanging = existing.status != row.status
+                if statusChanging
+                    || existing.scheduleId != row.scheduleId
+                    || existing.ownerId != row.ownerId
+                    || existing.profileId != row.profileId
+                    || existing.scheduledAt != row.scheduledAt
+                    || existing.loggedAt != row.loggedAt
+                    || existing.updatedAt != row.updatedAt
+                    || existing.deletedAt != row.deletedAt {
+                    FreezeDiag.log("SWIFTDATA WRITE START source=mergeLogs.apply")
+                    FreezeDiag.log(
+                        "SWIFTDATA WRITE object=\(row.id) kind=update medicine=- oldStatus=\(existing.status) newStatus=\(row.status) scheduledAt=\(row.scheduledAt)"
+                    )
+                    existing.apply(row)
+                    FreezeDiag.log("SWIFTDATA WRITE END source=mergeLogs.apply")
+                }
+            } else {
+                let record = DoseLogRecord(snapshot: row)
+                FreezeDiag.log("SWIFTDATA WRITE START source=mergeLogs.insert")
+                FreezeDiag.log(
+                    "SWIFTDATA WRITE object=\(row.id) kind=insert medicine=- oldStatus=- newStatus=\(row.status) scheduledAt=\(row.scheduledAt)"
+                )
+                context.insert(record)
+                FreezeDiag.log("SWIFTDATA WRITE END source=mergeLogs.insert")
+                byId[row.id] = record
+                inserted = true
+            }
+        }
+        return inserted
+    }
+
+    private func mergeLogsYielding(_ rows: [DoseLogSnapshot]) async {
+        guard !rows.isEmpty else { return }
+        var byId = Dictionary(uniqueKeysWithValues: allLogs().map { ($0.id, $0) })
+        var inserted = false
+        let chunk = 24
+        var start = 0
+        while start < rows.count {
+            let end = min(start + chunk, rows.count)
+            if mergeLogs(Array(rows[start..<end]), into: &byId) {
+                inserted = true
+            }
+            start = end
+            await Task.yield()
+        }
+        if inserted { invalidateCache() }
     }
 
     private func allTreatments() -> [TreatmentRecord] {
@@ -1462,17 +2017,26 @@ final class CheckMedStore {
     }
 
     private func ensureUpcomingLogs() {
-        guard surfacesPlan else { return }
-        let day = calendar.startOfDay(for: Date())
+        FreezeDiag.context("ensureUpcomingLogs START", hasChanges: context.hasChanges)
+        guard surfacesPlan else {
+            FreezeDiag.context("ensureUpcomingLogs END no plan", hasChanges: context.hasChanges)
+            return
+        }
+        let now = Date()
+        let day = calendar.startOfDay(for: now)
         let signature = [
             calendar.timeZone.identifier,
             schedules().map(\.id.uuidString).sorted().joined(),
             scopeProfileId?.uuidString ?? "",
             includeUnscoped ? "1" : "0",
         ].joined(separator: "|").hashValue
-        if logsEnsuredDay == day, logsEnsuredSignature == signature { return }
+        if logsEnsuredDay == day, logsEnsuredSignature == signature {
+            FreezeDiag.context("ensureUpcomingLogs END already ensured", hasChanges: context.hasChanges)
+            return
+        }
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
-        let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        let treatmentsById = Dictionary(uniqueKeysWithValues: activeTreatments().map { ($0.id, $0) })
+        let activeTreatmentIds = Set(treatmentsById.keys)
         var inserted = 0
         for offset in 0..<7 {
             guard let slotDay = calendar.date(byAdding: .day, value: offset, to: day),
@@ -1480,24 +2044,47 @@ final class CheckMedStore {
             let existing = allLogs().filter {
                 $0.deletedAt == nil && $0.scheduledAt >= slotDay && $0.scheduledAt < end
             }
+            var existingKeys = Set(
+                existing.map { "\($0.scheduleId.uuidString)|\(calendar.startOfDay(for: $0.scheduledAt).timeIntervalSince1970)" }
+            )
             for schedule in schedules() {
                 guard let medicine = medicinesById[schedule.medicineId],
                       medicine.deletedAt == nil,
                       activeTreatmentIds.contains(medicine.treatmentId) else { continue }
                 guard let scheduledAt = date(on: slotDay, timeOfDay: schedule.timeOfDay) else { continue }
-                let already = existing.contains { log in
-                    log.scheduleId == schedule.id && calendar.isDate(log.scheduledAt, inSameDayAs: scheduledAt)
+                let treatment = treatmentsById[medicine.treatmentId]
+                let newImportToday = treatment.map { calendar.isDate($0.startDate, inSameDayAs: now) } ?? false
+                if scheduledAt < now, newImportToday {
+                    ScanLog.dose("skip past on new treatmentStartDate scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)")
+                    continue
                 }
-                guard !already else { continue }
+                if let treatment, scheduledAt < treatment.startDate {
+                    ScanLog.dose(
+                        "skip before treatmentStartDate=\(ScanPipeline.iso(treatment.startDate, calendar: calendar)) "
+                        + "scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
+                    )
+                    continue
+                }
+                let key = "\(schedule.id.uuidString)|\(calendar.startOfDay(for: scheduledAt).timeIntervalSince1970)"
+                guard !existingKeys.contains(key) else { continue }
+                existingKeys.insert(key)
                 let log = DoseLogRecord(
                     scheduleId: schedule.id,
                     ownerId: ownerId,
                     profileId: writeProfileId,
                     scheduledAt: scheduledAt,
                     status: DoseLogStatus.pending.rawValue,
-                    updatedAt: Date()
+                    updatedAt: now
+                )
+                ScanLog.dose(
+                    "create scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name) status=pending"
+                )
+                FreezeDiag.log("SWIFTDATA WRITE START source=ensureUpcomingLogs")
+                FreezeDiag.log(
+                    "SWIFTDATA WRITE object=\(log.id) kind=insert medicine=\(medicine.id) oldStatus=- newStatus=pending scheduledAt=\(scheduledAt)"
                 )
                 context.insert(log)
+                FreezeDiag.log("SWIFTDATA WRITE END source=ensureUpcomingLogs")
                 inserted += 1
             }
         }
@@ -1507,6 +2094,7 @@ final class CheckMedStore {
             invalidateCache()
             save()
         }
+        FreezeDiag.context("ensureUpcomingLogs END inserted=\(inserted)", hasChanges: context.hasChanges)
     }
 
     private func todayLogs() -> [DoseLogRecord] {
@@ -1516,6 +2104,8 @@ final class CheckMedStore {
     }
 
     private func streakDays(now: Date, today: Date) -> Int {
+        FreezeDiag.log("streakDays START")
+        let t0 = Date()
         var cursor = today
         var counted = 0
         for _ in 0..<120 {
@@ -1531,22 +2121,26 @@ final class CheckMedStore {
                 break
             }
             if isToday {
-                if dayLogs.contains(where: { $0.status == DoseLogStatus.taken.rawValue }) {
+                if dayLogs.contains(where: { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }) {
                     counted += 1
                 }
                 guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
                 cursor = previous
                 continue
             }
-            let missed = dayLogs.contains { $0.status == DoseLogStatus.pending.rawValue }
+            let missed = dayLogs.contains {
+                let status = DoseLogStatus(rawValue: $0.status) ?? .pending
+                return status.isOpen || status.isMissedLike
+            }
             if missed { break }
-            if dayLogs.contains(where: { $0.status == DoseLogStatus.taken.rawValue }) {
+            if dayLogs.contains(where: { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }) {
                 counted += 1
             }
             guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
             cursor = previous
         }
         _ = now
+        FreezeDiag.log(String(format: "streakDays END counted=%d %.0fms", counted, Date().timeIntervalSince(t0) * 1000))
         return counted
     }
 
@@ -1620,7 +2214,11 @@ final class CheckMedStore {
     /// Backfill `profileId` on rows already owned by this user.
     /// Do **not** claim unowned leftover SwiftData — that created ghost plans for fresh accounts.
     private func stampIdentity() {
-        guard let ownerId, let stampProfileId else { return }
+        FreezeDiag.context("stampIdentity START", hasChanges: context.hasChanges)
+        guard let ownerId, let stampProfileId else {
+            FreezeDiag.context("stampIdentity END skipped", hasChanges: context.hasChanges)
+            return
+        }
         var changed = false
         for treatment in allTreatments() where treatment.profileId == nil && treatment.ownerId == ownerId {
             treatment.profileId = stampProfileId
@@ -1635,10 +2233,16 @@ final class CheckMedStore {
             changed = true
         }
         for log in allLogs() where log.profileId == nil && log.ownerId == ownerId {
+            FreezeDiag.log("SWIFTDATA WRITE START source=stampIdentity")
+            FreezeDiag.log(
+                "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(log.status) newStatus=\(log.status) scheduledAt=\(log.scheduledAt) profile nil->\(stampProfileId)"
+            )
             log.profileId = stampProfileId
+            FreezeDiag.log("SWIFTDATA WRITE END source=stampIdentity")
             changed = true
         }
         if changed { save() }
+        FreezeDiag.context("stampIdentity END changed=\(changed)", hasChanges: context.hasChanges)
     }
 
     private func stamp(_ treatment: TreatmentRecord) {
@@ -1657,14 +2261,30 @@ final class CheckMedStore {
     }
 
     private func stamp(_ log: DoseLogRecord) {
-        log.ownerId = ownerId ?? log.ownerId
-        log.profileId = writeProfileId ?? log.profileId
+        let oldOwner = log.ownerId
+        let oldProfile = log.profileId
+        let newOwner = ownerId ?? log.ownerId
+        let newProfile = writeProfileId ?? log.profileId
+        if oldOwner != newOwner || oldProfile != newProfile {
+            FreezeDiag.log("SWIFTDATA WRITE START source=stamp(DoseLog)")
+            FreezeDiag.log(
+                "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(log.status) newStatus=\(log.status) scheduledAt=\(log.scheduledAt) owner \(String(describing: oldOwner))->\(String(describing: newOwner)) profile \(String(describing: oldProfile))->\(String(describing: newProfile))"
+            )
+        } else {
+            FreezeDiag.log("stamp(DoseLog) assign-same object=\(log.id)")
+        }
+        log.ownerId = newOwner
+        log.profileId = newProfile
+        if oldOwner != newOwner || oldProfile != newProfile {
+            FreezeDiag.log("SWIFTDATA WRITE END source=stamp(DoseLog)")
+        }
     }
 
     private func pathStatus(for raw: String) -> PathStatus {
         switch DoseLogStatus(rawValue: raw) {
-        case .taken: .done
-        case .skipped: .skipped
+        case .taken, .takenLate: .done
+        case .missed, .skipped: .skipped
+        case .pendingConfirmation, .snoozed: .current
         case .pending, .none: .locked
         }
     }
@@ -1681,16 +2301,34 @@ final class CheckMedStore {
     }
 
     private func save() {
+        FreezeDiag.context("save() BEFORE", hasChanges: context.hasChanges)
+        FreezeDiag.log("SwiftData save() CALLED \(FreezeDiag.caller())")
         try? context.save()
         invalidateCache()
+        FreezeDiag.context("save() AFTER", hasChanges: context.hasChanges)
     }
 
     private func notify() {
+        guard !suppressNotify else {
+            FreezeDiag.log("notify() SUPPRESSED revision=\(revision)")
+            return
+        }
+        let old = revision
+        let new = old + 1
+        FreezeDiag.log("REVISION WILL CHANGE old=\(old) new=\(new)")
+        FreezeDiag.log("notify() CALLED \(FreezeDiag.caller())")
         revision += 1
+        FreezeDiag.log("onRecordsChanged() CALLED")
         onRecordsChanged?()
     }
 
+    /// Diagnostic only — does not mutate state.
+    func freezeDiagHasChanges() -> Bool {
+        context.hasChanges
+    }
+
     private func requestSync() {
+        LaunchLog.sync("request")
         Task { await onNeedsSync?() }
     }
 

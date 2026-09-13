@@ -28,6 +28,8 @@ final class TodayPathStore {
 
     @ObservationIgnored
     private weak var store: CheckMedStore?
+    @ObservationIgnored
+    private var reloadTask: Task<Void, Never>?
 
     var current: DoseNode? { nodes.first { $0.status == .current } }
     var takenCount: Int { nodes.filter { $0.status == .done }.count }
@@ -50,8 +52,30 @@ final class TodayPathStore {
         reload()
     }
 
+    /// Debounce observation churn from `notify()` so Home is not reloaded on every replica save.
+    func scheduleReload() {
+        FreezeDiag.log("path.scheduleReload() CALLED \(FreezeDiag.caller())")
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 280_000_000)
+            guard !Task.isCancelled else { return }
+            reload()
+        }
+    }
+
     func reload() {
-        nodes = store?.todayNodes() ?? []
+        FreezeDiag.log("path.reload() START before=\(nodes.count)")
+        LaunchLog.home("path.reload before=\(nodes.count)")
+        let next = store?.todayNodes() ?? []
+        let oldIds = nodes.map(\.id).joined(separator: ",")
+        let newIds = next.map(\.id).joined(separator: ",")
+        if oldIds != newIds {
+            FreezeDiag.log("nodes WILL CHANGE oldCount=\(nodes.count) newCount=\(next.count)")
+        } else {
+            FreezeDiag.log("nodes assignment same ids count=\(next.count) (Observable still publishes)")
+        }
+        nodes = next
+        FreezeDiag.log("path.reload() END after=\(nodes.count)")
         if pathComplete {
             mood = .complete
         } else if current != nil, mood == .complete {
@@ -69,10 +93,10 @@ final class TodayPathStore {
     /// Mark a specific dose taken (Home trailing swipe).
     func take(id: String) {
         guard let uuid = UUID(uuidString: id),
-              let node = nodes.first(where: { $0.id == id }),
-              node.status == .current || node.status == .locked
+              let node = nodes.first(where: { $0.id == id })
         else { return }
-        store?.markLog(id: uuid, status: .taken)
+        store?.confirmDoseTaken(id: uuid)
+        MissedDoseAcknowledgement.acknowledge(uuid)
         ReminderScheduler.shared.handleTakenSideEffects(logId: uuid)
         pendingFeeling = (uuid, node.medicine)
         mood = .celebrate
@@ -85,7 +109,8 @@ final class TodayPathStore {
 
     func skipCurrent() {
         guard let id = current.flatMap({ UUID(uuidString: $0.id) }) else { return }
-        store?.markLog(id: id, status: .skipped)
+        store?.applyDoseAction(id: id, action: .didNotTake)
+        MissedDoseAcknowledgement.acknowledge(id)
         mood = .skip
         reload()
     }

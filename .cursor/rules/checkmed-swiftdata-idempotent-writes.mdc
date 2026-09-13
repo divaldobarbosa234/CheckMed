@@ -1,0 +1,25 @@
+---
+description: Never no-op-assign @Model properties; merges and generators must be idempotent.
+alwaysApply: true
+globs: ChekMed/**/*.swift
+---
+
+# CheckMed — SwiftData writes and merges
+
+A no-op `@Model` assignment still invalidates SwiftUI. Never assign if the value is unchanged.
+
+```swift
+if existing.status != incoming.status {
+    existing.status = incoming.status
+}
+```
+
+Apply to **every** `@Model` (DoseLog, Medicine, Treatment, refill, report, Phil, settings). Especially merge/sync: do not write `pending → pending` or `missed → missed`.
+
+`get` / `fetch` / `load` / `calculate` / `summary` / `adherence` / `streak` / `count` must not hide writes. If repair is needed, use a separate explicit mutation.
+
+Operations that can run more than once (sync, merge, seed, reconcile, dose generation, reminders, import) must be idempotent: no duplicate medicines, logs, alarms, or extra writes.
+
+**Doses:** do not invent historical missed logs from an old Rx document date. Treatment start must be explicit. Do not recreate existing dose events on launch, sync, navigation, or login.
+
+Canonical flow (one source of truth): Prescription → Medicine → Treatment/Schedule → DoseLog → Adherence → Refill → Journey → Report. Do not give Home/Report/Phil/Refill competing copies of the same lists.

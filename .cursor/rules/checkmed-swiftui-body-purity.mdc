@@ -1,0 +1,33 @@
+---
+description: SwiftUI View.body and getters must be read-only; protect the stable Dashboard.
+alwaysApply: true
+---
+
+# CheckMed — SwiftUI body is read-only
+
+The Dashboard is STABLE after a SwiftUI/SwiftData rebuild loop. Do not trade that for a feature.
+
+**Loop that froze Home:** View.body → computed UI (`activeMedicineCount` / `summaries`) → SwiftData write (`form "other"→"other"`, `pending→pending`) → observation → body again.
+
+## Body and computed UI must not mutate
+
+`View.body` and any property/function it calls (`adherence()`, `streakDays()`, `activeMedicineCount`, `todayMedicines`, `progressStats`, summaries, counts, filters, fetches) must only **read**.
+
+They must not: insert/delete/@Model writes, `ModelContext.save`, sync, reconcile, generate dose logs, create alarms, change navigation, network writes, or other persistent state.
+
+Normalize in an explicit operation **outside** rendering, not inside a getter.
+
+```swift
+// BAD — mutation during Home render
+var activeMedicineCount: Int {
+    applyDoseDefaultsIfNeeded()
+    return medicines.count
+}
+
+// GOOD
+var activeMedicineCount: Int { medicines.count }
+```
+
+Home must stay lightweight: no reconciliation, dose generation, sync, OCR, PDF, alarm rebuild, or large scans in body. Prepare state first; Home reads it.
+
+If diagnostics show repeated `HOME BODY` lines, stop feature work and find the invalidation source. Never “fix” with `Task.sleep`, debounce, timers, force refresh, or force navigation.

@@ -118,12 +118,15 @@ struct HomeView: View {
             .compactMap { medicineId -> HomeMedicineRow? in
                 guard let doses = grouped[medicineId], !doses.isEmpty else { return nil }
                 let ordered = doses.sorted { $0.scheduledAt < $1.scheduledAt }
-                let pending = ordered.filter { $0.status == .current || $0.status == .locked }
+                let pending = ordered.filter { node in
+                    node.status != .done && node.status != .skipped
+                }
                 let display: DoseNode
                 let status: PathStatus
-                if let next = pending.first {
-                    display = next
-                    status = next.status
+                if let nextOpen = pending.first {
+                    display = nextOpen
+                    let upcoming = nextOpen.scheduledAt > Date() && nextOpen.status == .locked
+                    status = upcoming ? .locked : (nextOpen.status == .done ? .done : .current)
                 } else if let taken = ordered.last(where: { $0.status == .done }) {
                     display = taken
                     status = .done
@@ -168,6 +171,20 @@ struct HomeView: View {
     }
 
     var body: some View {
+        let _ = FreezeDiag.homeBody(
+            revision: treatments.revision,
+            nodeIds: path.nodes.map(\.id).joined(separator: ","),
+            hasChanges: treatments.freezeDiagHasChanges()
+        )
+        let _ = FreezeDiag.watch("treatments.revision") { _ = treatments.revision }
+        let _ = FreezeDiag.watch("treatments.surfacesPlan") { _ = treatments.surfacesPlan }
+        let _ = FreezeDiag.watch("path.nodes") { _ = path.nodes.map(\.id) }
+        let _ = FreezeDiag.watch("path.mood") { _ = path.mood }
+        let _ = FreezeDiag.watch("path.pendingFeeling") { _ = path.pendingFeeling?.logId }
+        let _ = FreezeDiag.watch("session.selectedMainTab") { _ = session.selectedMainTab }
+        let _ = FreezeDiag.watch("session.displayName") { _ = session.displayName }
+        let _ = FreezeDiag.watch("entitlements.isSuper") { _ = entitlements.isSuper }
+        let _ = FreezeDiag.watch("family.isViewingExtra") { _ = family.isViewingExtra }
         NavigationStack(path: $navPath) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
@@ -212,29 +229,36 @@ struct HomeView: View {
                 AppRouteView(route: route, path: $navPath)
             }
             .onAppear {
-                treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
-                path.reload()
-                applyMoodVisibilityForToday()
+                FreezeDiag.log("Home onAppear START")
+                LaunchLog.home("onAppear tab=\(session.selectedMainTab)")
+                applyMoodVisibilityForToday(animated: false)
+                Task { @MainActor in
+                    treatments.refreshDoseLogsForDisplay()
+                    path.reload()
+                }
+                FreezeDiag.log("Home onAppear END")
             }
             .onChange(of: session.selectedMainTab) { _, tab in
+                LaunchLog.home("tab→\(tab)")
                 if tab == .home {
-                    applyMoodVisibilityForToday()
+                    applyMoodVisibilityForToday(animated: false)
                 }
             }
             .onChange(of: navPath.count) { _, count in
                 if count == 0, session.selectedMainTab == .home {
-                    applyMoodVisibilityForToday()
+                    applyMoodVisibilityForToday(animated: false)
                 }
             }
             .onDisappear {
                 hideMoodTask?.cancel()
                 hideMoodTask = nil
             }
-            .animation(.easeInOut(duration: 0.38), value: moodPhase)
             .sheet(item: feelingItem) { item in
                 FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
             }
             .task {
+                FreezeDiag.log("Home.task start")
+                LaunchLog.home("task start")
                 guard !session.needsUnfinishedPlan(treatments: treatments) else { return }
                 guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
                 try? await Task.sleep(nanoseconds: 3_500_000_000)
@@ -458,12 +482,16 @@ struct HomeView: View {
     }
 
     /// Once per calendar day: show picker until answered; after pick + fade, stay hidden until tomorrow.
-    private func applyMoodVisibilityForToday() {
+    private func applyMoodVisibilityForToday(animated: Bool) {
         if hasAnsweredMoodToday() {
             hideMoodTask?.cancel()
             hideMoodTask = nil
             if moodPhase != .hidden {
-                withAnimation(.easeInOut(duration: 0.28)) {
+                if animated {
+                    withAnimation(.easeInOut(duration: 0.28)) {
+                        moodPhase = .hidden
+                    }
+                } else {
                     moodPhase = .hidden
                 }
             }
@@ -475,7 +503,11 @@ struct HomeView: View {
         hideMoodTask = nil
         dailyMood = nil
         moodMessage = ""
-        withAnimation(.easeInOut(duration: 0.28)) {
+        if animated {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                moodPhase = .picker
+            }
+        } else {
             moodPhase = .picker
         }
     }
@@ -520,35 +552,31 @@ struct HomeView: View {
                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
             } else {
-                List {
+                VStack(spacing: 0) {
                     ForEach(todayMedicines) { row in
-                        medicineRow(row)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                navPath.append(AppRoute.medicationDetail(row.id))
-                            }
-                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                if let doseId = row.takeDoseId {
-                                    Button {
-                                        path.take(id: doseId)
-                                    } label: {
-                                        Label(session.t(.taken), systemImage: "checkmark")
-                                    }
-                                    .tint(Color(hex: 0x5FA86B))
+                        HStack(spacing: 8) {
+                            medicineRow(row)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    navPath.append(AppRoute.medicationDetail(row.id))
                                 }
+                            if let doseId = row.takeDoseId {
+                                Button {
+                                    path.take(id: doseId)
+                                } label: {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(Color.white)
+                                        .frame(width: 32, height: 32)
+                                        .background(Color(hex: 0x5FA86B), in: Circle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(session.t(.taken))
                             }
+                        }
+                        .padding(.vertical, 4)
                     }
                 }
-                .listStyle(.plain)
-                .scrollDisabled(true)
-                .frame(height: CGFloat(todayMedicines.count) * 56)
-                .padding(.horizontal, -4)
-                Text(session.t(.homeSwipeToTake))
-                    .font(.system(.caption2, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
             }
         }
         .padding(16)
@@ -630,19 +658,19 @@ struct HomeView: View {
             icon = "checkmark"
             tint = Color(hex: 0x5FA86B)
         case .skipped:
-            label = session.t(.skipped)
+            label = session.t(.missedDidNotTake)
             icon = "minus"
             tint = CheckMedTheme.muted
         case .current:
-            label = session.t(.homeStatusNext)
+            label = session.t(.homeStatusPending)
             icon = "clock.fill"
             tint = CheckMedTheme.flowDot
         case .locked:
-            label = session.t(.homeStatusLater)
+            label = session.t(.homeStatusUpcoming)
             icon = "clock"
             tint = CheckMedTheme.muted
         }
-        // Status badge only — Taken is trailing swipe (next pending dose for this medicine).
+        // Status badge only — Taken is the row checkmark (next pending dose for this medicine).
         return HStack(spacing: 4) {
             Image(systemName: icon)
                 .font(.system(size: 10, weight: .bold))
@@ -657,7 +685,7 @@ struct HomeView: View {
             in: Capsule()
         )
         .accessibilityLabel(label)
-        .accessibilityHint(row.takeDoseId != nil ? session.t(.homeSwipeToTake) : "")
+        .accessibilityHint(row.takeDoseId != nil ? session.t(.taken) : "")
     }
 
     private func statusBar(_ status: PathStatus) -> Color {

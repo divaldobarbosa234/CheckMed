@@ -1,0 +1,28 @@
+---
+description: Smallest safe change, diagnostic-first bugs, launch/task/observation safety.
+alwaysApply: true
+---
+
+# CheckMed — change discipline
+
+Protect the working Dashboard. Do not rewrite architecture, navigation, auth, or dose/adherence unless the feature truly requires it. Touch only the systems the feature needs.
+
+Before any change, know: file, why, what can break, what persists, which views observe it, whether it can loop SwiftUI, whether it can run twice, whether it is idempotent.
+
+Prefer the smallest safe change. No extra managers, stores, models, or global notifications unless required.
+
+## Bugs
+
+Reproduce → targeted diagnostics → prove the mutation/call path → smallest fix → re-test the bug and existing flows. Do not guess. Do not hide races with delays.
+
+After significant work, verify Home is interactive (tabs, scroll, +, Treatments, Refill, Profile), data survives relaunch/foreground, login/logout, and Home does **not** continuously rebuild.
+
+## Launch, tasks, MainActor
+
+One launch path: restore auth → restore data → mark ready → **one** navigation decision. Empty/loading is not “new user.” Multiple systems must not independently decide Home vs new vs unfinished.
+
+Every `.task` / `onAppear` / `onChange`: why, how often, what it writes, whether that redraws and re-enters, cancellation. Do not add observed state to Home that changes frequently unless Home must show it.
+
+Do not dump large SwiftData scans, OCR, PDF, or sync onto MainActor inside UI. Use Swift concurrency carefully; do not sprinkle `Task.detached` as a workaround.
+
+If a request would violate these rules, stop and explain the conflict before editing.
