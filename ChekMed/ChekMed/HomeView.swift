@@ -232,7 +232,11 @@ struct HomeView: View {
                         restoringPlanCard
                     } else if hasActivePlan {
                         TodaysChallengeCard(snapshot: game) { doseId in
+                            #if DEBUG
+                            print("[PHASE4A-REGRESSION] dose tap challenge id=\(doseId)")
+                            #endif
                             path.take(id: doseId)
+                            handleGamificationProgress()
                         }
                         WeeklyAdherenceCard(
                             stats: stats,
@@ -241,7 +245,14 @@ struct HomeView: View {
                         ) {
                             navPath.append(AppRoute.treatmentOverview)
                         }
-                        GamificationStreakCard(snapshot: game)
+                        GamificationStreakCard(
+                            snapshot: game,
+                            journey: DailyMedicationJourney.snapshot(
+                                from: game,
+                                nodes: nodes,
+                                planSurfaceReady: !isPlanVisibilityPending
+                            )
+                        )
                         if moodPhase != .hidden {
                             moodCard
                                 .transition(.asymmetric(
@@ -373,9 +384,9 @@ struct HomeView: View {
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .allowsHitTesting(false)
-                    .zIndex(1)
+                        .zIndex(1000)
+                }
             }
-        }
     }
 
     private var header: some View {
@@ -662,9 +673,19 @@ struct HomeView: View {
     }
 
     private func handleGamificationProgress() {
-        guard gamePrimed, session.restorationComplete, session.isPlanSurfaceReady else { return }
+        guard gamePrimed, session.restorationComplete, session.isPlanSurfaceReady else {
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] Phil trigger skipped primed=\(gamePrimed) restore=\(session.restorationComplete) planReady=\(session.isPlanSurfaceReady)")
+            #endif
+            return
+        }
         let snap = challenge
-        guard snap.isActive else { return }
+        guard snap.isActive else {
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] Phil trigger skipped inactive challenge")
+            #endif
+            return
+        }
         let owner = session.planOwnerId
         let profile = session.planProfileId
         var recorded = GamificationMemory.lastDoneSignature(ownerId: owner, profileId: profile)
@@ -690,7 +711,14 @@ struct HomeView: View {
                 lastGameTaken = snap.takenCount
                 lastGameSkipped = snap.skippedCount
                 print("[PHIL-DIAG] skip signature already presented dose IDs=\(recorded)")
+                #if DEBUG
+                print("[PHASE4A-REGRESSION] Phil trigger skipped signature already recorded")
+                #endif
                 presentFeelingCheckInIfNeeded()
+            } else {
+                #if DEBUG
+                print("[PHASE4A-REGRESSION] Phil trigger skipped no newlyTaken recorded=\(recorded) current=\(snap.doneSignature)")
+                #endif
             }
             return
         }
@@ -750,6 +778,9 @@ struct HomeView: View {
         hideCelebrateTask?.cancel()
         hideCelebrateTask = nil
         guard gameCelebrate != nil else { return }
+        #if DEBUG
+        print("[PHASE4A-REGRESSION] Phil cleared")
+        #endif
         if animated {
             withAnimation(.easeInOut(duration: 0.28)) {
                 gameCelebrate = nil
@@ -762,17 +793,26 @@ struct HomeView: View {
     private func presentGameCelebrate(_ event: GameCelebrate) {
         guard session.selectedMainTab == .home, navPath.isEmpty else {
             print("[PHIL-DIAG] reaction=\(event) skipped not on dashboard")
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] Phil trigger skipped tab=\(session.selectedMainTab) navCount=\(navPath.count)")
+            #endif
             presentFeelingCheckInIfNeeded()
             return
         }
         if gameCelebrate == event { return }
         hideCelebrateTask?.cancel()
+        #if DEBUG
+        print("[PHASE4A-REGRESSION] Phil triggered \(event)")
+        #endif
         withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
             gameCelebrate = event
         }
         hideCelebrateTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 2_400_000_000)
             guard !Task.isCancelled else { return }
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] Phil cleared")
+            #endif
             withAnimation(.easeInOut(duration: 0.28)) {
                 gameCelebrate = nil
             }
@@ -784,6 +824,9 @@ struct HomeView: View {
         guard gameCelebrate == nil else { return }
         guard presentedFeeling == nil else { return }
         guard let pending = path.pendingFeeling else { return }
+        #if DEBUG
+        print("[PHASE4A-REGRESSION] feeling sheet triggered")
+        #endif
         presentedFeeling = FeelingSheetItem(logId: pending.logId, medicine: pending.medicine)
     }
 
@@ -837,7 +880,11 @@ struct HomeView: View {
                                 }
                             if let doseId = row.takeDoseId {
                                 Button {
+                                    #if DEBUG
+                                    print("[PHASE4A-REGRESSION] dose tap medicines id=\(doseId)")
+                                    #endif
                                     path.take(id: doseId)
+                                    handleGamificationProgress()
                                 } label: {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 12, weight: .bold))

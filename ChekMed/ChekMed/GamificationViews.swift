@@ -3,6 +3,7 @@ import SwiftUI
 struct GamificationStreakCard: View {
     @Environment(SessionStore.self) private var session
     let snapshot: GamificationSnapshot
+    var journey: DailyMedicationJourneySnapshot? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -39,6 +40,24 @@ struct GamificationStreakCard: View {
     }
 
     private var coachLine: String {
+        if let journey {
+            switch journey.state {
+            case .noTreatment:
+                return session.t(.journeyAllSet)
+            case .startingDay:
+                return session.t(.journeyReadyToday)
+            case .upcoming:
+                return session.t(.journeyNextComing)
+            case .inProgress:
+                return session.t(.journeyProgressToday, journey.todayTaken, journey.todayTotal)
+            case .missed:
+                return missedSupportLine
+            case .almostComplete:
+                return session.t(.journeyOneMore)
+            case .complete:
+                return session.t(.journeyDayComplete)
+            }
+        }
         switch snapshot.coach {
         case .upcoming:
             return session.t(.philReadyNext)

@@ -92,15 +92,35 @@ final class TodayPathStore {
 
     /// Mark a specific dose taken (Home trailing swipe).
     func take(id: String) {
-        guard let uuid = UUID(uuidString: id),
-              let node = nodes.first(where: { $0.id == id })
-        else { return }
+        #if DEBUG
+        print("[PHASE4A-REGRESSION] path.take id=\(id) pathCount=\(nodes.count)")
+        #endif
+        guard let uuid = UUID(uuidString: id) else {
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] path.take STOP invalid uuid")
+            #endif
+            return
+        }
+        let node = nodes.first(where: { $0.id == id })
+            ?? store?.todayNodes().first(where: { $0.id == id })
+        guard let node else {
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] path.take STOP node missing")
+            #endif
+            return
+        }
+        #if DEBUG
+        print("[PHASE4A-REGRESSION] confirmDoseTaken")
+        #endif
         store?.confirmDoseTaken(id: uuid)
         MissedDoseAcknowledgement.acknowledge(uuid)
         ReminderScheduler.shared.handleTakenSideEffects(logId: uuid)
         pendingFeeling = (uuid, node.medicine)
         mood = .celebrate
         reload()
+        #if DEBUG
+        print("[PHASE4A-REGRESSION] takenCount changed \(takenCount)")
+        #endif
     }
 
     func clearPendingFeeling() {

@@ -14,8 +14,21 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         #if DEBUG
         Task {
             try? await Task.sleep(nanoseconds: 400_000_000)
-            let failures = DoseLoopContractChecks.failures()
-            assert(failures.isEmpty, "Dose loop checks failed: \(failures.joined(separator: "; "))")
+            let doseFailures = DoseLoopContractChecks.failures()
+            let gamificationFailures = GamificationContractChecks.failures()
+            let journeyFailures = DailyMedicationJourneyContractChecks.failures()
+            print("DoseLoop failures:", doseFailures)
+            print("Gamification failures:", gamificationFailures)
+            print("DailyJourney failures:", journeyFailures)
+            let failures = doseFailures + gamificationFailures + journeyFailures
+            assert(
+                failures.isEmpty,
+                [
+                    doseFailures.isEmpty ? nil : "DOSE LOOP FAILURE: \(doseFailures.joined(separator: "; "))",
+                    gamificationFailures.isEmpty ? nil : "GAMIFICATION FAILURE: \(gamificationFailures.joined(separator: "; "))",
+                    journeyFailures.isEmpty ? nil : "DAILY JOURNEY FAILURE: \(journeyFailures.joined(separator: "; "))",
+                ].compactMap { $0 }.joined(separator: " | ")
+            )
         }
         #endif
         return true

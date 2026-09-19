@@ -105,6 +105,7 @@ enum L10n {
         case philNiceTook, philChallengeComplete, philMissedOne, philMissedSeveral, philBackOnTrack, philFirstDay, philMilestoneDay
         case philDoseFirst, philDoseOnTrack, philDoseKeepGoing, philDoseTaken, philReadyNext
         case philDoingWellOne, philDoingWellMany, philDayDosesComplete
+        case journeyAllSet, journeyReadyToday, journeyNextComing, journeyProgressToday, journeyOneMore, journeyDayComplete
         case philMilestone1, philMilestone3, philMilestone7
         case milestoneStarted, milestone3Days, milestoneWeek, milestoneTwoWeeks, milestoneThreeWeeks, milestoneHabit
         case milestone30, milestone60, milestone90, milestonesTitle, dailyHistoryTitle
@@ -583,6 +584,12 @@ enum L10n {
         .philDoingWellOne: "You're doing well. One dose is still waiting.",
         .philDoingWellMany: "You're doing well. %d doses are still waiting.",
         .philDayDosesComplete: "Nice work. Today's doses are complete.",
+        .journeyAllSet: "You're all set for now.",
+        .journeyReadyToday: "Ready for today's treatment?",
+        .journeyNextComing: "Your next medicine is coming up.",
+        .journeyProgressToday: "Nice! You're %d/%d today.",
+        .journeyOneMore: "Just one more to complete today.",
+        .journeyDayComplete: "You did it! Today's treatment is complete.",
         .philChallengeComplete: "You stayed on track today.",
         .philMissedOne: "Looks like you missed one. Let's get back on track.",
         .philMissedSeveral: "Looks like you missed %d doses.\nLet's get back on track.",
@@ -1318,6 +1325,12 @@ enum L10n {
         .philDoingWellOne: "Estás a ir bem. Falta uma dose.",
         .philDoingWellMany: "Estás a ir bem. Faltam %d doses.",
         .philDayDosesComplete: "Boa! As doses de hoje estão completas.",
+        .journeyAllSet: "Por agora, está tudo certo.",
+        .journeyReadyToday: "Pronto para o tratamento de hoje?",
+        .journeyNextComing: "O teu próximo medicamento está a chegar.",
+        .journeyProgressToday: "Boa! Estás em %d/%d hoje.",
+        .journeyOneMore: "Falta só mais uma para completar hoje.",
+        .journeyDayComplete: "Conseguiste! O tratamento de hoje está completo.",
         .philChallengeComplete: "Você cumpriu o plano de hoje.",
         .philMissedOne: "Parece que faltou uma. Vamos continuar.",
         .philMissedSeveral: "Parece que %d doses ficaram para trás.\nVamos retomar com calma.",
@@ -2053,6 +2066,12 @@ enum L10n {
         .philDoingWellOne: "Vas bien. Falta una dosis.",
         .philDoingWellMany: "Vas bien. Faltan %d dosis.",
         .philDayDosesComplete: "¡Muy bien! Has completado las dosis de hoy.",
+        .journeyAllSet: "Por ahora, estás al día.",
+        .journeyReadyToday: "¿Listo para el tratamiento de hoy?",
+        .journeyNextComing: "Tu próximo medicamento se acerca.",
+        .journeyProgressToday: "¡Bien! Vas %d/%d hoy.",
+        .journeyOneMore: "Solo falta una para completar hoy.",
+        .journeyDayComplete: "¡Lo lograste! El tratamiento de hoy está completo.",
         .philChallengeComplete: "Hoy seguiste el plan.",
         .philMissedOne: "Parece que falta una. Vamos a seguir.",
         .philMissedSeveral: "Parece que se pasaron %d dosis.\nVolvamos al ritmo, con calma.",
@@ -2788,6 +2807,12 @@ enum L10n {
         .philDoingWellOne: "Tu avances bien. Il reste une dose.",
         .philDoingWellMany: "Tu avances bien. Il reste %d doses.",
         .philDayDosesComplete: "Bravo ! Les doses d’aujourd’hui sont terminées.",
+        .journeyAllSet: "Pour l’instant, tout est en ordre.",
+        .journeyReadyToday: "Prêt pour le traitement d’aujourd’hui ?",
+        .journeyNextComing: "Ton prochain médicament arrive bientôt.",
+        .journeyProgressToday: "Bien ! Tu es à %d/%d aujourd’hui.",
+        .journeyOneMore: "Plus qu’une pour terminer aujourd’hui.",
+        .journeyDayComplete: "Bravo ! Le traitement d’aujourd’hui est terminé.",
         .philChallengeComplete: "Vous avez suivi le plan aujourd’hui.",
         .philMissedOne: "On dirait qu’une dose a été manquée. Continuons.",
         .philMissedSeveral: "Il semble que %d doses aient été manquées.\nReprenons calmement.",

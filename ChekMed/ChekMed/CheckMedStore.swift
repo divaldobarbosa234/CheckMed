@@ -869,6 +869,9 @@ final class CheckMedStore {
     }
 
     func confirmDoseTaken(id: UUID, now: Date = Date()) {
+        #if DEBUG
+        print("[PHASE4A-REGRESSION] confirmDoseTaken \(id.uuidString)")
+        #endif
         applyDoseAction(id: id, action: .confirmTaken, now: now)
     }
 
