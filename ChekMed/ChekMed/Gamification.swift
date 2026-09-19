@@ -60,9 +60,7 @@ enum Gamification {
             taken: taken,
             remaining: remaining,
             complete: complete,
-            needsAttention: needsAttention,
-            currentStreak: currentStreak,
-            longestStreak: longestStreak
+            needsAttention: needsAttention
         )
         return GamificationSnapshot(
             isActive: true,
@@ -92,34 +90,28 @@ enum Gamification {
         return .tookKeepGoing
     }
 
+    /// Persistent Dashboard coach. Transient take/milestone toasts stay in Home.
+    /// Priority: complete → missed → remaining → upcoming → idle.
     private static func coachContext(
         required: Int,
         taken: Int,
         remaining: Int,
         complete: Bool,
-        needsAttention: Bool,
-        currentStreak: Int,
-        longestStreak: Int
+        needsAttention: Bool
     ) -> PhilCoachContext {
         if required == 0 {
             return .idle
         }
+        if complete {
+            return .challengeComplete
+        }
         if needsAttention {
             return .needsAttention
         }
-        if complete {
-            if reactionMilestones.contains(currentStreak) {
-                return .milestone(currentStreak)
-            }
-            return .challengeComplete
-        }
-        if taken == 0, currentStreak <= 1 {
-            return .firstDay
-        }
-        if taken > 0, currentStreak == 1, longestStreak > 1 {
-            return .backOnTrack
-        }
         if remaining > 0 {
+            if taken == 0 {
+                return .upcoming
+            }
             return .inProgress(remaining: remaining)
         }
         return .idle
@@ -138,6 +130,7 @@ struct ChallengeDoseLine: Equatable, Identifiable, Sendable {
 enum PhilCoachContext: Equatable, Sendable {
     case idle
     case firstDay
+    case upcoming
     case inProgress(remaining: Int)
     case challengeComplete
     case needsAttention
@@ -235,6 +228,10 @@ enum GamificationMemory {
         UserDefaults.standard.string(forKey: key("doneSig", ownerId, profileId)) ?? ""
     }
 
+    static func doneIds(_ signature: String) -> Set<String> {
+        Set(signature.split(separator: ",").map(String.init).filter { !$0.isEmpty })
+    }
+
     static func markDoneSignature(ownerId: UUID, profileId: UUID, signature: String) {
         if lastDoneSignature(ownerId: ownerId, profileId: profileId) == signature { return }
         UserDefaults.standard.set(signature, forKey: key("doneSig", ownerId, profileId))
@@ -302,6 +299,19 @@ enum GamificationContractChecks {
             todayScheduled: 8
         )
         expect(!withFuture.isComplete && !withFuture.needsAttention && withFuture.remainingCount == 1, "future remaining is not missed")
+        expect(withFuture.coach == .inProgress(remaining: 1), "remaining doses use in-progress coach")
+        expect(incomplete.coach == .needsAttention, "missed day uses supportive coach")
+        expect(completeDay.coach == .challengeComplete, "8/8 uses day-complete coach")
+        let waiting = Gamification.snapshot(
+            nodes: [DoseNode(id: "n", time: "21:00", medicine: "Later", status: .locked)],
+            currentStreak: 0,
+            longestStreak: 0,
+            hasActiveTreatment: true,
+            todayTaken: 0,
+            todayScheduled: 1
+        )
+        expect(waiting.coach == .upcoming, "no taken yet with upcoming dose is waiting coach")
+        expect(Gamification.snapshot(nodes: [], currentStreak: 0, longestStreak: 0, hasActiveTreatment: false).coach == .idle, "no treatment is idle")
         expect(Gamification.snapshot(nodes: [], currentStreak: 0, longestStreak: 0, hasActiveTreatment: false).isActive == false, "no fake challenge without treatment")
         expect(Gamification.dayContributesToStreak(statuses: [.taken], isToday: true), "today counts on first taken")
         expect(!Gamification.dayContributesToStreak(statuses: [.taken, .missed], isToday: false), "past missed day does not count")

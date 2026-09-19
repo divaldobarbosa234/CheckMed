@@ -33,34 +33,38 @@ struct GamificationStreakCard: View {
 
     private var philMood: CompanionMood {
         switch snapshot.coach {
-        case .challengeComplete, .milestone, .backOnTrack: .celebrate
-        case .needsAttention: .sad
-        default: snapshot.isComplete ? .complete : .idle
+        case .challengeComplete, .milestone, .backOnTrack: .complete
+        default: .idle
         }
     }
 
     private var coachLine: String {
         switch snapshot.coach {
-        case .firstDay:
-            return session.t(.philFirstDay)
+        case .upcoming:
+            return session.t(.philReadyNext)
         case .inProgress(let remaining):
-            return remaining == 1 ? session.t(.challengeOneToGo) : session.t(.challengeManyToGo, remaining)
-        case .challengeComplete:
-            return session.t(.philChallengeComplete)
+            return remaining == 1 ? session.t(.philDoingWellOne) : session.t(.philDoingWellMany, remaining)
+        case .challengeComplete, .milestone:
+            return session.t(.philDayDosesComplete)
         case .needsAttention:
             return missedSupportLine
         case .backOnTrack:
             return session.t(.philBackOnTrack)
-        case .milestone(let days):
-            return session.t(.philMilestoneDay, days)
+        case .firstDay:
+            return snapshot.hasScheduledDoses ? session.t(.philReadyNext) : session.t(.philFirstDay)
         case .idle:
             if snapshot.isComplete {
-                return session.t(.challengeStayedOnTrack)
+                return session.t(.philDayDosesComplete)
             }
-            if snapshot.currentStreak > 0 {
-                return session.t(.streakKeepGoing)
+            if snapshot.remainingCount > 0, snapshot.takenCount == 0 {
+                return session.t(.philReadyNext)
             }
-            return session.t(.philFirstDay)
+            if snapshot.remainingCount > 0 {
+                return snapshot.remainingCount == 1
+                    ? session.t(.philDoingWellOne)
+                    : session.t(.philDoingWellMany, snapshot.remainingCount)
+            }
+            return session.t(.streakKeepGoing)
         }
     }
 
@@ -208,7 +212,7 @@ struct WeeklyAdherenceCard: View {
                 Spacer()
                 HStack(spacing: 4) {
                     Text("🔥")
-                    Text("\(stats.streakDays) \(session.t(.homeStreak))")
+                    Text(session.t(.streakCurrent, stats.streakDays))
                         .font(.system(.caption2, design: .rounded).weight(.heavy))
                 }
                 .padding(.horizontal, 10)
@@ -267,7 +271,7 @@ struct WeeklyAdherenceCard: View {
                 .disabled(onTreatments == nil)
             }
 
-            if snapshot.isActive {
+            if stats.treatmentCount > 0 {
                 Divider().overlay(CheckMedTheme.hairline)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(session.t(.progressTreatmentsHeader))
@@ -297,13 +301,14 @@ struct WeeklyAdherenceCard: View {
                         .foregroundStyle(CheckMedTheme.muted)
                         .textCase(.uppercase)
                     ForEach(Gamification.milestoneDays, id: \.self) { day in
-                        let reached = snapshot.reachedMilestones.contains(day)
-                        let focus = snapshot.reachedMilestones.last ?? snapshot.nextMilestone
+                        let reached = stats.streakDays >= day
+                        let focusDay = Gamification.milestoneDays.last { stats.streakDays >= $0 } ?? Gamification.milestoneDays.first { $0 > stats.streakDays }
                         HStack(spacing: 8) {
-                            Image(systemName: reached ? "checkmark.circle.fill" : "circle")
+                            Image(systemName: reached ? "checkmark.circle.fill" : "lock.fill")
                                 .foregroundStyle(reached ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+                                .accessibilityHidden(true)
                             Text(GamificationMilestoneCopy.title(day, session: session))
-                                .font(.system(.subheadline, design: .rounded).weight(day == focus ? .black : .semibold))
+                                .font(.system(.subheadline, design: .rounded).weight(day == focusDay ? .black : .semibold))
                             Spacer()
                         }
                         .accessibilityLabel("\(GamificationMilestoneCopy.title(day, session: session)), \(reached ? session.t(.taken) : session.t(.homeStatusUpcoming))")
@@ -422,7 +427,7 @@ struct GamificationCelebrateBanner: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            PhilView(size: eventScale, mood: .celebrate, smiling: true)
+            PhilView(size: eventScale, mood: bannerMood, smiling: true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -443,10 +448,8 @@ struct GamificationCelebrateBanner: View {
 
     private var title: String {
         switch event {
-        case .tookFirst: session.t(.philDoseFirst)
-        case .tookOnTrack: session.t(.philDoseOnTrack)
-        case .tookKeepGoing: session.t(.philDoseKeepGoing)
-        case .dayComplete: session.t(.challengeCompleteTitle)
+        case .tookFirst, .tookOnTrack, .tookKeepGoing: session.t(.philDoseTaken)
+        case .dayComplete: session.t(.philDayDosesComplete)
         case .milestone(let day):
             switch day {
             case 1: session.t(.philMilestone1)
@@ -469,6 +472,14 @@ struct GamificationCelebrateBanner: View {
         case .milestone: session.t(.streakKeepGoing)
         case .needsAttention: session.t(.philBackOnTrack)
         case .backOnTrack: session.t(.streakKeepGoing)
+        }
+    }
+
+    private var bannerMood: CompanionMood {
+        switch event {
+        case .needsAttention: .idle
+        case .tookFirst, .tookOnTrack, .tookKeepGoing: .complete
+        default: .complete
         }
     }
 

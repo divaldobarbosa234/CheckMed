@@ -97,6 +97,8 @@ struct HomeView: View {
     @State private var gamePrimed = false
     @State private var lastGameTaken = -1
     @State private var lastGameSkipped = -1
+    /// Feeling check-in waits until Phil’s overlay finishes. UI-only; not a second timer.
+    @State private var presentedFeeling: FeelingSheetItem?
 
     private var greetingWord: String {
         let hour = session.foundationCalendar.component(.hour, from: Date())
@@ -294,6 +296,7 @@ struct HomeView: View {
                 LaunchLog.home("tab→\(tab)")
                 if tab == .home {
                     applyMoodVisibilityForToday(animated: false)
+                    presentFeelingCheckInIfNeeded()
                 } else {
                     dismissPhilReaction(animated: false)
                 }
@@ -301,6 +304,7 @@ struct HomeView: View {
             .onChange(of: navPath.count) { _, count in
                 if count == 0, session.selectedMainTab == .home {
                     applyMoodVisibilityForToday(animated: false)
+                    presentFeelingCheckInIfNeeded()
                 } else if count > 0 {
                     dismissPhilReaction(animated: false)
                 }
@@ -329,25 +333,19 @@ struct HomeView: View {
             .onChange(of: path.skippedCount) { _, _ in
                 handleGamificationProgress()
             }
+            .onChange(of: path.pendingFeeling?.logId) { _, id in
+                if id == nil {
+                    if presentedFeeling != nil { presentedFeeling = nil }
+                    return
+                }
+                Task { @MainActor in
+                    handleGamificationProgress()
+                }
+            }
             .onDisappear {
                 hideMoodTask?.cancel()
                 hideMoodTask = nil
                 dismissPhilReaction(animated: false)
-            }
-            .sheet(item: feelingItem) { item in
-                FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
-            }
-            .overlay(alignment: .top) {
-                if let gameCelebrate {
-                    GamificationCelebrateBanner(
-                        event: gameCelebrate,
-                        streak: lastGameTaken,
-                        missedCount: challenge.skippedCount
-                    )
-                        .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .allowsHitTesting(false)
-                }
             }
             .task {
                 FreezeDiag.log("Home.task start")
@@ -360,6 +358,22 @@ struct HomeView: View {
                 guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
                 session.markOnboardingPaywallOffered()
                 entitlements.presentPaywall()
+            }
+        }
+        .sheet(item: feelingItem) { item in
+            FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
+        }
+        .overlay(alignment: .top) {
+            if let gameCelebrate {
+                GamificationCelebrateBanner(
+                    event: gameCelebrate,
+                    streak: lastGameTaken,
+                    missedCount: challenge.skippedCount
+                )
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
+                    .zIndex(1)
             }
         }
     }
@@ -610,16 +624,33 @@ struct HomeView: View {
         gameCelebrate = nil
         lastGameTaken = -1
         lastGameSkipped = -1
+        presentedFeeling = nil
     }
 
     private func primeGamificationIfNeeded() {
         guard session.restorationComplete, session.isPlanSurfaceReady else { return }
         guard !isPlanVisibilityPending, hasActivePlan else { return }
-        guard !gamePrimed else { return }
         let snap = challenge
+        let owner = session.planOwnerId
+        let profile = session.planProfileId
+        let recorded = GamificationMemory.lastDoneSignature(ownerId: owner, profileId: profile)
+        let recordedIds = GamificationMemory.doneIds(recorded)
+        let currentIds = GamificationMemory.doneIds(snap.doneSignature)
+        if gamePrimed {
+            if lastGameTaken > snap.takenCount {
+                lastGameTaken = snap.takenCount
+                lastGameSkipped = snap.skippedCount
+            }
+            if !recordedIds.isEmpty, currentIds.isDisjoint(with: recordedIds) {
+                GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
+                lastGameTaken = snap.takenCount
+                lastGameSkipped = snap.skippedCount
+            }
+            return
+        }
         GamificationMemory.seedIfNeeded(
-            ownerId: session.planOwnerId,
-            profileId: session.planProfileId,
+            ownerId: owner,
+            profileId: profile,
             streak: snap.currentStreak,
             dayStamp: todayStamp,
             doneSignature: snap.doneSignature
@@ -627,7 +658,7 @@ struct HomeView: View {
         lastGameTaken = snap.takenCount
         lastGameSkipped = snap.skippedCount
         gamePrimed = true
-        print("[PHIL-DIAG] primed already presented=true signature=\(snap.doneSignature) milestone=\(GamificationMemory.lastMilestone(ownerId: session.planOwnerId, profileId: session.planProfileId))")
+        print("[PHIL-DIAG] primed already presented=true signature=\(snap.doneSignature) milestone=\(GamificationMemory.lastMilestone(ownerId: owner, profileId: profile))")
     }
 
     private func handleGamificationProgress() {
@@ -636,23 +667,35 @@ struct HomeView: View {
         guard snap.isActive else { return }
         let owner = session.planOwnerId
         let profile = session.planProfileId
-        let recorded = GamificationMemory.lastDoneSignature(ownerId: owner, profileId: profile)
-        if snap.doneSignature == recorded {
+        var recorded = GamificationMemory.lastDoneSignature(ownerId: owner, profileId: profile)
+        let recordedIds = GamificationMemory.doneIds(recorded)
+        let currentIds = GamificationMemory.doneIds(snap.doneSignature)
+        if !recordedIds.isEmpty, currentIds.isDisjoint(with: recordedIds) {
+            recorded = ""
+            lastGameTaken = min(lastGameTaken, snap.takenCount)
+            lastGameSkipped = min(lastGameSkipped, snap.skippedCount)
+        }
+        let newlyTaken = snap.lines.filter { $0.isTaken && !GamificationMemory.doneIds(recorded).contains($0.id) }
+        let takenIncreased = !newlyTaken.isEmpty
+        let skippedIncreased = snap.skippedCount > lastGameSkipped && lastGameSkipped >= 0
+
+        if skippedIncreased, !takenIncreased {
             lastGameTaken = snap.takenCount
             lastGameSkipped = snap.skippedCount
-            print("[PHIL-DIAG] skip signature already presented dose IDs=\(recorded)")
-            return
-        }
-        let takenIncreased = snap.takenCount > lastGameTaken && lastGameTaken >= 0
-        let skippedIncreased = snap.skippedCount > lastGameSkipped && lastGameSkipped >= 0
-        lastGameTaken = snap.takenCount
-        lastGameSkipped = snap.skippedCount
-
-        if skippedIncreased {
             presentGameCelebrate(.needsAttention)
             return
         }
-        guard takenIncreased else { return }
+        guard takenIncreased else {
+            if snap.doneSignature == recorded {
+                lastGameTaken = snap.takenCount
+                lastGameSkipped = snap.skippedCount
+                print("[PHIL-DIAG] skip signature already presented dose IDs=\(recorded)")
+                presentFeelingCheckInIfNeeded()
+            }
+            return
+        }
+        lastGameTaken = snap.takenCount
+        lastGameSkipped = snap.skippedCount
 
         let added = snap.lines.filter { line in
             line.isTaken && !recorded.split(separator: ",").map(String.init).contains(line.id)
@@ -719,6 +762,7 @@ struct HomeView: View {
     private func presentGameCelebrate(_ event: GameCelebrate) {
         guard session.selectedMainTab == .home, navPath.isEmpty else {
             print("[PHIL-DIAG] reaction=\(event) skipped not on dashboard")
+            presentFeelingCheckInIfNeeded()
             return
         }
         if gameCelebrate == event { return }
@@ -732,7 +776,15 @@ struct HomeView: View {
             withAnimation(.easeInOut(duration: 0.28)) {
                 gameCelebrate = nil
             }
+            presentFeelingCheckInIfNeeded()
         }
+    }
+
+    private func presentFeelingCheckInIfNeeded() {
+        guard gameCelebrate == nil else { return }
+        guard presentedFeeling == nil else { return }
+        guard let pending = path.pendingFeeling else { return }
+        presentedFeeling = FeelingSheetItem(logId: pending.logId, medicine: pending.medicine)
     }
 
     private var medicationsCard: some View {
@@ -1075,10 +1127,13 @@ struct HomeView: View {
 
     private var feelingItem: Binding<FeelingSheetItem?> {
         Binding(
-            get: {
-                path.pendingFeeling.map { FeelingSheetItem(logId: $0.logId, medicine: $0.medicine) }
-            },
-            set: { if $0 == nil { path.clearPendingFeeling() } }
+            get: { presentedFeeling },
+            set: { newValue in
+                presentedFeeling = newValue
+                if newValue == nil {
+                    path.clearPendingFeeling()
+                }
+            }
         )
     }
 }

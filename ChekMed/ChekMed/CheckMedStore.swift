@@ -1550,6 +1550,7 @@ final class CheckMedStore {
         let todayTaken = dayLogs.filter { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }.count
         let todayTotal = dayLogs.count
         let history = logs()
+        let activeHistory = logsOnActiveTreatments(history)
         let due = history.filter { $0.scheduledAt <= now }
         let takenLateCount = due.filter { $0.status == DoseLogStatus.takenLate.rawValue }.count
         let takenOnTime = due.filter { $0.status == DoseLogStatus.taken.rawValue }.count
@@ -1560,17 +1561,14 @@ final class CheckMedStore {
         var weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? today
         weekStart = calendar.startOfDay(for: weekStart)
         let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? now
-        let weekLogs = history.filter { log in
-            guard log.scheduledAt >= weekStart && log.scheduledAt < weekEnd else { return false }
-            guard let schedule = schedulesById[log.scheduleId],
-                  let medicine = medicinesById[schedule.medicineId] else { return false }
-            return activeTreatmentIds.contains(medicine.treatmentId)
+        let weekLogs = activeHistory.filter { log in
+            log.scheduledAt >= weekStart && log.scheduledAt < weekEnd
         }
         let weekTaken = weekLogs.filter { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }.count
         let weekPlanned = weekLogs.count
         let weekPercent: Int? = weekPlanned == 0 ? nil : Int((Double(weekTaken) / Double(weekPlanned) * 100).rounded())
-        let streak = streakDays(now: now, today: today)
-        let longest = longestStreakDays(now: now, today: today, history: history)
+        let streak = streakDays(now: now, today: today, history: activeHistory)
+        let longest = longestStreakDays(now: now, today: today, history: activeHistory)
         FreezeDiag.context(
             String(format: "adherence END logs=%d revision=%d %.0fms", history.count, revision, Date().timeIntervalSince(t0) * 1000),
             hasChanges: context.hasChanges
@@ -2138,16 +2136,36 @@ final class CheckMedStore {
         return logs().filter { $0.scheduledAt >= day && $0.scheduledAt < end }
     }
 
-    private func streakDays(now: Date, today: Date) -> Int {
+    /// Same treatment boundary as weekly adherence: active treatments only.
+    /// Day-success rule is unchanged (`Gamification.dayContributesToStreak`).
+    private func logsOnActiveTreatments(_ history: [DoseLogRecord]) -> [DoseLogRecord] {
+        let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        guard !activeTreatmentIds.isEmpty else { return [] }
+        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
+        let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
+        return history.filter { log in
+            guard let schedule = schedulesById[log.scheduleId],
+                  let medicine = medicinesById[schedule.medicineId] else { return false }
+            return activeTreatmentIds.contains(medicine.treatmentId)
+        }
+    }
+
+    private func streakDays(now: Date, today: Date, history: [DoseLogRecord]) -> Int {
         FreezeDiag.log("streakDays START")
         let t0 = Date()
+        var byDay: [TimeInterval: [DoseLogStatus]] = [:]
+        byDay.reserveCapacity(min(history.count, 120))
+        for log in history {
+            let day = calendar.startOfDay(for: log.scheduledAt)
+            let status = DoseLogStatus(rawValue: log.status) ?? .pending
+            byDay[day.timeIntervalSince1970, default: []].append(status)
+        }
         var cursor = today
         var counted = 0
         for _ in 0..<120 {
-            guard let end = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
-            let dayLogs = logs().filter { $0.scheduledAt >= cursor && $0.scheduledAt < end }
+            let statuses = byDay[cursor.timeIntervalSince1970] ?? []
             let isToday = calendar.isDate(cursor, inSameDayAs: today)
-            if dayLogs.isEmpty {
+            if statuses.isEmpty {
                 if isToday {
                     guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
                     cursor = previous
@@ -2156,23 +2174,20 @@ final class CheckMedStore {
                 break
             }
             if isToday {
-                if dayLogs.contains(where: { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }) {
+                if Gamification.dayContributesToStreak(statuses: statuses, isToday: true) {
                     counted += 1
                 }
                 guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
                 cursor = previous
                 continue
             }
-            let missed = dayLogs.contains {
-                let status = DoseLogStatus(rawValue: $0.status) ?? .pending
-                return status.isOpen || status.isMissedLike
-            }
-            if missed { break }
-            if dayLogs.contains(where: { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }) {
+            if Gamification.dayContributesToStreak(statuses: statuses, isToday: false) {
                 counted += 1
+                guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+                cursor = previous
+                continue
             }
-            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
-            cursor = previous
+            break
         }
         _ = now
         FreezeDiag.log(String(format: "streakDays END counted=%d %.0fms", counted, Date().timeIntervalSince(t0) * 1000))
@@ -2185,7 +2200,8 @@ final class CheckMedStore {
         guard surfacesPlan else { return 0 }
         let now = Date()
         let today = calendar.startOfDay(for: now)
-        return max(streakDays(now: now, today: today), longestStreakDays(now: now, today: today, history: logs()))
+        let history = logsOnActiveTreatments(logs())
+        return max(streakDays(now: now, today: today, history: history), longestStreakDays(now: now, today: today, history: history))
     }
 
     private func longestStreakDays(now: Date, today: Date, history: [DoseLogRecord]) -> Int {

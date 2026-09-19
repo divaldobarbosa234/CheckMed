@@ -103,7 +103,9 @@ enum L10n {
         case challengeTitle, challengeProgress, challengeOneToGo, challengeManyToGo, challengeCompleteTitle
         case challengeStayedOnTrack, challengeNoDosesToday, streakKeepGoing, streakCurrent, streakLongest, streakLongestOne
         case philNiceTook, philChallengeComplete, philMissedOne, philMissedSeveral, philBackOnTrack, philFirstDay, philMilestoneDay
-        case philDoseFirst, philDoseOnTrack, philDoseKeepGoing, philMilestone1, philMilestone3, philMilestone7
+        case philDoseFirst, philDoseOnTrack, philDoseKeepGoing, philDoseTaken, philReadyNext
+        case philDoingWellOne, philDoingWellMany, philDayDosesComplete
+        case philMilestone1, philMilestone3, philMilestone7
         case milestoneStarted, milestone3Days, milestoneWeek, milestoneTwoWeeks, milestoneThreeWeeks, milestoneHabit
         case milestone30, milestone60, milestone90, milestonesTitle, dailyHistoryTitle
         case homeNextRevision, homeInDays, homePhilQuote
@@ -573,11 +575,16 @@ enum L10n {
         .streakLongest: "Longest streak: %d days",
         .streakLongestOne: "Longest streak: 1 day",
         .philNiceTook: "Nice! You took %@.",
-        .philDoseFirst: "Nice! That's one done.",
+        .philDoseFirst: "Nice! That one's done.",
         .philDoseOnTrack: "You're staying on track!",
         .philDoseKeepGoing: "Keep going! You've got this.",
+        .philDoseTaken: "Nice! That one's done.",
+        .philReadyNext: "Ready for your next one?",
+        .philDoingWellOne: "You're doing well. One dose is still waiting.",
+        .philDoingWellMany: "You're doing well. %d doses are still waiting.",
+        .philDayDosesComplete: "Nice work. Today's doses are complete.",
         .philChallengeComplete: "You stayed on track today.",
-        .philMissedOne: "Looks like you missed one.\nLet's get back on track.",
+        .philMissedOne: "Looks like you missed one. Let's get back on track.",
         .philMissedSeveral: "Looks like you missed %d doses.\nLet's get back on track.",
         .philBackOnTrack: "You're back on track.",
         .philFirstDay: "Let's start your first day.",
@@ -1306,8 +1313,13 @@ enum L10n {
         .philDoseFirst: "Boa! Essa já está feita.",
         .philDoseOnTrack: "Você está no ritmo!",
         .philDoseKeepGoing: "Continue. Você consegue.",
+        .philDoseTaken: "Boa! Essa já está feita.",
+        .philReadyNext: "Pronto para a próxima?",
+        .philDoingWellOne: "Estás a ir bem. Falta uma dose.",
+        .philDoingWellMany: "Estás a ir bem. Faltam %d doses.",
+        .philDayDosesComplete: "Boa! As doses de hoje estão completas.",
         .philChallengeComplete: "Você cumpriu o plano de hoje.",
-        .philMissedOne: "Parece que uma ficou para trás.\nVamos retomar com calma.",
+        .philMissedOne: "Parece que faltou uma. Vamos continuar.",
         .philMissedSeveral: "Parece que %d doses ficaram para trás.\nVamos retomar com calma.",
         .philBackOnTrack: "Você está de volta no ritmo.",
         .philFirstDay: "Vamos começar o seu primeiro dia.",
@@ -2036,8 +2048,13 @@ enum L10n {
         .philDoseFirst: "¡Bien! Esa ya está hecha.",
         .philDoseOnTrack: "¡Vas con el ritmo!",
         .philDoseKeepGoing: "Sigue. Tú puedes.",
+        .philDoseTaken: "¡Bien! Esa ya está hecha.",
+        .philReadyNext: "¿Listo para la próxima?",
+        .philDoingWellOne: "Vas bien. Falta una dosis.",
+        .philDoingWellMany: "Vas bien. Faltan %d dosis.",
+        .philDayDosesComplete: "¡Muy bien! Has completado las dosis de hoy.",
         .philChallengeComplete: "Hoy seguiste el plan.",
-        .philMissedOne: "Parece que se pasó una.\nVolvamos al ritmo, con calma.",
+        .philMissedOne: "Parece que falta una. Vamos a seguir.",
         .philMissedSeveral: "Parece que se pasaron %d dosis.\nVolvamos al ritmo, con calma.",
         .philBackOnTrack: "Ya estás de nuevo en el ritmo.",
         .philFirstDay: "Empecemos tu primer día.",
@@ -2763,11 +2780,16 @@ enum L10n {
         .streakLongest: "Plus longue série : %d jours",
         .streakLongestOne: "Plus longue série : 1 jour",
         .philNiceTook: "Bravo ! Vous avez pris %@.",
-        .philDoseFirst: "Bravo ! Celle-là est faite.",
+        .philDoseFirst: "Bien ! Celle-ci est faite.",
         .philDoseOnTrack: "Vous tenez le rythme !",
         .philDoseKeepGoing: "Continuez. Vous y arrivez.",
+        .philDoseTaken: "Bien ! Celle-ci est faite.",
+        .philReadyNext: "Prêt pour la prochaine ?",
+        .philDoingWellOne: "Tu avances bien. Il reste une dose.",
+        .philDoingWellMany: "Tu avances bien. Il reste %d doses.",
+        .philDayDosesComplete: "Bravo ! Les doses d’aujourd’hui sont terminées.",
         .philChallengeComplete: "Vous avez suivi le plan aujourd’hui.",
-        .philMissedOne: "Il semble qu’une dose ait été manquée.\nReprenons calmement.",
+        .philMissedOne: "On dirait qu’une dose a été manquée. Continuons.",
         .philMissedSeveral: "Il semble que %d doses aient été manquées.\nReprenons calmement.",
         .philBackOnTrack: "Vous êtes de nouveau dans le rythme.",
         .philFirstDay: "Commençons votre premier jour.",
