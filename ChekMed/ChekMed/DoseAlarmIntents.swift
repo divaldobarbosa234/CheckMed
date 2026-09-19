@@ -1,10 +1,10 @@
 import AppIntents
 import Foundation
 
-/// AlarmKit stop action: mark the dose taken (stays free) and let reminders rebuild.
+/// Explicit confirm from a notification action. Never attached to AlarmKit Stop.
 nonisolated struct DoseTakenIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Taken"
-    static var description: IntentDescription = IntentDescription("Marks this CheckMed dose as taken.")
+    static var title: LocalizedStringResource = "I took it"
+    static var description: IntentDescription = IntentDescription("Confirms this CheckMed dose was taken.")
     static var isDiscoverable = false
     static var openAppWhenRun = false
 
@@ -20,15 +20,15 @@ nonisolated struct DoseTakenIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        await ReminderScheduler.shared.applyIntent(logId: logId, status: .taken)
+        await ReminderScheduler.shared.applyIntent(logId: logId, action: .confirmTaken)
         return .result()
     }
 }
 
-/// AlarmKit secondary action: skip this dose without inventing a catch-up dose.
-nonisolated struct DoseSkipIntent: LiveActivityIntent {
-    static var title: LocalizedStringResource = "Skip"
-    static var description: IntentDescription = IntentDescription("Skips this CheckMed dose.")
+/// AlarmKit / notification snooze: same dose event, still unconfirmed.
+nonisolated struct DoseSnoozeIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Snooze"
+    static var description: IntentDescription = IntentDescription("Snoozes this CheckMed dose without marking it taken.")
     static var isDiscoverable = false
     static var openAppWhenRun = false
 
@@ -44,7 +44,31 @@ nonisolated struct DoseSkipIntent: LiveActivityIntent {
     }
 
     func perform() async throws -> some IntentResult {
-        await ReminderScheduler.shared.applyIntent(logId: logId, status: .skipped)
+        await ReminderScheduler.shared.applyIntent(logId: logId, action: .snooze)
+        return .result()
+    }
+}
+
+/// AlarmKit Stop / dismiss: not taken. Follow-up confirmation is scheduled separately.
+nonisolated struct DoseStoppedIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Stop"
+    static var description: IntentDescription = IntentDescription("Stops this CheckMed alarm without marking the dose taken.")
+    static var isDiscoverable = false
+    static var openAppWhenRun = false
+
+    @Parameter(title: "Log")
+    var logId: String
+
+    init() {
+        logId = ""
+    }
+
+    init(logId: String) {
+        self.logId = logId
+    }
+
+    func perform() async throws -> some IntentResult {
+        await ReminderScheduler.shared.applyIntent(logId: logId, action: .stop)
         return .result()
     }
 }

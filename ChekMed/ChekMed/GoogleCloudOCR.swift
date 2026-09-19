@@ -1,7 +1,8 @@
 import Foundation
 import Security
 
-/// Google Cloud OCR for prescription photos/PDFs. Text only — then `PrescriptionParser` + catalog.
+/// Google Cloud OCR for prescription photos/PDFs. Text only — then `ScanPipeline` + `PrescriptionParser`.
+/// If an LLM extractor is added, use `PrescriptionAIPrompt.extractOnlyExplicit`. Never invent brands.
 /// Never reuse `GOOGLE_IOS_CLIENT_ID` / iOS OAuth client secret as a Vision or Document AI key.
 enum GoogleCloudOCR {
     static func visionAPIKey() -> String? {

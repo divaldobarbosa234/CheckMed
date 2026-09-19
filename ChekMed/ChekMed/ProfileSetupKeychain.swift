@@ -17,6 +17,12 @@ enum ProfileSetupKeychain {
     private static let genderKey = "checkmed.profileSetupGender"
     private static let onboardingKey = "checkmed.onboardingComplete"
     private static let onboardingUserKey = "checkmed.onboardingCompleteUserId"
+    private static let planConfirmedKey = "checkmed.medicationPlanConfirmed"
+    private static let planConfirmedUserKey = "checkmed.medicationPlanConfirmedUserId"
+    private static let postJourneyKey = "checkmed.postJourneyStep"
+    private static let postJourneyUserKey = "checkmed.postJourneyStepUserId"
+    private static let philPlanKey = "checkmed.philPlanStatus"
+    private static let philPlanUserKey = "checkmed.philPlanStatusUserId"
 
     struct Snapshot: Equatable {
         var isComplete: Bool
@@ -93,6 +99,24 @@ enum ProfileSetupKeychain {
                 setString(userId.uuidString, for: onboardingUserKey)
             }
         }
+        if string(for: planConfirmedKey) == "1" {
+            let stored = string(for: planConfirmedUserKey)
+            if stored == nil || stored?.isEmpty == true {
+                setString(userId.uuidString, for: planConfirmedUserKey)
+            }
+        }
+        if string(for: postJourneyKey) != nil {
+            let stored = string(for: postJourneyUserKey)
+            if stored == nil || stored?.isEmpty == true {
+                setString(userId.uuidString, for: postJourneyUserKey)
+            }
+        }
+        if string(for: philPlanKey) != nil {
+            let stored = string(for: philPlanUserKey)
+            if stored == nil || stored?.isEmpty == true {
+                setString(userId.uuidString, for: philPlanUserKey)
+            }
+        }
     }
 
     /// True when this device previously finished full onboarding for `userId`.
@@ -114,6 +138,66 @@ enum ProfileSetupKeychain {
         }
     }
 
+    static func isPlanConfirmed(for userId: UUID?) -> Bool {
+        guard string(for: planConfirmedKey) == "1" else { return false }
+        guard let userId else {
+            return string(for: planConfirmedUserKey) == nil
+        }
+        if let stored = string(for: planConfirmedUserKey), !stored.isEmpty {
+            return stored.caseInsensitiveCompare(userId.uuidString) == .orderedSame
+        }
+        return true
+    }
+
+    static func markPlanConfirmed(userId: UUID?) {
+        setString("1", for: planConfirmedKey)
+        if let userId {
+            setString(userId.uuidString, for: planConfirmedUserKey)
+        }
+    }
+
+    static func persistedPostJourneyStep(for userId: UUID?) -> String? {
+        guard let raw = string(for: postJourneyKey), !raw.isEmpty, raw != "done" else { return nil }
+        guard let userId else { return raw }
+        if let stored = string(for: postJourneyUserKey), !stored.isEmpty {
+            guard stored.caseInsensitiveCompare(userId.uuidString) == .orderedSame else { return nil }
+        }
+        return raw
+    }
+
+    static func philPlanStatus(for userId: UUID?) -> String? {
+        guard let raw = string(for: philPlanKey), !raw.isEmpty else { return nil }
+        guard let userId else { return raw }
+        if let stored = string(for: philPlanUserKey), !stored.isEmpty {
+            guard stored.caseInsensitiveCompare(userId.uuidString) == .orderedSame else { return nil }
+        }
+        return raw
+    }
+
+    static func persistPhilPlanStatus(_ status: String?, userId: UUID?) {
+        if let status, !status.isEmpty {
+            setString(status, for: philPlanKey)
+            if let userId {
+                setString(userId.uuidString, for: philPlanUserKey)
+            }
+        } else {
+            delete(philPlanKey)
+            delete(philPlanUserKey)
+        }
+    }
+
+    static func persistPostJourneyStep(_ step: String?, userId: UUID?) {
+        if let step, step != "done", !step.isEmpty {
+            setString(step, for: postJourneyKey)
+            if let userId {
+                setString(userId.uuidString, for: postJourneyUserKey)
+            }
+        } else {
+            delete(postJourneyKey)
+            delete(postJourneyUserKey)
+        }
+    }
+
     static func clear() {
         delete(completeKey)
         delete(nameKey)
@@ -123,6 +207,12 @@ enum ProfileSetupKeychain {
         delete(genderKey)
         delete(onboardingKey)
         delete(onboardingUserKey)
+        delete(planConfirmedKey)
+        delete(planConfirmedUserKey)
+        delete(postJourneyKey)
+        delete(postJourneyUserKey)
+        delete(philPlanKey)
+        delete(philPlanUserKey)
     }
 
     /// Clear only when the stored user matches (account deletion).
@@ -151,6 +241,20 @@ enum ProfileSetupKeychain {
         if onboardingMatches {
             delete(onboardingKey)
             delete(onboardingUserKey)
+        }
+        let planMatches: Bool = {
+            if let stored = string(for: planConfirmedUserKey), !stored.isEmpty {
+                return stored.caseInsensitiveCompare(userId.uuidString) == .orderedSame
+            }
+            return true
+        }()
+        if planMatches {
+            delete(planConfirmedKey)
+            delete(planConfirmedUserKey)
+            delete(postJourneyKey)
+            delete(postJourneyUserKey)
+            delete(philPlanKey)
+            delete(philPlanUserKey)
         }
     }
 

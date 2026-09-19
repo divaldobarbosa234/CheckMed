@@ -1,3 +1,4 @@
+import PDFKit
 import SwiftUI
 import UIKit
 
@@ -119,7 +120,7 @@ enum MedicineReportPDF {
             y += 28
 
             // Title + Phil
-            let titleH = drawText(session.t(.reportPDFTitle), font: .systemFont(ofSize: 26, weight: .black), width: contentW - 110)
+            let titleH = drawText(session.t(.reportHeadline), font: .systemFont(ofSize: 26, weight: .black), width: contentW - 110)
             y += 4
             _ = drawText(document.patientName, font: .systemFont(ofSize: 13, weight: .bold), width: contentW - 110)
             if let phil = UIImage(named: "phil_doctor_2d") ?? UIImage(named: "phil_doctor") {
@@ -289,7 +290,7 @@ enum MedicineReportPDF {
     }
 }
 
-// MARK: - Bookstore report screen
+// MARK: - My Medical Report
 
 struct MedicineReportScreen: View {
     var go: (AppRoute) -> Void
@@ -300,53 +301,34 @@ struct MedicineReportScreen: View {
 
     @State private var shareURL: URL?
     @State private var showShare = false
+    @State private var showDownloadPaywall = false
+    @State private var showThemePicker = false
+    @State private var previewSource: CheckMedStore.PrescriptionSourceItem?
 
-    private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
+    private var medicines: [CheckMedStore.MedicineSummary] { treatments.reportMedicineSummaries() }
+    private var currentMedicines: [CheckMedStore.MedicineSummary] { treatments.reportCurrentMedicines() }
+    private var history: [CheckMedStore.PrescriptionHistoryItem] { treatments.reportPrescriptionHistory() }
+    private var sources: [CheckMedStore.PrescriptionSourceItem] { treatments.reportPrescriptionSources() }
     private var adherence: AdherenceSnapshot { treatments.adherence() }
     private var canExportPDF: Bool { entitlements.isSuper }
+    private var hasReportData: Bool { !medicines.isEmpty }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 reportNavigation
                 reportHero
-                HStack(spacing: 10) {
-                    Image(systemName: "book.closed.fill")
-                        .foregroundStyle(CheckMedTheme.primaryShadow)
-                    Text(session.t(.reportMyReports))
-                        .font(.system(.title3, design: .rounded).weight(.black))
-                }
-
-                if medicines.isEmpty {
-                    ReportNewTile { go(.addPrescription) }
+                if hasReportData {
+                    completenessCard
+                    currentMedicationsCard
+                    historyCard
+                    scheduleCard
+                    notesCard
+                    sourcesCard
+                    exportActions
                 } else {
-                    ReportLibraryCard(
-                        theme: .creamPhil,
-                        featured: true,
-                        patientName: session.displayName,
-                        medicines: medicines,
-                        adherence: adherence,
-                        canExport: canExportPDF,
-                        onDownload: { attemptExportPDF(theme: .creamPhil) },
-                        onEdit: { go(.medicineReportEdit) }
-                    )
-                    .padding(.horizontal, 18)
-
-                    reportShelf
-
-                    HStack(alignment: .top, spacing: 12) {
-                        libraryCard(.mintClinical)
-                        libraryCard(.softNavy)
-                    }
-
-                    reportShelf
-
-                    HStack(alignment: .top, spacing: 12) {
-                        libraryCard(.warmSand)
-                        ReportNewTile { go(.addPrescription) }
-                    }
+                    emptyState
                 }
-
                 Text(session.t(.journeyNotAdvice))
                     .font(.system(.caption2, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.safety)
@@ -362,6 +344,29 @@ struct MedicineReportScreen: View {
             if let shareURL {
                 ShareSheet(items: [shareURL])
             }
+        }
+        .sheet(isPresented: $showDownloadPaywall) {
+            ReportDownloadPaywallSheet(
+                onStartTrial: {
+                    showDownloadPaywall = false
+                    entitlements.presentPaywall()
+                },
+                onLater: { showDownloadPaywall = false }
+            )
+            .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showThemePicker) {
+            ReportPDFThemePicker(
+                patientName: session.displayName,
+                medicines: medicines,
+                adherence: adherence
+            ) { theme in
+                showThemePicker = false
+                exportPDF(theme: theme)
+            }
+        }
+        .sheet(item: $previewSource) { item in
+            PrescriptionSourcePreview(item: item)
         }
     }
 
@@ -384,71 +389,313 @@ struct MedicineReportScreen: View {
     }
 
     private var reportHero: some View {
-        HStack(alignment: .center, spacing: 8) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text(session.t(.reportLibraryTitle))
-                    .font(.system(size: 32, weight: .black, design: .rounded))
-                    .foregroundStyle(CheckMedTheme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(session.t(.reportSubhead))
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            ZStack {
-                Circle()
-                    .fill(CheckMedTheme.mintWash)
-                    .frame(width: 124, height: 124)
-                PhilDoctor2DImage(size: 116)
-            }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(session.t(.reportHeadline))
+                .font(.system(size: 30, weight: .black, design: .rounded))
+                .foregroundStyle(CheckMedTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(session.t(.reportSubhead))
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var reportShelf: some View {
-        Capsule()
-            .fill(
-                LinearGradient(
-                    colors: [Color(hex: 0xDDBD8B), Color(hex: 0xA87843)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            .frame(height: 12)
-            .shadow(color: CheckMedTheme.navy.opacity(0.14), radius: 5, y: 4)
-    }
-
-    private func libraryCard(_ theme: ReportTheme) -> some View {
-        ReportLibraryCard(
-            theme: theme,
-            featured: false,
-            patientName: session.displayName,
-            medicines: medicines,
-            adherence: adherence,
-            canExport: canExportPDF,
-            onDownload: { attemptExportPDF(theme: theme) },
-            onEdit: { go(.medicineReportEdit) }
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(session.t(.reportEmptyHeadline))
+                .font(.system(.title3, design: .rounded).weight(.heavy))
+            Text(session.t(.reportEmptyBody))
+                .font(.system(.body, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+            CheckMedButton(title: session.t(.homeScan), action: { go(.addPrescription) })
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
         )
     }
 
-    private func attemptExportPDF(theme: ReportTheme) {
+    private var completenessCard: some View {
+        let items: [(Bool, String)] = [
+            (!currentMedicines.isEmpty, session.t(.reportCurrentMedications)),
+            (!history.isEmpty, session.t(.reportPrescriptionHistory)),
+            (medicines.contains { !$0.doctorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }, session.t(.reportDoctor)),
+            (medicines.contains { !$0.scheduleTimes.isEmpty }, session.t(.reportMedicationSchedule)),
+            (hasNotes, session.t(.reportNotesSection)),
+            (!sources.isEmpty, session.t(.reportSources)),
+        ]
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(session.t(.reportBuilding))
+                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
+            Text(session.t(.reportCompleteYourReport))
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack(spacing: 10) {
+                    Image(systemName: item.0 ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(item.0 ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+                    Text(item.1)
+                        .font(.system(.body, design: .rounded).weight(.semibold))
+                    Spacer()
+                    if !item.0 {
+                        Text(session.t(.reportMissingSection))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+    }
+
+    private var hasNotes: Bool {
+        medicines.contains {
+            !$0.doctorNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !$0.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
+
+    private var currentMedicationsCard: some View {
+        reportSection(title: session.t(.reportCurrentMedications)) {
+            if currentMedicines.isEmpty {
+                missingCopy
+            } else {
+                ForEach(currentMedicines) { med in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(med.name)
+                            .font(.system(.body, design: .rounded).weight(.heavy))
+                        fact(session.t(.manualDose), med.doseLabel)
+                        fact(session.t(.manualFrequency), med.frequency.isEmpty ? session.t(.reportMissingSection) : med.frequency)
+                        fact(session.t(.manualDuration), med.duration.isEmpty ? session.t(.reportMissingSection) : med.duration)
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+    }
+
+    private var historyCard: some View {
+        reportSection(title: session.t(.reportPrescriptionHistory)) {
+            if history.isEmpty {
+                missingCopy
+            } else {
+                ForEach(history) { item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.title)
+                            .font(.system(.body, design: .rounded).weight(.heavy))
+                        Text(formattedDate(item.date))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                        if item.doctorName.isEmpty {
+                            Text(session.t(.reportDoctor) + " · " + session.t(.reportMissingSection))
+                                .font(.system(.caption, design: .rounded).weight(.semibold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                        } else {
+                            Text(session.t(.reportDoctor) + ": " + item.doctorName)
+                                .font(.system(.caption, design: .rounded).weight(.semibold))
+                        }
+                        Text(session.t(.reportMedicinesDetected) + ": " + item.medicines.joined(separator: ", "))
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+    }
+
+    private var scheduleCard: some View {
+        let periods: [(key: String, label: String)] = [
+            ("Morning", session.t(.morning)),
+            ("Afternoon", session.t(.afternoon)),
+            ("Evening", session.t(.evening)),
+            ("Night", session.t(.night)),
+        ]
+        return reportSection(title: session.t(.reportMedicationSchedule)) {
+            if currentMedicines.allSatisfy(\.scheduleTimes.isEmpty) {
+                missingCopy
+            } else {
+                ForEach(periods, id: \.key) { period in
+                    let rows = scheduleRows(in: period.key)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(period.label)
+                            .font(.system(.caption, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.primaryShadow)
+                            .textCase(.uppercase)
+                        if rows.isEmpty {
+                            Text(session.t(.todayNothing))
+                                .font(.system(.caption, design: .rounded).weight(.semibold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                        } else {
+                            ForEach(rows, id: \.self) { row in
+                                Text(row)
+                                    .font(.system(.body, design: .rounded).weight(.semibold))
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    private var notesCard: some View {
+        reportSection(title: session.t(.reportNotesSection)) {
+            if !hasNotes {
+                missingCopy
+            } else {
+                ForEach(currentMedicines + medicines.filter { med in
+                    !currentMedicines.contains(where: { $0.id == med.id })
+                }) { med in
+                    let notes = [med.reason, med.doctorNotes]
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty }
+                    if !notes.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(med.name)
+                                .font(.system(.body, design: .rounded).weight(.heavy))
+                            ForEach(notes, id: \.self) { note in
+                                Text(note)
+                                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var sourcesCard: some View {
+        reportSection(title: session.t(.reportSources)) {
+            if sources.isEmpty {
+                missingCopy
+            } else {
+                ForEach(sources) { item in
+                    Button {
+                        previewSource = item
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: item.isPDF ? "doc.richtext.fill" : "photo.fill")
+                                .foregroundStyle(CheckMedTheme.primaryShadow)
+                                .frame(width: 36, height: 36)
+                                .background(CheckMedTheme.mintWash, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(item.title)
+                                    .font(.system(.body, design: .rounded).weight(.heavy))
+                                    .foregroundStyle(CheckMedTheme.ink)
+                                Text(formattedDate(item.date))
+                                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                                    .foregroundStyle(CheckMedTheme.muted)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(CheckMedTheme.muted)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private var exportActions: some View {
+        VStack(spacing: 10) {
+            CheckMedButton(title: session.t(.reportEdit), style: .secondary) {
+                go(.medicineReportEdit)
+            }
+            CheckMedButton(title: session.t(.reportDownloadPDF)) {
+                attemptTakeOutside()
+            }
+            CheckMedButton(title: session.t(.reportShareWithDoctor), style: .ghost) {
+                attemptTakeOutside()
+            }
+        }
+    }
+
+    private var missingCopy: some View {
+        Text(session.t(.reportMissingSection))
+            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+            .foregroundStyle(CheckMedTheme.muted)
+    }
+
+    private func reportSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+    }
+
+    private func fact(_ label: String, _ value: String) -> some View {
+        Text("\(label): \(value.isEmpty ? session.t(.reportMissingSection) : value)")
+            .font(.system(.caption, design: .rounded).weight(.semibold))
+            .foregroundStyle(CheckMedTheme.muted)
+    }
+
+    private func scheduleRows(in period: String) -> [String] {
+        currentMedicines.flatMap { med in
+            med.scheduleTimes.filter { Self.period(for: $0) == period }.map { "\($0) · \(med.name)" }
+        }
+    }
+
+    private static func period(for time: String) -> String {
+        let hour = Int(time.split(separator: ":").first ?? "") ?? 0
+        switch hour {
+        case 5..<12: return "Morning"
+        case 12..<17: return "Afternoon"
+        case 17..<21: return "Evening"
+        default: return "Night"
+        }
+    }
+
+    private func formattedDate(_ date: Date) -> String {
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.locale = session.locale.foundationLocale
+        return df.string(from: date)
+    }
+
+    private func attemptTakeOutside() {
         guard canExportPDF else {
-            entitlements.presentPaywall()
+            showDownloadPaywall = true
             return
         }
         guard !medicines.isEmpty else { return }
-        exportPDF(theme: theme)
+        showThemePicker = true
     }
 
     private func exportPDF(theme: ReportTheme) {
+        let live = treatments.reportMedicineSummaries()
         let doc = MedicineReportDocument(
             patientName: session.displayName,
             generatedAt: Date(),
-            medicines: medicines,
+            medicines: live,
             takenCount: adherence.takenCount,
             skippedCount: max(0, adherence.plannedCount - adherence.takenCount),
             plannedCount: adherence.plannedCount,
-            refillDates: medicines.compactMap { med in
+            refillDates: live.compactMap { med in
                 guard let date = med.lastRefillAt else { return nil }
                 let df = DateFormatter()
                 df.dateStyle = .medium
@@ -457,158 +704,130 @@ struct MedicineReportScreen: View {
             }
         )
         let data = MedicineReportPDF.build(document: doc, theme: theme, session: session)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("CheckMed-Report-\(theme.rawValue).pdf")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("CheckMed-Medical-Report-\(theme.rawValue).pdf")
         try? data.write(to: url, options: .atomic)
         shareURL = url
         showShare = true
     }
 }
 
-private struct ReportLibraryCard: View {
+private struct ReportDownloadPaywallSheet: View {
     @Environment(SessionStore.self) private var session
-    let theme: ReportTheme
-    let featured: Bool
-    let patientName: String
-    let medicines: [CheckMedStore.MedicineSummary]
-    let adherence: AdherenceSnapshot
-    let canExport: Bool
-    var onDownload: () -> Void
-    var onEdit: () -> Void
-
-    private var percent: Int { adherence.percent ?? 0 }
-    private var skipped: Int { max(0, adherence.plannedCount - adherence.takenCount) }
+    var onStartTrial: () -> Void
+    var onLater: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: featured ? 11 : 7) {
-            HStack(spacing: 5) {
-                Image(systemName: "cross.fill")
-                    .font(.system(size: featured ? 9 : 7, weight: .black))
-                    .foregroundStyle(.white)
-                    .frame(width: featured ? 18 : 14, height: featured ? 18 : 14)
-                    .background(CheckMedTheme.primary, in: Circle())
-                Text("CheckMed")
-                    .font(.system(size: featured ? 9 : 7, weight: .heavy, design: .rounded))
-                Spacer()
-                Text(theme.title(session))
-                    .font(.system(size: featured ? 8 : 6, weight: .bold, design: .rounded))
-                    .foregroundStyle(theme.inkColor.opacity(0.55))
-                Image(systemName: "ellipsis")
-                    .font(.system(size: featured ? 12 : 9, weight: .bold))
-            }
-
-            HStack(alignment: .top, spacing: 4) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(session.t(.reportPDFTitle))
-                        .font(.system(size: featured ? 19 : 13, weight: .black, design: .rounded))
-                    Text(patientName)
-                        .font(.system(size: featured ? 11 : 8, weight: .semibold, design: .rounded))
-                }
-                Spacer(minLength: 0)
-                PhilDoctor2DImage(size: featured ? 58 : 38)
-            }
-
-            HStack(spacing: featured ? 12 : 7) {
-                ZStack {
-                    Circle().stroke(theme.accentColor.opacity(0.18), lineWidth: featured ? 6 : 4)
-                    Circle()
-                        .trim(from: 0, to: CGFloat(min(100, max(0, percent))) / 100)
-                        .stroke(theme.accentColor, style: StrokeStyle(lineWidth: featured ? 6 : 4, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Text("\(percent)%")
-                        .font(.system(size: featured ? 14 : 9, weight: .black, design: .rounded))
-                }
-                .frame(width: featured ? 56 : 38, height: featured ? 56 : 38)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(session.t(.reportDosesTakenShort, adherence.takenCount, adherence.plannedCount))
-                    Text(session.t(.journeySkipped, skipped))
-                }
-                .font(.system(size: featured ? 9 : 6, weight: .bold, design: .rounded))
-            }
-
-            if let medicine = medicines.first {
-                VStack(alignment: .leading, spacing: 2) {
-                    Label(session.t(.reportMedications), systemImage: "pills.fill")
-                        .foregroundStyle(theme.accentColor)
-                    Text(medicine.name).fontWeight(.heavy)
-                    Text("\(medicine.doseLabel) · \(medicine.frequency)")
-                        .lineLimit(1)
-                    Text(medicine.duration)
-                }
-                .font(.system(size: featured ? 10 : 7, weight: .semibold, design: .rounded))
-                .padding(featured ? 10 : 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.white.opacity(0.48))
-                .clipShape(RoundedRectangle(cornerRadius: featured ? 12 : 9, style: .continuous))
-            }
-
-            HStack(spacing: 7) {
-                Button(action: onEdit) {
-                    Label(featured ? session.t(.reportEdit) : "", systemImage: "pencil")
-                        .frame(maxWidth: .infinity)
-                }
-                .foregroundStyle(theme.inkColor)
-                .background(Color.white.opacity(0.45), in: Capsule())
-
-                Button(action: onDownload) {
-                    Label(
-                        featured ? session.t(.reportDownload) : "",
-                        systemImage: canExport ? "arrow.down.to.line" : "lock.fill"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .foregroundStyle(.white)
-                .background(theme.accentColor, in: Capsule())
-                .accessibilityLabel(session.t(.reportDownload))
-                .accessibilityHint(canExport ? "" : session.t(.reportExportLockedHint))
-            }
-            .font(.system(size: featured ? 10 : 8, weight: .heavy, design: .rounded))
-            .buttonStyle(.plain)
-            .frame(height: featured ? 34 : 28)
+        VStack(alignment: .leading, spacing: 16) {
+            Text(session.t(.reportDownloadPaywallTitle))
+                .font(.system(.title2, design: .rounded).weight(.black))
+            Text(session.t(.reportDownloadPaywallBody))
+                .font(.system(.body, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+            Spacer(minLength: 0)
+            CheckMedButton(title: session.t(.scanLimitStartTrial), action: onStartTrial)
+            CheckMedButton(title: session.t(.reportMaybeLater), style: .ghost, action: onLater)
         }
-        .foregroundStyle(theme.inkColor)
-        .padding(featured ? 14 : 10)
-        .frame(maxWidth: .infinity, minHeight: featured ? 300 : 232, alignment: .topLeading)
-        .background(theme.backgroundColor)
-        .clipShape(RoundedRectangle(cornerRadius: featured ? 22 : 17, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: featured ? 22 : 17, style: .continuous)
-                .stroke(theme.accentColor.opacity(0.24), lineWidth: 1.5)
-        )
-        .shadow(color: CheckMedTheme.navy.opacity(featured ? 0.12 : 0.08), radius: featured ? 15 : 9, y: 6)
+        .padding(24)
+        .background(CheckMedTheme.background)
     }
 }
 
-private struct ReportNewTile: View {
+private struct ReportPDFThemePicker: View {
     @Environment(SessionStore.self) private var session
-    var action: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    let patientName: String
+    let medicines: [CheckMedStore.MedicineSummary]
+    let adherence: AdherenceSnapshot
+    var onPick: (ReportTheme) -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 10) {
-                Image(systemName: "plus")
-                    .font(.system(size: 18, weight: .heavy))
-                    .foregroundStyle(CheckMedTheme.primaryShadow)
-                    .frame(width: 42, height: 42)
-                    .background(CheckMedTheme.mintWash, in: Circle())
-                Text(session.t(.reportNew))
-                    .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                    .foregroundStyle(CheckMedTheme.primaryShadow)
-                Text(session.t(.reportNewHint))
-                    .font(.system(.caption2, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .multilineTextAlignment(.center)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(session.t(.reportChooseTheme))
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                    ForEach(ReportTheme.allCases) { theme in
+                        Button {
+                            onPick(theme)
+                        } label: {
+                            ReportThemeCoverView(
+                                theme: theme,
+                                patientName: patientName,
+                                medicines: medicines,
+                                percent: adherence.percent ?? 0,
+                                taken: adherence.takenCount,
+                                planned: adherence.plannedCount,
+                                skipped: max(0, adherence.plannedCount - adherence.takenCount)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(18)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 232)
-            .background(CheckMedTheme.surface.opacity(0.45))
-            .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .stroke(CheckMedTheme.hairline, style: StrokeStyle(lineWidth: 1.5, dash: [5]))
-            )
+            .background(CheckMedTheme.background)
+            .navigationTitle(session.t(.reportDownloadPDF))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(session.t(.cancel)) { dismiss() }
+                }
+            }
         }
-        .buttonStyle(.plain)
+    }
+}
+
+private struct PrescriptionSourcePreview: View {
+    @Environment(SessionStore.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    let item: CheckMedStore.PrescriptionSourceItem
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if item.isPDF {
+                    PDFKitRepresentedView(url: item.url)
+                } else if let image = UIImage(contentsOfFile: item.url.path) {
+                    ScrollView {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .padding()
+                    }
+                } else {
+                    Text(session.t(.reportMissingSection))
+                        .font(.system(.body, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                }
+            }
+            .background(CheckMedTheme.background)
+            .navigationTitle(item.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(session.t(.done)) { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+private struct PDFKitRepresentedView: UIViewRepresentable {
+    let url: URL
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.document = PDFDocument(url: url)
+        return view
+    }
+
+    func updateUIView(_ uiView: PDFView, context: Context) {
+        if uiView.document?.documentURL != url {
+            uiView.document = PDFDocument(url: url)
+        }
     }
 }
 
@@ -718,7 +937,7 @@ struct ReportThemeCoverView: View {
 
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(session.t(.reportPDFTitle))
+                    Text(session.t(.reportHeadline))
                         .font(.system(.title3, design: .rounded).weight(.black))
                         .foregroundStyle(theme.inkColor)
                     Text(patientName)
@@ -855,8 +1074,9 @@ struct MedicineReportEditScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var drafts: [UUID: ReportMedicineDraft] = [:]
+    @State private var showMedicalConfirm = false
 
-    private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
+    private var medicines: [CheckMedStore.MedicineSummary] { treatments.reportMedicineSummaries() }
 
     var body: some View {
         Form {
@@ -868,6 +1088,10 @@ struct MedicineReportEditScreen: View {
 
             ForEach(medicines) { med in
                 Section(med.name) {
+                    TextField(session.t(.manualMedicine), text: binding(med.id, \.name))
+                    TextField(session.t(.manualDose), text: binding(med.id, \.doseLabel))
+                    TextField(session.t(.manualFrequency), text: binding(med.id, \.frequency))
+                    TextField(session.t(.manualDuration), text: binding(med.id, \.duration))
                     TextField(session.t(.reportDoctor), text: binding(med.id, \.doctorName))
                     TextField(session.t(.reportDoctorId), text: binding(med.id, \.doctorId))
                     TextField(session.t(.reportHospital), text: binding(med.id, \.hospitalName))
@@ -886,19 +1110,44 @@ struct MedicineReportEditScreen: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(session.t(.feelingSave)) {
-                    saveAll()
-                    dismiss()
+                    if hasMedicallyImportantChanges {
+                        showMedicalConfirm = true
+                    } else {
+                        saveAll()
+                        dismiss()
+                    }
                 }
                 .fontWeight(.bold)
             }
         }
+        .alert(session.t(.confirmEditHeadline), isPresented: $showMedicalConfirm) {
+            Button(session.t(.cancel), role: .cancel) {}
+            Button(session.t(.confirmLooksGood)) {
+                saveAll()
+                dismiss()
+            }
+        }
         .onAppear(perform: loadDrafts)
+    }
+
+    private var hasMedicallyImportantChanges: Bool {
+        medicines.contains { med in
+            guard let draft = drafts[med.id] else { return false }
+            return draft.name != med.name
+                || draft.doseLabel != med.doseLabel
+                || draft.frequency != med.frequency
+                || draft.duration != med.duration
+        }
     }
 
     private func loadDrafts() {
         var next: [UUID: ReportMedicineDraft] = [:]
         for med in medicines {
             next[med.id] = ReportMedicineDraft(
+                name: med.name,
+                doseLabel: med.doseLabel,
+                frequency: med.frequency,
+                duration: med.duration,
                 doctorName: med.doctorName,
                 doctorId: med.doctorId,
                 hospitalName: med.hospitalName,
@@ -923,8 +1172,12 @@ struct MedicineReportEditScreen: View {
     private func saveAll() {
         for med in medicines {
             guard let draft = drafts[med.id] else { continue }
-            treatments.updateMedicineStock(
+            treatments.updateMedicineDetails(
                 id: med.id,
+                name: draft.name,
+                doseLabel: draft.doseLabel,
+                frequency: draft.frequency,
+                duration: draft.duration,
                 doctorName: draft.doctorName,
                 doctorId: draft.doctorId,
                 hospitalName: draft.hospitalName,
@@ -936,6 +1189,10 @@ struct MedicineReportEditScreen: View {
 }
 
 private struct ReportMedicineDraft {
+    var name = ""
+    var doseLabel = ""
+    var frequency = ""
+    var duration = ""
     var doctorName = ""
     var doctorId = ""
     var hospitalName = ""

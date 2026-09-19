@@ -82,6 +82,39 @@ enum PendingPrescriptionImport {
     case pdf(URL)
 }
 
+/// Immutable originals for My Medical Report. Edits never rewrite these files.
+enum PrescriptionSourceArchive {
+    private static var folder: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let dir = base.appendingPathComponent("CheckMed/PrescriptionSources", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func url(for treatmentId: UUID) -> URL? {
+        let jpeg = folder.appendingPathComponent("\(treatmentId.uuidString).jpg")
+        let pdf = folder.appendingPathComponent("\(treatmentId.uuidString).pdf")
+        if FileManager.default.fileExists(atPath: jpeg.path) { return jpeg }
+        if FileManager.default.fileExists(atPath: pdf.path) { return pdf }
+        return nil
+    }
+
+    static func saveIfAbsent(_ pending: PendingPrescriptionImport, treatmentId: UUID) {
+        guard url(for: treatmentId) == nil else { return }
+        switch pending {
+        case .none:
+            return
+        case .image(let data):
+            let dest = folder.appendingPathComponent("\(treatmentId.uuidString).jpg")
+            try? data.write(to: dest, options: .atomic)
+        case .pdf(let source):
+            let dest = folder.appendingPathComponent("\(treatmentId.uuidString).pdf")
+            try? FileManager.default.copyItem(at: source, to: dest)
+        }
+    }
+}
+
 extension PendingPrescriptionImport {
     var consumesPhotoPDFQuota: Bool {
         switch self {

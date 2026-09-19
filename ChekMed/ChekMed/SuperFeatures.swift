@@ -2,7 +2,7 @@ import AVFoundation
 import Foundation
 import SwiftUI
 
-enum AlarmTheme: String, CaseIterable, Identifiable {
+enum AlarmTheme: String, CaseIterable, Identifiable, Sendable {
     case philChime
     case gentle
     case bright
@@ -38,6 +38,20 @@ enum AlarmTheme: String, CaseIterable, Identifiable {
     }
 }
 
+enum MissedDoseAcknowledgement {
+    private static let key = "checkmed.acknowledgedMissedLogs"
+
+    static func contains(_ id: UUID) -> Bool {
+        Set(UserDefaults.standard.stringArray(forKey: key) ?? []).contains(id.uuidString)
+    }
+
+    static func acknowledge(_ id: UUID) {
+        var values = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        values.insert(id.uuidString)
+        UserDefaults.standard.set(Array(values), forKey: key)
+    }
+}
+
 enum Engagement {
     private static let lastActiveKey = "checkmed.lastActiveAt"
     static let winBackId = "checkmed.winback"
@@ -67,6 +81,9 @@ enum ReminderPreferences {
         static let voiceReminders = "checkmed.voiceRemindersEnabled"
         static let advanceHour = "checkmed.advanceHourEnabled"
         static let winBack = "checkmed.winBackEnabled"
+        static let graceMinutes = "checkmed.confirmGraceMinutes"
+        static let snoozeMinutes = "checkmed.snoozeMinutes"
+        static let lowStockDays = "checkmed.lowStockDays"
     }
 
     static var alarmTheme: AlarmTheme {
@@ -101,6 +118,39 @@ enum ReminderPreferences {
             return UserDefaults.standard.bool(forKey: Keys.winBack)
         }
         set { UserDefaults.standard.set(newValue, forKey: Keys.winBack) }
+    }
+
+    /// Follow-up after Stop/dismiss. Configurable; default 45 minutes (not a medical interval).
+    static var confirmationGraceMinutes: Int {
+        get {
+            let stored = UserDefaults.standard.object(forKey: Keys.graceMinutes) as? Int
+            return min(180, max(10, stored ?? 45))
+        }
+        set { UserDefaults.standard.set(min(180, max(10, newValue)), forKey: Keys.graceMinutes) }
+    }
+
+    static var confirmationGraceInterval: TimeInterval {
+        TimeInterval(confirmationGraceMinutes * 60)
+    }
+
+    static var snoozeMinutes: Int {
+        get {
+            let stored = UserDefaults.standard.object(forKey: Keys.snoozeMinutes) as? Int
+            return min(30, max(5, stored ?? 10))
+        }
+        set { UserDefaults.standard.set(min(30, max(5, newValue)), forKey: Keys.snoozeMinutes) }
+    }
+
+    static var snoozeInterval: TimeInterval {
+        TimeInterval(snoozeMinutes * 60)
+    }
+
+    static var lowStockDaysThreshold: Int {
+        get {
+            let stored = UserDefaults.standard.object(forKey: Keys.lowStockDays) as? Int
+            return min(7, max(1, stored ?? 2))
+        }
+        set { UserDefaults.standard.set(min(7, max(1, newValue)), forKey: Keys.lowStockDays) }
     }
 }
 
@@ -261,69 +311,6 @@ struct SuperLockBadge: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(CheckMedTheme.superAccent, in: Capsule())
-    }
-}
-
-struct AlarmThemePicker: View {
-    @Environment(SessionStore.self) private var session
-    @Environment(EntitlementStore.self) private var entitlements
-    @Binding var theme: AlarmTheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(session.t(.alarmTheme))
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .textCase(.uppercase)
-                    .foregroundStyle(CheckMedTheme.muted)
-                Spacer()
-                if !entitlements.canChooseAlarmTheme {
-                    SuperLockBadge()
-                }
-            }
-            ForEach(AlarmTheme.allCases) { option in
-                Button {
-                    if entitlements.canChooseAlarmTheme {
-                        theme = option
-                        ReminderPreferences.alarmTheme = option
-                        ReminderScheduler.shared.reschedule()
-                    } else {
-                        entitlements.presentPaywall()
-                    }
-                } label: {
-                    HStack {
-                        Circle()
-                            .fill(option.tint)
-                            .frame(width: 12, height: 12)
-                        Text(option.title(session))
-                            .font(.system(.body, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.ink)
-                        Spacer()
-                        if theme == option {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(CheckMedTheme.primaryShadow)
-                        }
-                    }
-                    .padding(12)
-                    .background(CheckMedTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(
-                                theme == option ? option.tint : CheckMedTheme.hairline,
-                                lineWidth: 2
-                            )
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-            if !entitlements.canChooseAlarmTheme {
-                Text(session.t(.alarmThemeLockedHint))
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.muted)
-            }
-        }
     }
 }
 

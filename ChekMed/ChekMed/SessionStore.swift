@@ -9,6 +9,22 @@ final class SessionStore {
         case authenticated
     }
 
+    enum UserDataLoadState: Equatable {
+        case notLoaded
+        case loading
+        case loaded
+        case failed
+
+        var isSettled: Bool {
+            self == .loaded || self == .failed
+        }
+    }
+
+    struct UserDataRestoreResult {
+        var hasTreatments: Bool
+        var failed: Bool
+    }
+
     enum PostAuthKind: Equatable {
         case undetermined
         case newAccount
@@ -26,13 +42,24 @@ final class SessionStore {
     }
 
     /// Linear post-journey chain after confirm → journey Continue.
-    /// Always: notifications → alarms → trial (unless Super) → Phil → Home.
+    /// Always: alarms → notifications → trial (unless Super) → Phil → Home.
     enum PostJourneyStep: String, Equatable {
-        case notifications
         case alarms
+        case notifications
         case trial
         case philReady
         case done
+
+        /// Forward-only order. Leftover trial/permission callbacks must not rewind.
+        var rank: Int {
+            switch self {
+            case .alarms: 0
+            case .notifications: 1
+            case .trial: 2
+            case .philReady: 3
+            case .done: 4
+            }
+        }
     }
 
     /// Single root UI destination. RootView MUST only switch on this.
@@ -40,6 +67,7 @@ final class SessionStore {
     enum RootDestination: Equatable, CustomStringConvertible {
         case restoring
         case resolvingPostAuth
+        case loadError
         case firstTime
         case resumeSetup
         case returningWelcome
@@ -51,6 +79,7 @@ final class SessionStore {
             switch self {
             case .restoring: return "restoring"
             case .resolvingPostAuth: return "resolvingPostAuth"
+            case .loadError: return "loadError"
             case .firstTime: return "firstTime"
             case .resumeSetup: return "resumeSetup"
             case .returningWelcome: return "returningWelcome"
@@ -164,23 +193,14 @@ final class SessionStore {
         if !CheckMedAuthPersistence.skipRestoreThisProcess {
             hydrateIdentityFromKeychainIfNeeded(userId: nil)
         }
-        auth.onBeforeAuthenticated = { [weak self] isRestore in
-            self?.preparePostAuth(isRestore: isRestore)
-        }
         auth.onAuthenticated = { [weak self] isRestore in
-            await self?.handleAuthenticated(isRestore: isRestore)
+            await self?.enqueueAuthenticated(isRestore: isRestore)
         }
-        #if DEBUG
-        print(
-            "[CheckMed] preAuth init langChosen=\(localLanguageChosen) "
-                + "howItWorks=\(localHowItWorksSeen) privacy=\(localPrivacyAcknowledged) "
-                + "signInSeen=\(localSignInScreenSeen) "
-                + "preAuth=\(hasFinishedPreAuthFunnel) "
-                + "root=\(computeRootDestination()) "
-                + "keychainOnboarded=\(ProfileSetupKeychain.isOnboardingComplete(for: nil)) "
-                + "keychainProfile=\(ProfileSetupKeychain.load().isComplete)"
-        )
-        #endif
+        auth.onSessionCheckFinished = { [weak self] in
+            self?.markLaunchSessionKnown()
+        }
+        LaunchLog.app("Launch ID: \(LaunchLog.launchId)")
+        LaunchLog.app("start restoring=\(auth.isRestoring) root=\(computeRootDestination())")
     }
 
     /// Language / how-it-works / privacy live only in UserDefaults (wiped on delete).
@@ -235,15 +255,20 @@ final class SessionStore {
 
     private(set) var profileId: UUID?
     private(set) var isResolvingPostAuth = false
+    private(set) var userDataLoadState: UserDataLoadState = .notLoaded
+    /// Settled restore never treats an empty in-memory array as “new user”.
+    private(set) var hasMedicalData = false
+    /// Bound identity + local plan visibility have been applied. Home empty vs
+    /// treatment is illegal until this is true.
+    private(set) var isPlanSurfaceReady = false
+    private var lastAuthWasRestore = false
     private(set) var postAuthKind: PostAuthKind = .undetermined
     var selectedMainTab: MainTab = .home
-    /// Locked gate: onboarded returning user sees miss-you once per process before Home.
+    /// Locked gate: miss-you is not a Google-sign-in destination.
     var showReturningWelcome = false
-    /// Sticky miss-you intent for this process. `preparePostAuth` must never clear this —
-    /// that race was splash→Home after delete+reinstall (auth restore cleared the soft flag).
+    /// Sticky miss-you intent for this process. Not set on login or silent restore.
     private var pendingReturningWelcome = false
     /// Once true, do not re-present ReturningWelcome until sign-out / process restart.
-    /// Always starts false each process (in-memory only).
     private var showedReturningWelcomeThisSession = false
     var showResumeSetup = false
     var startFreshPrescription = false
@@ -253,6 +278,18 @@ final class SessionStore {
     private var postJourneyArmed = false
     /// Active linear queue. Nil when idle. Never skip notifications for this chain.
     private(set) var postJourneyStep: PostJourneyStep?
+    @ObservationIgnored
+    private var philReadyFailsafe: Task<Void, Never>?
+    @ObservationIgnored
+    private var isHandlingAuth = false
+    /// Last user whose data restore completed this process (idempotent).
+    private var completedRestoreUserId: UUID?
+    private var inFlightRestoreId: UUID?
+    /// After the launch session is known, `.restoring` must not return this process.
+    private var launchRestoreReleased = false
+    private var authEventCount = 0
+    private var restoreCount = 0
+    private var navigationDecisionCount = 0
     /// True while armed or mid-queue (before `.done` is cleared).
     var pendingPostJourneySetup: Bool {
         postJourneyArmed || (postJourneyStep != nil && postJourneyStep != .done)
@@ -266,52 +303,92 @@ final class SessionStore {
 
     /// Awaits treatment sync and reports whether this owner already has treatments.
     @ObservationIgnored
-    var onPostAuthSync: (() async -> Bool)?
+    var onPostAuthSync: (() async -> UserDataRestoreResult)?
+    /// Bind/adopt SwiftData onto the signed-in owner. Sync, no network.
+    @ObservationIgnored
+    var onBindAuthenticatedIdentity: (() -> Void)?
+    /// Local SwiftData already has treatments for the bound owner.
+    @ObservationIgnored
+    var onLocalTreatmentsCheck: (() -> Bool)?
+    /// Persist Phil plan status with the treatments store (SwiftData + Keychain).
+    @ObservationIgnored
+    var onPhilPlanPersist: ((PhilPlanStatus) -> Void)?
 
     // MARK: - Single root router
 
     /// Exactly one destination. RootView switches only on this — no parallel if/else races.
     ///
     /// Priority (highest first):
-    /// 1. pre-auth funnel incomplete (UserDefaults: language→howItWorks→privacy→**sign-in**)
-    /// 2. auth restoring / post-auth resolving
-    /// 3. unlocked + active post-journey / resume setup
-    /// 4. unlocked + showReturningWelcome (miss-you)
+    /// 1. launch session unknown only (never after `markLaunchSessionKnown`)
+    /// 2. pre-auth funnel incomplete (UserDefaults: language→howItWorks→privacy→**sign-in**)
+    /// 3. unlocked + active post-journey / resume setup (incomplete plan, after restore)
+    /// 4. unlocked + showReturningWelcome (never from Google sign-in)
     /// 5. unlocked + needsIdentityProfile
     /// 6. unlocked + startFreshPrescription (user-initiated only)
     /// 7. unlocked + !onboardingComplete → first-time meds flow
     /// 8. MainTab Home
     ///
-    /// Delete+reinstall: session tokens cleared; user is signed out until Sign-in.
-    /// Then ProfileSetupKeychain → miss-you (old account) or name/birth (new).
+    /// Configured users (medicines / plan / report): restore once → Home.
+    /// Miss-you is not “you just signed in with Google.”
     var rootDestination: RootDestination {
         computeRootDestination()
     }
 
     /// Call from RootView when the presented destination may have changed.
     func noteRootDestinationPresented() {
+        if !auth.isRestoring {
+            markLaunchSessionKnown()
+        }
         logRootDestinationIfChanged(computeRootDestination())
     }
 
+    /// Auth finished the launch session check. Replica must not reopen `.restoring`.
+    func markLaunchSessionKnown() {
+        guard !launchRestoreReleased else { return }
+        launchRestoreReleased = true
+        LaunchLog.nav("launch restore released — .restoring cannot re-enter")
+    }
+
     private func computeRootDestination() -> RootDestination {
-        // Pre-auth is UserDefaults-only. Hold miss-you / profile / Home until
-        // language, how-it-works, privacy, AND this-install Sign-in are done.
-        if !hasFinishedLegalPreAuth || !hasCompletedSignInThisInstall {
+        // `.restoring` is launch-only: unknown session. After the first auth
+        // event (or no-session), this process never returns here — including
+        // mood taps, Google double-fire, and replica pull.
+        if !launchRestoreReleased, auth.isRestoring {
+            return .restoring
+        }
+        if isSessionUnlocked, userDataLoadState == .failed {
+            return .loadError
+        }
+        // Pre-auth is UserDefaults-only. A restored configured account must
+        // not replay splash → language → Google while those flags are empty.
+        if !isReturningConfiguredUser,
+           (!hasFinishedLegalPreAuth || !hasCompletedSignInThisInstall || !isSessionUnlocked) {
             return .firstTime
         }
-        if auth.isRestoring { return .restoring }
-        if isResolvingPostAuth, isSessionUnlocked { return .resolvingPostAuth }
         if !isSessionUnlocked {
             return .firstTime
+        }
+        // Interactive Google/Apple: never paint Home from Keychain flags while
+        // SwiftData is still empty and replica has not finished.
+        if isResolvingPostAuth {
+            return .resolvingPostAuth
+        }
+        // Unlocked is not "data ready". Home must not paint the empty scan
+        // state while userDataLoadState is still notLoaded/loading.
+        if isSessionUnlocked, !userDataLoadState.isSettled {
+            return .resolvingPostAuth
+        }
+        if isSessionUnlocked, !isPlanSurfaceReady {
+            return .resolvingPostAuth
         }
 
         if let step = postJourneyStep, step != .done {
             return .resumeSetup
         }
-        if showResumeSetup || pendingPostJourneySetup {
+        // Armed-only (confirmed, still on Your Journey) must not steal the intake/onboarding host.
+        if showResumeSetup {
             return .resumeSetup
         }
-        // Returning onboarded: miss-you BEFORE Home, once per cold start.
         if needsReturningWelcomeGate {
             return .returningWelcome
         }
@@ -321,14 +398,15 @@ final class SessionStore {
         if startFreshPrescription {
             return .addPrescription
         }
-        if !hasCompletedOnboarding {
+        if !hasCompletedOnboarding, !isReturningConfiguredUser {
             return .firstTime
         }
 
         return .home
     }
 
-    /// True when a returning (Keychain/onboarded) user must see miss-you before Home this process.
+    /// True only after interactive returning sign-in, until Progress / Add dismisses miss-you.
+    /// Silent Keychain restore and scene resume must not set these flags.
     private var needsReturningWelcomeGate: Bool {
         (pendingReturningWelcome || showReturningWelcome) && !showedReturningWelcomeThisSession
     }
@@ -336,31 +414,30 @@ final class SessionStore {
     private func logRootDestinationIfChanged(_ dest: RootDestination) {
         guard dest != lastLoggedRootDestination else { return }
         lastLoggedRootDestination = dest
-        #if DEBUG
-        let step = postJourneyStep?.rawValue ?? "nil"
-        print(
-            "[CheckMed] rootDestination=\(dest) flags="
-                + "unlocked=\(isSessionUnlocked) "
-                + "preAuth=\(hasFinishedPreAuthFunnel) "
-                + "langChosen=\(localLanguageChosen) "
-                + "howItWorks=\(localHowItWorksSeen) "
-                + "privacy=\(localPrivacyAcknowledged) "
-                + "signInSeen=\(localSignInScreenSeen) "
-                + "onboarded=\(hasCompletedOnboarding) "
-                + "returningWelcome=\(showReturningWelcome) "
-                + "pendingRW=\(pendingReturningWelcome) "
-                + "showedRW=\(showedReturningWelcomeThisSession) "
-                + "needsIdentity=\(needsIdentityProfile) "
-                + "freshRx=\(startFreshPrescription) "
-                + "resume=\(showResumeSetup) "
-                + "postJourney=\(step) "
-                + "pendingPJ=\(pendingPostJourneySetup) "
-                + "postAuth=\(String(describing: postAuthKind)) "
-                + "phase=\(localFirstTimePhase) "
-                + "keychainProfile=\(ProfileSetupKeychain.isComplete(for: auth.userId)) "
-                + "keychainOnboarded=\(ProfileSetupKeychain.isOnboardingComplete(for: auth.userId))"
+        LaunchLog.nav("Determining destination")
+        LaunchLog.nav("Destination = \(dest)")
+        LaunchLog.nav(
+            "Navigating to \(dest) unlocked=\(isSessionUnlocked) load=\(userDataLoadState) "
+                + "medical=\(hasMedicalData) restoring=\(auth.isRestoring) resolving=\(isResolvingPostAuth) "
+                + "onboarded=\(hasCompletedOnboarding) returning=\(showReturningWelcome) "
+                + "authEvents=\(authEventCount) restores=\(restoreCount) navDecisions=\(navigationDecisionCount)"
         )
-        #endif
+    }
+
+    /// True after treatments/profile restore finished (loaded or failed). Home must not start restore.
+    var restorationComplete: Bool { userDataLoadState.isSettled }
+
+    /// Call after identity bind + `surfacesPlan` reconciliation. Not from views.
+    func notePlanSurfaceReady() {
+        guard !isPlanSurfaceReady else { return }
+        isPlanSurfaceReady = true
+        LaunchLog.restore("plan surface ready medical=\(hasMedicalData)")
+    }
+
+    private func resetPlanSurfaceReady() {
+        if isPlanSurfaceReady {
+            isPlanSurfaceReady = false
+        }
     }
 
     var kind: Kind {
@@ -386,6 +463,8 @@ final class SessionStore {
 
     /// Local owner used before sign-in (for adopting guest rows onto the auth account).
     var localPlanOwnerId: UUID { Self.persistedLocalOwnerId() }
+    /// Device profile stamp used before `profiles.id` exists.
+    var localPlanProfileId: UUID { Self.persistedLocalProfileId() }
 
     private static func persistedLocalOwnerId() -> UUID {
         let key = Keys.localOwnerId
@@ -414,6 +493,19 @@ final class SessionStore {
 
     /// User completed the Sign-in screen this install (not a silent Keychain restore).
     var hasCompletedSignInThisInstall: Bool { localSignInScreenSeen }
+
+    /// Silent restore of an already-configured account. Not "medicines exist ⇒ skip
+    /// onboarding" for a brand-new install — Keychain/onboarding/plan flags only.
+    private var isReturningConfiguredUser: Bool {
+        guard isSessionUnlocked else { return false }
+        if hasCompletedOnboarding { return true }
+        if hasConfirmedMedicationPlan { return true }
+        if hasMedicalData { return true }
+        if ProfileSetupKeychain.isOnboardingComplete(for: auth.userId) { return true }
+        if ProfileSetupKeychain.isPlanConfirmed(for: auth.userId) { return true }
+        if ProfileSetupKeychain.isComplete(for: auth.userId) { return true }
+        return false
+    }
 
     /// Language → how-it-works → privacy → explicit Sign-in. All UserDefaults; wiped on app delete.
     var hasFinishedPreAuthFunnel: Bool {
@@ -494,7 +586,9 @@ final class SessionStore {
     var hasCompletedOnboarding: Bool { localOnboardingComplete || perUserOnboardingComplete }
     /// True only after the user confirms a prescription (seed/add) or finishes resume of their plan.
     var hasConfirmedMedicationPlan: Bool {
-        localMedicationPlanConfirmed || perUserMedicationPlanConfirmed
+        localMedicationPlanConfirmed
+            || perUserMedicationPlanConfirmed
+            || ProfileSetupKeychain.isPlanConfirmed(for: auth.userId)
     }
     var firstTimePhaseRaw: String { localFirstTimePhase }
     var shouldPlayIntroSplash: Bool { !localIntroSplashSeen }
@@ -580,8 +674,8 @@ final class SessionStore {
         #endif
     }
 
-    /// Call only after the user finishes Sign-in (provider/email) or Continue as guest.
-    /// Silent Keychain restore must never call this.
+    /// Call after the user finishes Sign-in / guest, or after silent restore of a
+    /// already-configured returning account (so the next launch is not `.firstTime`).
     func markSignInScreenCompleted() {
         guard !localSignInScreenSeen else { return }
         localSignInScreenSeen = true
@@ -649,6 +743,12 @@ final class SessionStore {
         localFirstTimePhase = "language"
         localIntroSplashSeen = false
         isResolvingPostAuth = false
+        userDataLoadState = .notLoaded
+        hasMedicalData = false
+        resetPlanSurfaceReady()
+        completedRestoreUserId = nil
+        inFlightRestoreId = nil
+        restoreCount = 0
         postAuthKind = .undetermined
         showReturningWelcome = false
         pendingReturningWelcome = false
@@ -686,7 +786,7 @@ final class SessionStore {
         selectedMainTab = .home
     }
 
-    /// After journey for a newly confirmed plan: notifications → alarms → trial → Phil → Home.
+    /// After journey for a newly confirmed plan: alarms → notifications → trial → Phil → Home.
     /// True for first-time setup, and for add-prescription that starts a new plan (pending flag).
     var needsPostConfirmSetup: Bool {
         if pendingPostJourneySetup { return true }
@@ -699,28 +799,36 @@ final class SessionStore {
         postJourneyArmed = true
     }
 
-    /// Journey Continue: start the linear queue at notifications (always show the screen).
+    /// Journey Continue: start the linear queue at alarms (always show the screen).
     func startPostJourneyQueue() {
         postJourneyArmed = true
-        setPostJourneyStep(.notifications)
+        if postJourneyStep == nil || postJourneyStep == .done {
+            setPostJourneyStep(.alarms)
+        }
     }
 
     /// Align queue cursor with the screen currently shown (no debug log spam for same step).
     func syncPostJourneyStep(_ step: PostJourneyStep) {
+        if let current = postJourneyStep, current.rank > step.rank {
+            return
+        }
         postJourneyArmed = true
         guard postJourneyStep != step else { return }
         setPostJourneyStep(step)
     }
 
     /// Advance one step. Pass `isSuper` so trial is skipped when already subscribed.
+    /// Nil / already-done queue must not restart at alarms (Phil double-complete / leftover trial).
     @discardableResult
     func advancePostJourney(isSuper: Bool) -> PostJourneyStep {
-        let current = postJourneyStep ?? .notifications
+        guard let current = postJourneyStep, current != .done else {
+            return .done
+        }
         let next: PostJourneyStep
         switch current {
-        case .notifications:
-            next = .alarms
         case .alarms:
+            next = .notifications
+        case .notifications:
             next = isSuper ? .philReady : .trial
         case .trial:
             next = .philReady
@@ -736,12 +844,15 @@ final class SessionStore {
     }
 
     private func clearPostJourneyQueue() {
+        philReadyFailsafe?.cancel()
+        philReadyFailsafe = nil
         postJourneyArmed = false
         postJourneyStep = nil
     }
 
     private func setPostJourneyStep(_ step: PostJourneyStep) {
         postJourneyStep = step
+        persistPostJourney(step)
         #if DEBUG
         let label: String
         switch step {
@@ -753,23 +864,33 @@ final class SessionStore {
         }
         print("[CheckMed] postJourney → \(label)")
         #endif
+        if step == .philReady {
+            onPhilPlanPersist?(.creating)
+        } else {
+            philReadyFailsafe?.cancel()
+            philReadyFailsafe = nil
+        }
         if step == .done {
+            onPhilPlanPersist?(.active)
             clearPostJourneyQueue()
         }
     }
 
-    /// Kept for back-navigation hints only. Post-journey queue always shows notifications.
+    /// Phil auto-continue lives on the Phil-ready screen. Do not force Home from here.
+    private func armPhilReadyFailsafe() {}
+
+    /// Kept for back-navigation hints only. Post-journey queue always shows the permission screens.
     func shouldShowNotificationsScreen() async -> Bool {
         true
     }
 
     func markMedicationPlanConfirmed() {
-        guard !hasConfirmedMedicationPlan else { return }
         localMedicationPlanConfirmed = true
         UserDefaults.standard.set(true, forKey: Keys.medicationPlanConfirmed)
         if let userId = auth.userId {
             UserDefaults.standard.set(true, forKey: Self.medicationPlanConfirmedKey(for: userId))
         }
+        ProfileSetupKeychain.markPlanConfirmed(userId: auth.userId ?? (kind == .guest ? Self.persistedLocalOwnerId() : nil))
     }
 
     func clearMedicationPlanConfirmed() {
@@ -800,12 +921,13 @@ final class SessionStore {
         #endif
     }
 
-    /// "This plan still needs you" — only mid abandoned setup, never after confirm.
+    /// "This plan still needs you" — only a true abandoned first setup after data is loaded.
+    /// Never because SwiftData is empty, sync is late, or sign-out cleared UserDefaults flags.
     func needsUnfinishedPlan(treatments: CheckMedStore) -> Bool {
+        guard userDataLoadState.isSettled else { return false }
         guard !hasConfirmedMedicationPlan else { return false }
-        return kind == .authenticated
-            && treatments.hasExistingTreatments
-            && (needsNotificationsPrompt || !treatments.hasMedicationDaysSet)
+        guard !hasCompletedOnboarding else { return false }
+        return kind == .authenticated && treatments.hasExistingTreatments
     }
 
     func beginResumeSetup() {
@@ -815,10 +937,7 @@ final class SessionStore {
         startFreshPrescription = false
         showResumeSetup = true
         didOfferUnfinishedPlanThisSession = true
-        // If armed but queue not started (e.g. cold handoff), begin at notifications.
-        if postJourneyArmed, postJourneyStep == nil {
-            setPostJourneyStep(.notifications)
-        }
+        // Armed but no step yet: ResumePlanSetupFlow shows Your Journey first.
     }
 
     func beginFreshPlan() {
@@ -848,11 +967,13 @@ final class SessionStore {
             setPostJourneyStep(.done)
         } else {
             clearPostJourneyQueue()
+            persistPostJourney(nil)
         }
         markNotificationsPrompted()
         markMedicationPlanConfirmed()
         markOnboardingPaywallOffered()
         markOnboardingComplete()
+        onPhilPlanPersist?(.active)
     }
 
     func noteIncompleteSetupBackground() {
@@ -880,6 +1001,9 @@ final class SessionStore {
         guard !localNotificationsPrompted else { return }
         localNotificationsPrompted = true
         UserDefaults.standard.set(true, forKey: Keys.notificationsPrompted)
+        if let userId = auth.userId {
+            UserDefaults.standard.set(true, forKey: Self.notificationsPromptedKey(for: userId))
+        }
     }
 
     func t(_ key: L10n.Key, _ args: CVarArg...) -> String {
@@ -899,6 +1023,11 @@ final class SessionStore {
     func continueAsGuest() {
         auth.clearMessages()
         guestUnlocked = true
+        completedRestoreUserId = planOwnerId
+        let hasLocal = onLocalTreatmentsCheck?() ?? false
+        hasMedicalData = hasLocal
+        userDataLoadState = .loaded
+        LaunchLog.auth("guest unlock load=\(userDataLoadState) medical=\(hasMedicalData)")
         markSignInScreenCompleted()
         branchAfterSignInScreenIfNeeded()
     }
@@ -1029,6 +1158,9 @@ final class SessionStore {
         localFirstTimePhase = "language"
         profileId = nil
         isResolvingPostAuth = false
+        userDataLoadState = .notLoaded
+        hasMedicalData = false
+        resetPlanSurfaceReady()
         postAuthKind = .undetermined
         selectedMainTab = .home
         showReturningWelcome = false
@@ -1054,6 +1186,9 @@ final class SessionStore {
         UserDefaults.standard.removeObject(forKey: Keys.medicationPlanConfirmed)
         localMedicationPlanConfirmed = false
         localIntroSplashSeen = false
+        completedRestoreUserId = nil
+        inFlightRestoreId = nil
+        restoreCount = 0
     }
 
     func deleteAccount() {
@@ -1100,6 +1235,9 @@ final class SessionStore {
         guestUnlocked = false
         profileId = nil
         isResolvingPostAuth = false
+        userDataLoadState = .notLoaded
+        hasMedicalData = false
+        resetPlanSurfaceReady()
         postAuthKind = .undetermined
         selectedMainTab = .home
         showReturningWelcome = false
@@ -1110,6 +1248,9 @@ final class SessionStore {
         clearPostJourneyQueue()
         didOfferUnfinishedPlanThisSession = false
         didBackgroundIncompleteSetup = false
+        completedRestoreUserId = nil
+        inFlightRestoreId = nil
+        restoreCount = 0
         if let userId = deletingUserId {
             UserDefaults.standard.removeObject(forKey: Self.onboardingCompleteKey(for: userId))
             UserDefaults.standard.removeObject(forKey: Self.medicationPlanConfirmedKey(for: userId))
@@ -1125,6 +1266,7 @@ final class SessionStore {
         case .apple:
             Task { await auth.signInWithApple() }
         case .google:
+            LaunchLog.auth("Google button tapped")
             Task { await auth.signInWithGoogle() }
         case .facebook:
             auth.clearMessages()
@@ -1157,52 +1299,149 @@ final class SessionStore {
 
     private func preparePostAuth(isRestore: Bool) {
         isResolvingPostAuth = true
-        postAuthKind = .undetermined
-        // Do NOT clear pendingReturningWelcome / showedReturningWelcomeThisSession.
-        // Soft flag only — sticky pending survives token refresh / second auth events.
+        // Do not set `.loading` here — that used to flip RootView back to
+        // `.restoring` after Home. Replica runs in the background.
+        lastAuthWasRestore = isRestore
         showReturningWelcome = false
-        // Hard rule: auth restore / sign-in never auto-opens Add prescription.
-        // Only `beginFreshPlan()` (explicit tap) may set this true.
+        pendingReturningWelcome = false
         startFreshPrescription = false
-        // Never wipe an in-flight post-journey chain on token refresh / re-auth.
         if !pendingPostJourneySetup {
             showResumeSetup = false
         }
         if !isRestore {
-            localOnboardingComplete = false
-            UserDefaults.standard.removeObject(forKey: Keys.onboardingComplete)
             selectedMainTab = .home
         }
-        #if DEBUG
-        print(
-            "[CheckMed] preparePostAuth restore=\(isRestore) "
-                + "pendingRW=\(pendingReturningWelcome) showedRW=\(showedReturningWelcomeThisSession) "
-                + "preAuth=\(hasFinishedPreAuthFunnel)"
+        LaunchLog.auth("preparePostAuth restore=\(isRestore)")
+    }
+
+    private func enqueueAuthenticated(isRestore: Bool) async {
+        authEventCount += 1
+        LaunchLog.auth(
+            "coordinator event count=\(authEventCount) restoreFlag=\(isRestore) "
+                + "user=\(auth.userId?.uuidString ?? "nil")"
         )
-        #endif
+        if isHandlingAuth || inFlightRestoreId != nil {
+            LaunchLog.auth("skip duplicate restore (already in flight) restoreCount=\(restoreCount)")
+            return
+        }
+        if completedRestoreUserId != nil,
+           completedRestoreUserId == auth.userId,
+           userDataLoadState.isSettled {
+            LaunchLog.auth("skip duplicate restore user=\(auth.userId?.uuidString ?? "nil") restoreCount=\(restoreCount)")
+            return
+        }
+        isHandlingAuth = true
+        await handleAuthenticated(isRestore: isRestore)
+        isHandlingAuth = false
     }
 
     /// New vs returning after sign-in / session restore.
-    /// Returning = Keychain onboarding OR treatments OR per-user/local onboarding OR
-    /// Keychain profile complete — never auto-scan; miss-you once, then Home / add by choice.
-    ///
-    /// Hard rules on auth restore / re-sign-in:
-    /// - NEVER set `firstTimePhase = addMedication`
-    /// - NEVER set `startFreshPrescription = true` (only `beginFreshPlan()`)
-    /// - If Keychain onboarded/profile complete → stamp ReturningWelcome (once per process)
+    /// Session-known first: hydrate Keychain / local flags, route, then replica in background.
+    /// Empty SwiftData while replica runs is not a new user.
+    /// Configured users (medicines / plan / report) go Home — not miss-you.
     private func handleAuthenticated(isRestore: Bool) async {
+        markLaunchSessionKnown()
         if !isResolvingPostAuth {
             preparePostAuth(isRestore: isRestore)
         }
-        defer { isResolvingPostAuth = false }
-        // Interactive sign-in / confirm-account completes this-install Sign-in.
-        // New-install session wipe must never mark Sign-in seen.
         if !isRestore {
             markSignInScreenCompleted()
         }
 
+        let restoreId = UUID()
+        inFlightRestoreId = restoreId
+        restoreCount += 1
+        LaunchLog.restore("ENTER id=\(restoreId.uuidString) count=\(restoreCount)")
+        if restoreCount > 1 {
+            LaunchLog.restore("WARNING restoreCount>1 id=\(restoreId.uuidString) — duplicate restore")
+        }
+        LaunchLog.restore("START id=\(restoreId.uuidString)")
+        defer {
+            if inFlightRestoreId == restoreId {
+                inFlightRestoreId = nil
+            }
+            isResolvingPostAuth = false
+            LaunchLog.restore("EXIT id=\(restoreId.uuidString) restoreCount=\(restoreCount)")
+        }
+
+        onBindAuthenticatedIdentity?()
+        if let userId = auth.userId {
+            ProfileSetupKeychain.associateUserIfNeeded(userId)
+            hydrateIdentityFromKeychainIfNeeded(userId: userId)
+        }
+        if !hasPreferredName {
+            let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !inferred.isEmpty, inferred != "friend", inferred != "there" {
+                setDisplayName(inferred)
+            }
+        }
+        if hasRawIdentityFields {
+            markProfileSetupComplete()
+        }
+        hydratePlanFlagsFromPersistence()
+        restorePersistedPostJourneyIfNeeded()
+
+        let hasLocal = onLocalTreatmentsCheck?() ?? false
+        hasMedicalData = hasMedicalData || hasLocal
+        if isReturningConfiguredUser {
+            markSignInScreenCompleted()
+        }
+        LaunchLog.auth(
+            "Current user loaded user=\(auth.userId?.uuidString ?? "nil") medicalLocal=\(hasLocal)"
+        )
+
+        var replicaFailed = false
+        if hasLocal {
+            userDataLoadState = .loaded
+            LaunchLog.restore(
+                "SETTLED-LOCAL id=\(restoreId.uuidString) medical=\(hasMedicalData) — replica continues in background"
+            )
+            let restoreFlag = isRestore
+            Task { await self.hydrateRemoteProfileAndReplica(isRestore: restoreFlag) }
+        } else {
+            LaunchLog.nav("Determining destination — waiting for replica (no local treatments)")
+            replicaFailed = await hydrateRemoteProfileAndReplica(isRestore: isRestore)
+            if replicaFailed && !hasMedicalData {
+                userDataLoadState = .failed
+            } else {
+                userDataLoadState = .loaded
+            }
+        }
+        completedRestoreUserId = auth.userId ?? (kind == .guest ? planOwnerId : nil)
+
+        let identityComplete = hasCompleteIdentityProfile
+        let keychainProfile = ProfileSetupKeychain.isComplete(for: auth.userId)
+        let keychainOnboarded = ProfileSetupKeychain.isOnboardingComplete(for: auth.userId)
+        let keychainPlan = ProfileSetupKeychain.isPlanConfirmed(for: auth.userId)
+        let previouslyOnboarded = perUserOnboardingComplete
+            || keychainOnboarded
+            || keychainProfile
+            || keychainPlan
+            || (isRestore && localOnboardingComplete)
+            || hasConfirmedMedicationPlan
+            || hasMedicalData
+
+        startFreshPrescription = false
+        decidePostRestoreRoute(
+            hasTreatments: hasMedicalData,
+            failed: replicaFailed && !hasMedicalData,
+            previouslyOnboarded: previouslyOnboarded,
+            identityComplete: identityComplete,
+            keychainProfile: keychainProfile,
+            keychainOnboarded: keychainOnboarded,
+            isRestore: isRestore
+        )
+        LaunchLog.nav("Destination = \(computeRootDestination())")
+        LaunchLog.nav("Navigating to \(computeRootDestination())")
+    }
+
+    /// Profile + replica. Does not change `rootDestination` — caller decides once.
+    @discardableResult
+    private func hydrateRemoteProfileAndReplica(isRestore: Bool) async -> Bool {
         let pending = UserDefaults.standard.bool(forKey: Keys.pendingUpload)
         let remote = await pullProfile()
+        if Task.isCancelled { return false }
+        LaunchLog.auth("Profile loaded present=\(remote != nil) user=\(auth.userId?.uuidString ?? "nil")")
         replaceIdentity(from: remote, overwriteEmpty: !isRestore)
         if let userId = auth.userId {
             ProfileSetupKeychain.associateUserIfNeeded(userId)
@@ -1215,35 +1454,59 @@ final class SessionStore {
             }
         }
         if remote == nil, pending {
-            await pushProfile()
-            if let pushed = await pullProfile() {
-                replaceIdentity(from: pushed, overwriteEmpty: !isRestore)
-            }
+            Task { await pushProfile() }
         } else if isRestore, remote == nil || remoteNeedsPush(remote) {
-            await pushProfile()
+            Task { await pushProfile() }
         }
-        // Stamp Keychain whenever identity fields are present so delete+reinstall skips profile.
         if hasRawIdentityFields {
             markProfileSetupComplete()
         }
 
-        let hasTreatments = await syncedHasTreatments()
-        let identityComplete = hasCompleteIdentityProfile
-        let userOnboarded = perUserOnboardingComplete
-        let restoredComplete = isRestore && localOnboardingComplete
-        let keychainProfile = ProfileSetupKeychain.isComplete(for: auth.userId)
-        let keychainOnboarded = ProfileSetupKeychain.isOnboardingComplete(for: auth.userId)
-        // Any prior completion signal wins over stale UserDefaults `firstTimePhase=addMedication`.
-        let previouslyOnboarded = userOnboarded
-            || keychainOnboarded
-            || hasTreatments
-            || restoredComplete
-            || keychainProfile
+        let restore = await restoreUserData()
+        if Task.isCancelled { return restore.failed }
+        if restore.hasTreatments {
+            markMedicationPlanConfirmed()
+        }
+        hasMedicalData = hasMedicalData || restore.hasTreatments
+        restorePersistedPostJourneyIfNeeded()
 
-        // Hard rule: auth never auto-opens Add prescription.
+        if restore.failed {
+            LaunchLog.restore("replica pull failed keepLocal medical=\(hasMedicalData)")
+        } else {
+            LaunchLog.restore("replica pull ok medical=\(hasMedicalData) treatments=\(restore.hasTreatments)")
+        }
+        return restore.failed && !hasMedicalData
+    }
+
+    /// One navigation decision after restorationComplete. Child views must not navigate globally.
+    private func decidePostRestoreRoute(
+        hasTreatments: Bool,
+        failed: Bool,
+        previouslyOnboarded: Bool,
+        identityComplete: Bool,
+        keychainProfile: Bool,
+        keychainOnboarded: Bool,
+        isRestore: Bool
+    ) {
+        navigationDecisionCount += 1
+        pendingReturningWelcome = false
+        showReturningWelcome = false
         startFreshPrescription = false
-
-        if previouslyOnboarded {
+        LaunchLog.nav(
+            "decision=#\(navigationDecisionCount) medical=\(hasTreatments) failed=\(failed) "
+                + "onboarded=\(previouslyOnboarded) restore=\(isRestore) "
+                + "authEvents=\(authEventCount) restores=\(restoreCount)"
+        )
+        if failed {
+            return
+        }
+        if pendingPostJourneySetup {
+            postAuthKind = .returning
+            showResumeSetup = true
+            LaunchLog.nav("decision=#\(navigationDecisionCount) resumeSetup (post-journey)")
+            return
+        }
+        if previouslyOnboarded || hasTreatments {
             enterReturningAfterAuth(
                 hasTreatments: hasTreatments,
                 keychainProfile: keychainProfile,
@@ -1252,20 +1515,14 @@ final class SessionStore {
             return
         }
 
-        // True first-time account.
         postAuthKind = .newAccount
         selectedMainTab = .home
-        // Never force profile/meds over an incomplete language → how it works → privacy → sign-in funnel.
-        // Never set addMedication on session restore (stale phase fights ReturningWelcome later).
         guard hasFinishedPreAuthFunnel else {
-            #if DEBUG
-            print("[CheckMed] auth → newAccount (waiting pre-auth; phase=\(localFirstTimePhase))")
-            #endif
+            LaunchLog.auth("newAccount waiting pre-auth phase=\(localFirstTimePhase)")
             return
         }
         if !isRestore {
             clearSessionOnboardingFlag()
-            // Fresh sign-in only: land on profile or meds. Restore never writes addMedication.
             if !identityComplete {
                 setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
             } else {
@@ -1274,20 +1531,18 @@ final class SessionStore {
         } else if !identityComplete {
             setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
         }
-        #if DEBUG
-        print("[CheckMed] auth → newAccount (phase=\(localFirstTimePhase) identity=\(identityComplete) restore=\(isRestore))")
-        #endif
+        LaunchLog.auth("newAccount phase=\(localFirstTimePhase) identity=\(identityComplete) restore=\(isRestore)")
     }
 
-    /// After the user finishes Sign-in (or guest), branch miss-you vs profile.
+    /// After the user finishes Sign-in (or guest), branch Home vs profile. Never miss-you.
     private func branchAfterSignInScreenIfNeeded() {
         let keychainProfile = ProfileSetupKeychain.isComplete(for: auth.userId)
             || ProfileSetupKeychain.load().isComplete
         let keychainOnboarded = ProfileSetupKeychain.isOnboardingComplete(for: auth.userId)
             || ProfileSetupKeychain.isOnboardingComplete(for: nil)
-        if keychainProfile || keychainOnboarded || localOnboardingComplete || perUserOnboardingComplete {
+        if keychainProfile || keychainOnboarded || localOnboardingComplete || perUserOnboardingComplete || hasMedicalData {
             enterReturningAfterAuth(
-                hasTreatments: false,
+                hasTreatments: hasMedicalData,
                 keychainProfile: keychainProfile,
                 keychainOnboarded: keychainOnboarded
             )
@@ -1296,14 +1551,16 @@ final class SessionStore {
         postAuthKind = .newAccount
     }
 
-    /// Already-unlocked (Keychain restore) user taps Apple/Google/Continue on Sign-in.
+    /// Already-unlocked user taps Apple/Google/Continue on Sign-in.
+    /// Marks this-install Sign-in only. Does not restore or present miss-you.
     func confirmRestoredAccountOnSignInScreen() {
         guard isSessionUnlocked else { return }
         markSignInScreenCompleted()
+        guard userDataLoadState.isSettled else { return }
         branchAfterSignInScreenIfNeeded()
     }
 
-    /// Keychain / treatments / prior onboarding → miss-you once; clear stale addMedication phase.
+    /// Configured / returning users → Home. Miss-you is not a login destination.
     private func enterReturningAfterAuth(
         hasTreatments: Bool,
         keychainProfile: Bool,
@@ -1311,35 +1568,24 @@ final class SessionStore {
     ) {
         postAuthKind = .returning
         startFreshPrescription = false
-        // Kill stale FT phase that prior agents left as addMedication after delete+reinstall.
+        pendingReturningWelcome = false
+        showReturningWelcome = false
         clearStaleFirstTimePhaseForReturning()
 
         if pendingPostJourneySetup {
-            // Stay on post-journey chain; do not jump to Home / miss-you.
-            #if DEBUG
-            print("[CheckMed] auth → returning (post-journey; treatments=\(hasTreatments))")
-            #endif
+            showResumeSetup = true
+            LaunchLog.auth("returning post-journey treatments=\(hasTreatments)")
             return
         }
 
         selectedMainTab = .home
         showResumeSetup = false
         markOnboardingPaywallOffered()
-        // Force miss-you once per process for returning Keychain/onboarded users.
-        // Sticky pending survives preparePostAuth clearing the soft showReturningWelcome flag.
-        if !showedReturningWelcomeThisSession {
-            pendingReturningWelcome = true
-            showReturningWelcome = true
-        }
         markOnboardingComplete()
-        #if DEBUG
-        print(
-            "[CheckMed] auth → returning (welcome=\(showReturningWelcome) pendingRW=\(pendingReturningWelcome) "
-                + "showedRW=\(showedReturningWelcomeThisSession) treatments=\(hasTreatments) "
-                + "keychainProfile=\(keychainProfile) keychainOnboarded=\(keychainOnboarded) "
-                + "preAuth=\(hasFinishedPreAuthFunnel))"
+        LaunchLog.auth(
+            "returning home treatments=\(hasTreatments) "
+                + "keychainProfile=\(keychainProfile) keychainOnboarded=\(keychainOnboarded)"
         )
-        #endif
     }
 
     /// Returning users must not resume into Adicionar receita via saved firstTimePhase.
@@ -1355,14 +1601,77 @@ final class SessionStore {
         }
     }
 
-    private func syncedHasTreatments() async -> Bool {
-        if onPostAuthSync == nil {
-            for _ in 0..<30 {
-                if onPostAuthSync != nil { break }
-                try? await Task.sleep(nanoseconds: 50_000_000)
+    private func restoreUserData() async -> UserDataRestoreResult {
+        if let onPostAuthSync {
+            return await onPostAuthSync()
+        }
+        let hasLocal = onLocalTreatmentsCheck?() ?? false
+        if kind == .authenticated {
+            LaunchLog.error("restore callback missing; using local only has=\(hasLocal)")
+        }
+        return UserDataRestoreResult(hasTreatments: hasLocal, failed: false)
+    }
+
+    func retryUserDataLoad() {
+        guard kind == .authenticated else { return }
+        completedRestoreUserId = nil
+        inFlightRestoreId = nil
+        resetPlanSurfaceReady()
+        LaunchLog.data("retry user data load")
+        Task { await enqueueAuthenticated(isRestore: lastAuthWasRestore) }
+    }
+
+    func noteLocalDataBound() {
+        guard kind != .authenticated else { return }
+        // Session restore is still in flight — do not mark loaded from a
+        // welcome/guest bind or Home will treat an empty store as final.
+        guard !auth.isRestoring else { return }
+        guard userDataLoadState != .failed, userDataLoadState != .loading else { return }
+        let hasLocal = onLocalTreatmentsCheck?() ?? false
+        hasMedicalData = hasLocal
+        userDataLoadState = .loaded
+    }
+
+    private func hydratePlanFlagsFromPersistence() {
+        let userId = auth.userId
+        if perUserMedicationPlanConfirmed || ProfileSetupKeychain.isPlanConfirmed(for: userId) {
+            localMedicationPlanConfirmed = true
+            UserDefaults.standard.set(true, forKey: Keys.medicationPlanConfirmed)
+        }
+        if let userId, UserDefaults.standard.bool(forKey: Self.notificationsPromptedKey(for: userId)) {
+            localNotificationsPrompted = true
+            UserDefaults.standard.set(true, forKey: Keys.notificationsPrompted)
+        }
+    }
+
+    private func restorePersistedPostJourneyIfNeeded() {
+        if hasCompletedOnboarding && hasConfirmedMedicationPlan {
+            persistPostJourney(nil)
+            return
+        }
+        guard postJourneyStep == nil || postJourneyStep == .done else { return }
+        let userId = auth.userId
+        let raw = (userId.flatMap { UserDefaults.standard.string(forKey: Self.postJourneyKey(for: $0)) })
+            ?? ProfileSetupKeychain.persistedPostJourneyStep(for: userId)
+        guard let raw, let step = PostJourneyStep(rawValue: raw), step != .done else { return }
+        postJourneyArmed = true
+        postJourneyStep = step
+        showResumeSetup = true
+    }
+
+    private func persistPostJourney(_ step: PostJourneyStep?) {
+        let raw: String? = {
+            guard let step, step != .done else { return nil }
+            return step.rawValue
+        }()
+        ProfileSetupKeychain.persistPostJourneyStep(raw, userId: auth.userId)
+        if let userId = auth.userId {
+            if let raw {
+                UserDefaults.standard.set(raw, forKey: Self.postJourneyKey(for: userId))
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.postJourneyKey(for: userId))
             }
         }
-        return await onPostAuthSync?() ?? false
     }
 
     private var perUserOnboardingComplete: Bool {
@@ -1406,6 +1715,14 @@ final class SessionStore {
 
     private static func medicationPlanConfirmedKey(for userId: UUID) -> String {
         "checkmed.medicationPlanConfirmed.\(userId.uuidString)"
+    }
+
+    private static func notificationsPromptedKey(for userId: UUID) -> String {
+        "checkmed.notificationsPrompted.\(userId.uuidString)"
+    }
+
+    private static func postJourneyKey(for userId: UUID) -> String {
+        "checkmed.postJourneyStep.\(userId.uuidString)"
     }
 
     private static func purgedUnconfirmedPlansKey(ownerId: UUID?) -> String {

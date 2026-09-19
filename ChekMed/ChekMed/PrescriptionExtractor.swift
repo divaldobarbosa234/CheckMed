@@ -81,8 +81,8 @@ struct VisionPrescriptionExtractor: PrescriptionExtracting {
 
     static func extraction(from text: String, engine: String) -> PrescriptionExtraction {
         let parsed = PrescriptionParser.parseAll(text, limit: 12)
+        let drafts = parsed.filter { PrescriptionParser.keepsAsMedicine($0) }
         let catalogHits = MedicationCatalog.wholeWordHits(in: text)
-        let drafts = mergeStable(parsed: parsed, catalogHits: catalogHits, in: text)
         let primary = drafts.first ?? .empty
         if primary.hasMedicineName {
             return PrescriptionExtraction(
@@ -102,43 +102,6 @@ struct VisionPrescriptionExtractor: PrescriptionExtracting {
             engine: engine,
             confidence: .none
         )
-    }
-
-    /// Keep parser hits, then catalog names, in the order they first appear in the OCR text.
-    private static func mergeStable(
-        parsed: [OnboardingPrescriptionDraft],
-        catalogHits: [String],
-        in text: String
-    ) -> [OnboardingPrescriptionDraft] {
-        let folded = MedicationCatalogEntry.fold(text)
-        var items: [(index: Int, draft: OnboardingPrescriptionDraft)] = []
-        var seen = Set<String>()
-
-        func key(for name: String) -> String {
-            MedicationCatalogEntry.fold(name.split(separator: " ").first.map(String.init) ?? name)
-        }
-
-        for draft in parsed where PrescriptionParser.keepsAsMedicine(draft) {
-            let token = key(for: draft.medicine)
-            guard seen.insert(token).inserted else { continue }
-            let index = folded.range(of: token)?.lowerBound.utf16Offset(in: folded) ?? items.count * 1000
-            items.append((index, draft))
-        }
-        let template = parsed.first(where: { PrescriptionParser.keepsAsMedicine($0) })
-        for hit in catalogHits where PrescriptionParser.keepsAsMedicineName(hit) {
-            let token = key(for: hit)
-            guard seen.insert(token).inserted else { continue }
-            var extra = OnboardingPrescriptionDraft.empty
-            extra.medicine = hit
-            extra.dose = template?.dose ?? ""
-            extra.frequency = template?.frequency ?? ""
-            extra.duration = template?.duration ?? ""
-            extra.timesPerDay = template?.timesPerDay ?? ""
-            let index = folded.range(of: MedicationCatalogEntry.fold(hit))?.lowerBound.utf16Offset(in: folded)
-                ?? items.count * 1000
-            items.append((index, extra))
-        }
-        return items.sorted { $0.index < $1.index }.map(\.draft)
     }
 
     private static func unique(_ values: [String]) -> [String] {

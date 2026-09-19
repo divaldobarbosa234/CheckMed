@@ -297,9 +297,10 @@ struct TreatmentOverviewScreen: View {
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(TodayPathStore.self) private var path
     @State private var showFinishConfirm = false
+    @State private var pendingDeleteMedicine: CheckMedStore.MedicineSummary?
 
     private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
-    private var medicineCount: Int { medicines.count }
+    private var medicineCount: Int { treatments.storedMedicineCount }
     private var remainingSlots: Int {
         entitlements.freeMedicineSlotsRemaining(existingCount: medicineCount)
     }
@@ -370,6 +371,23 @@ struct TreatmentOverviewScreen: View {
             .environment(session)
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+        }
+        .confirmationDialog(
+            session.t(.deleteRecipeConfirm),
+            isPresented: Binding(
+                get: { pendingDeleteMedicine != nil },
+                set: { if !$0 { pendingDeleteMedicine = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button(session.t(.deleteRecipeYes), role: .destructive) {
+                if let med = pendingDeleteMedicine {
+                    confirmDeleteRecipe(med)
+                }
+            }
+            Button(session.t(.cancel), role: .cancel) {
+                pendingDeleteMedicine = nil
+            }
         }
     }
 
@@ -535,9 +553,9 @@ struct TreatmentOverviewScreen: View {
 
             Menu {
                 Button(role: .destructive) {
-                    deleteMedicine(med)
+                    pendingDeleteMedicine = med
                 } label: {
-                    Label(session.t(.treatmentsRemoveMedicine), systemImage: "trash")
+                    Label(session.t(.deleteRecipe), systemImage: "trash")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -547,22 +565,23 @@ struct TreatmentOverviewScreen: View {
                     .background(CheckMedTheme.surface.opacity(0.94), in: Circle())
             }
             .padding(10)
-            .accessibilityLabel(session.t(.treatmentsRemoveMedicine))
+            .accessibilityLabel(session.t(.deleteRecipe))
         }
         .contextMenu {
             Button(role: .destructive) {
-                deleteMedicine(med)
+                pendingDeleteMedicine = med
             } label: {
-                Label(session.t(.treatmentsRemoveMedicine), systemImage: "trash")
+                Label(session.t(.deleteRecipe), systemImage: "trash")
             }
         }
     }
 
-    private func deleteMedicine(_ med: CheckMedStore.MedicineSummary) {
-        withAnimation(.easeInOut(duration: 0.25)) {
-            treatments.deleteMedicine(id: med.id)
-            path.reload()
-        }
+    /// Confirmed delete of *this* recipe only, then Scan. Other actives stay until the user deletes them.
+    private func confirmDeleteRecipe(_ med: CheckMedStore.MedicineSummary) {
+        pendingDeleteMedicine = nil
+        treatments.deleteMedicine(id: med.id)
+        path.reload()
+        go(.addPrescription)
     }
 
     private func meta(icon: String, text: String) -> some View {
@@ -743,7 +762,7 @@ struct MedicationDetailScreen: View {
     @Environment(CheckMedStore.self) private var treatments
     @Environment(SessionStore.self) private var session
     @Environment(TodayPathStore.self) private var path
-    @Environment(\.dismiss) private var dismiss
+    @State private var showDeleteRecipeConfirm = false
 
     private var medicine: CheckMedStore.MedicineSummary? {
         let all = treatments.medicineSummaries()
@@ -762,10 +781,8 @@ struct MedicationDetailScreen: View {
                 FactBlock(label: session.t(.manualDose), value: medicine.doseLabel)
                 FactBlock(label: session.t(.manualFrequency), value: medicine.frequency)
                 FactBlock(label: session.t(.manualDuration), value: medicine.duration)
-                CheckMedButton(title: session.t(.treatmentsRemoveMedicine), style: .ghost) {
-                    treatments.deleteMedicine(id: medicine.id)
-                    path.reload()
-                    dismiss()
+                CheckMedButton(title: session.t(.deleteRecipe), style: .ghost) {
+                    showDeleteRecipeConfirm = true
                 }
             } else {
                 Text(session.t(.todayNothing))
@@ -775,6 +792,19 @@ struct MedicationDetailScreen: View {
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.safety)
             CheckMedButton(title: session.t(.howYouTakeIt)) { go(.howToTake) }
+        }
+        .confirmationDialog(
+            session.t(.deleteRecipeConfirm),
+            isPresented: $showDeleteRecipeConfirm,
+            titleVisibility: .visible
+        ) {
+            Button(session.t(.deleteRecipeYes), role: .destructive) {
+                guard let medicine else { return }
+                treatments.deleteMedicine(id: medicine.id)
+                path.reload()
+                go(.addPrescription)
+            }
+            Button(session.t(.cancel), role: .cancel) {}
         }
     }
 }
@@ -913,9 +943,7 @@ struct NextDoseScreen: View {
 struct MedicationAlarmScreen: View {
     var go: (AppRoute) -> Void
     @Environment(TodayPathStore.self) private var path
-    @Environment(EntitlementStore.self) private var entitlements
     @Environment(SessionStore.self) private var session
-    @State private var theme = ReminderPreferences.alarmTheme
 
     private var next: DoseNode? {
         path.overdue ?? path.nodes.first { $0.status == .current }
@@ -932,7 +960,6 @@ struct MedicationAlarmScreen: View {
             if let next {
                 VoiceReadButton(text: session.t(.notificationDoseBody, next.medicine, next.detail, next.time))
             }
-            AlarmThemePicker(theme: $theme)
             Text(session.t(.takenStaysFree))
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
@@ -941,7 +968,6 @@ struct MedicationAlarmScreen: View {
             }
             CheckMedButton(title: session.t(.homeNextDose), style: .ghost) { go(.nextDose) }
         }
-        .onAppear { theme = ReminderPreferences.alarmTheme }
     }
 }
 
@@ -970,17 +996,58 @@ struct DoseCompletedScreen: View {
     var go: (AppRoute) -> Void
     @Environment(TodayPathStore.self) private var path
     @Environment(SessionStore.self) private var session
+    @Environment(CheckMedStore.self) private var treatments
+
+    private var snapshot: GamificationSnapshot {
+        let stats = treatments.adherence()
+        return Gamification.snapshot(
+            nodes: path.nodes,
+            currentStreak: stats.streakDays,
+            longestStreak: treatments.longestAdherenceStreak(),
+            hasActiveTreatment: treatments.activeMedicineCount > 0
+        )
+    }
 
     var body: some View {
         ScreenScaffold(
             title: session.t(.doseCompletedTitle),
             philSize: 140,
-            bubble: "Nice work! Streak continues 🔥 \(path.streakDays)"
+            bubble: completedBubble
         ) {
-            Text("\(path.completed)/\(max(path.total, 1))")
-                .font(.system(.title2, design: .rounded).weight(.heavy))
+            if snapshot.hasScheduledDoses {
+                Text(session.t(.challengeProgress, snapshot.takenCount, snapshot.requiredCount))
+                    .font(.system(.title2, design: .rounded).weight(.heavy))
+            }
+            Text(session.t(.streakCurrent, snapshot.currentStreak))
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
             CheckMedButton(title: session.t(.keepGoing)) { go(.dailySummary) }
         }
+        .onAppear {
+            let owner = session.planOwnerId
+            let profile = session.planProfileId
+            GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snapshot.doneSignature)
+            if snapshot.isComplete {
+                let stamp = {
+                    let comps = session.foundationCalendar.dateComponents([.year, .month, .day], from: Date())
+                    return "\(comps.year ?? 0)-\(comps.month ?? 0)-\(comps.day ?? 0)"
+                }()
+                GamificationMemory.markComplete(ownerId: owner, profileId: profile, dayStamp: stamp)
+                if case .milestone(let day) = snapshot.coach {
+                    GamificationMemory.markMilestone(ownerId: owner, profileId: profile, day: day)
+                }
+            }
+        }
+    }
+
+    private var completedBubble: String {
+        if snapshot.isComplete {
+            return session.t(.philChallengeComplete)
+        }
+        if let name = path.nodes.last(where: { $0.status == .done })?.medicine {
+            return session.t(.philNiceTook, name)
+        }
+        return session.t(.youDidIt)
     }
 }
 
@@ -988,31 +1055,67 @@ struct MissedDoseScreen: View {
     var go: (AppRoute) -> Void
     @Environment(TodayPathStore.self) private var path
     @Environment(SessionStore.self) private var session
+    @Environment(CheckMedStore.self) private var treatments
 
-    private var target: DoseNode? { path.overdue ?? path.current }
+    private var unresolved: [CheckMedStore.UnresolvedDose] { treatments.unresolvedDosesForSummary() }
 
     var body: some View {
         ScreenScaffold(
-            title: session.t(.missedDoseTitle),
+            title: unresolved.count > 1 ? session.t(.missedYouMissedSeveral) : session.t(.missedYouMissedOne),
             bubble: session.t(.philMissedBubble)
         ) {
-            Text(session.t(.missedStillOpen))
-                .font(.system(.title3, design: .rounded).weight(.heavy))
-            Text(target.map { "\($0.medicine) · \($0.time)" } ?? session.t(.todayNothing))
-                .font(.system(.body, design: .rounded).weight(.bold))
-            if let target {
-                VoiceReadButton(text: session.t(.notificationMissedBody, target.medicine, target.time))
-            }
-            CheckMedButton(title: session.t(.missedTakeNow)) { go(.confirmMedication) }
-            CheckMedButton(title: session.t(.missedSkipForNow), style: .secondary) {
-                path.skipCurrent()
-                go(.nextDose)
+            MissedDoseList(doses: unresolved) {
+                path.reload()
+                go(.todayTreatment)
             }
             CheckMedButton(title: session.t(.homeTodaysTreatment), style: .ghost) { go(.todayTreatment) }
-            Text(session.t(.missedNeverDouble))
-                .font(.system(.caption, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.safety)
         }
+    }
+}
+
+struct MissedDoseList: View {
+    @Environment(SessionStore.self) private var session
+    @Environment(CheckMedStore.self) private var treatments
+    var doses: [CheckMedStore.UnresolvedDose]
+    var onChanged: () -> Void
+
+    var body: some View {
+        if doses.isEmpty {
+            Text(session.t(.todayNothing))
+                .font(.system(.body, design: .rounded).weight(.bold))
+        } else {
+            ForEach(doses) { dose in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(dose.medicine) · \(dose.doseLabel)")
+                        .font(.system(.body, design: .rounded).weight(.heavy))
+                    Text(dose.time)
+                        .font(.system(.caption, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                    HStack {
+                        CheckMedButton(title: session.t(.missedTookItLater)) {
+                            treatments.applyDoseAction(id: dose.id, action: .confirmTaken)
+                            MissedDoseAcknowledgement.acknowledge(dose.id)
+                            ReminderScheduler.shared.handleTakenSideEffects(logId: dose.id)
+                            onChanged()
+                        }
+                        CheckMedButton(title: session.t(.missedDidNotTake), style: .secondary) {
+                            treatments.applyDoseAction(id: dose.id, action: .didNotTake)
+                            MissedDoseAcknowledgement.acknowledge(dose.id)
+                            ReminderScheduler.shared.reschedule()
+                            onChanged()
+                        }
+                    }
+                }
+                .padding(12)
+                .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+        }
+        Text(session.t(.missedDoseDisclaimer))
+            .font(.system(.caption, design: .rounded).weight(.bold))
+            .foregroundStyle(CheckMedTheme.safety)
+        Text(session.t(.missedNeverDouble))
+            .font(.system(.caption, design: .rounded).weight(.bold))
+            .foregroundStyle(CheckMedTheme.safety)
     }
 }
 
@@ -1021,7 +1124,6 @@ struct ReminderSettingsScreen: View {
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
     @Environment(EntitlementStore.self) private var entitlements
-    @State private var theme = ReminderPreferences.alarmTheme
     @State private var drafts: [ReminderDraft] = []
 
     var body: some View {
@@ -1042,7 +1144,6 @@ struct ReminderSettingsScreen: View {
                         .font(.system(.body, design: .rounded).weight(.bold))
                 }
             }
-            AlarmThemePicker(theme: $theme)
             if !entitlements.canUseVoiceReading {
                 Text(session.t(.voiceLockedHint))
                     .font(.system(.caption, design: .rounded).weight(.bold))
@@ -1051,7 +1152,6 @@ struct ReminderSettingsScreen: View {
             CheckMedButton(title: session.t(.prefsTitle), style: .secondary) { go(.notificationPrefs) }
         }
         .onAppear {
-            theme = ReminderPreferences.alarmTheme
             drafts = treatments.reminderDrafts().filter { $0.kind == .dose }
         }
     }
@@ -1116,6 +1216,17 @@ struct ProgressDashboardScreen: View {
                 header
                 philBanner
                 weekCard
+                if treatments.activeMedicineCount > 0 {
+                    JourneyGamificationCard(
+                        snapshot: Gamification.snapshot(
+                            nodes: treatments.todayNodes(),
+                            currentStreak: stats.streakDays,
+                            longestStreak: treatments.longestAdherenceStreak(),
+                            hasActiveTreatment: true
+                        ),
+                        history: treatments.dayStatuses()
+                    )
+                }
                 quickActions
                 backHome
                 SafetyCaption()
@@ -1411,11 +1522,13 @@ struct ProgressDashboardScreen: View {
 
 struct AdherenceScreen: View {
     @Environment(CheckMedStore.self) private var treatments
+    @Environment(SessionStore.self) private var session
 
     private var cells: [(day: Int, kind: String)] { treatments.dayStatuses() }
+    private var stats: AdherenceSnapshot { treatments.adherence() }
 
     var body: some View {
-        ScreenScaffold(title: "Adherence") {
+        ScreenScaffold(title: session.t(.progressCalendar)) {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 7), spacing: 8) {
                 ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                     Text("\(cell.day)")
@@ -1425,9 +1538,23 @@ struct AdherenceScreen: View {
                         .foregroundStyle(cell.kind == "soon" ? CheckMedTheme.muted : CheckMedTheme.ink)
                 }
             }
-            Text("Green completed · Gray still open · Light upcoming")
+            if stats.hasHistory {
+                Text("\(stats.takenCount)/\(stats.plannedCount) \(session.t(.progressDosesLabel))")
+                    .font(.system(.title3, design: .rounded).weight(.heavy))
+                Text(session.t(.adherenceTakenLate, stats.takenLateCount))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                Text(session.t(.adherenceMissedCount, stats.missedCount))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                if let percent = stats.percent {
+                    Text("\(percent)%")
+                        .font(.system(.title2, design: .rounded).weight(.black))
+                }
+            }
+            Text(session.t(.adherenceRecordNote))
                 .font(.system(.caption, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
+                .foregroundStyle(CheckMedTheme.safety)
         }
     }
 
@@ -1574,7 +1701,6 @@ struct NotificationPrefsScreen: View {
     @Environment(EntitlementStore.self) private var entitlements
     @State private var quietHours = ReminderPreferences.quietHoursEnabled
     @State private var voiceReminders = ReminderPreferences.voiceRemindersEnabled
-    @State private var theme = ReminderPreferences.alarmTheme
     @State private var authorized = false
 
     var body: some View {
@@ -1603,7 +1729,6 @@ struct NotificationPrefsScreen: View {
                     .font(.system(.caption, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.muted)
             }
-            AlarmThemePicker(theme: $theme)
             Toggle(session.t(.advanceHourToggle), isOn: Binding(
                 get: { entitlements.canUseAdvanceReminder && ReminderPreferences.advanceHourEnabled },
                 set: { value in
@@ -1629,13 +1754,38 @@ struct NotificationPrefsScreen: View {
                 }
             ))
             .font(.system(.body, design: .rounded).weight(.bold))
+            Stepper(
+                "\(session.t(.prefsGraceMinutes)): \(ReminderPreferences.confirmationGraceMinutes)",
+                value: Binding(
+                    get: { ReminderPreferences.confirmationGraceMinutes },
+                    set: {
+                        ReminderPreferences.confirmationGraceMinutes = $0
+                        ReminderScheduler.shared.reschedule()
+                    }
+                ),
+                in: 10...180,
+                step: 5
+            )
+            .font(.system(.body, design: .rounded).weight(.bold))
+            Stepper(
+                "\(session.t(.prefsSnoozeMinutes)): \(ReminderPreferences.snoozeMinutes)",
+                value: Binding(
+                    get: { ReminderPreferences.snoozeMinutes },
+                    set: {
+                        ReminderPreferences.snoozeMinutes = $0
+                        ReminderScheduler.shared.reschedule()
+                    }
+                ),
+                in: 5...30,
+                step: 1
+            )
+            .font(.system(.body, design: .rounded).weight(.bold))
         }
         .task {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             authorized = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
             quietHours = ReminderPreferences.quietHoursEnabled
             voiceReminders = entitlements.canUseVoiceReading && ReminderPreferences.voiceRemindersEnabled
-            theme = ReminderPreferences.alarmTheme
         }
     }
 }

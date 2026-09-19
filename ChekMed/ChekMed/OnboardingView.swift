@@ -14,6 +14,7 @@ enum FirstTimePhase: String, Equatable {
     case camera
     case manualEntry
     case analysing
+    case slotLimit
     case confirm
     case planResume
     case organize
@@ -31,7 +32,7 @@ enum FirstTimePhase: String, Equatable {
         }
     }
 
-    var persistable: Bool { self != .splash && self != .analysing }
+    var persistable: Bool { self != .splash && self != .analysing && self != .slotLimit }
 }
 
 struct FirstTimeOnboardingView: View {
@@ -52,6 +53,10 @@ struct FirstTimeOnboardingView: View {
     @State private var afterSplash: FirstTimePhase = .language
     @State private var didBootstrapPhase = false
     @State private var importToken = 0
+    @State private var detectedDrafts: [OnboardingPrescriptionDraft] = []
+    @State private var selectedDetectionKeys: Set<String> = []
+    @State private var didNeedSlotGate = false
+    @State private var oldPrescriptionWarningDate: Date? = nil
 
     var body: some View {
         ZStack {
@@ -69,9 +74,8 @@ struct FirstTimeOnboardingView: View {
                             + "root=\(session.rootDestination)"
                     )
                     #endif
-                    advance(to: afterSplash, persist: afterSplash.persistable)
+                    advance(to: afterSplash, persist: afterSplash.persistable, animated: false)
                 }
-                .transition(.opacity)
             case .language:
                 LanguageOnboardingView {
                     session.markLanguageChosen()
@@ -160,18 +164,33 @@ struct FirstTimeOnboardingView: View {
                 OnboardingAnalysingView(
                     isShort: addMethod == .manual,
                     work: runImport,
-                    onFinished: { advance(to: .confirm) },
+                    onFinished: { presentOldPrescriptionWarningOrContinue() },
                     importToken: importToken
+                )
+                .transition(insert)
+            case .slotLimit:
+                ScanSlotLimitView(
+                    detected: detectedDrafts,
+                    existingCount: treatments.storedMedicineCount,
+                    selectedKeys: $selectedDetectionKeys,
+                    onUnlockedAll: { continueWithDetectedAll() },
+                    onContinueWithSelected: { chosen in
+                        drafts = chosen.isEmpty ? [.empty] : chosen
+                        draft = drafts[0]
+                        advance(to: .confirm)
+                    },
+                    onBack: { advance(to: .addMedication) }
                 )
                 .transition(insert)
             case .confirm:
                 OnboardingConfirmView(
                     drafts: $drafts,
                     isManual: addMethod == .manual,
-                    existingMedicineCount: 0,
+                    existingMedicineCount: treatments.storedMedicineCount,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
                         let capped = drafts.cappedForPlan(isSuper: entitlements.isSuper, existingCount: 0).filter(\.hasMedicineName)
+                        ScanLog.confirmed(capped)
                         guard !capped.isEmpty else {
                             #if DEBUG
                             print("[CheckMed] onboarding confirm blocked: empty after cap")
@@ -192,18 +211,25 @@ struct FirstTimeOnboardingView: View {
                         session.markMedicationPlanConfirmed()
                         session.markPendingPostJourneySetup()
                         treatments.setSurfacesPlan(true)
+                        treatments.archiveImportedSource(pendingImport)
                         if addMethod == .photo || addMethod == .pdf {
                             ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
                         }
                         path.reload()
                         advance(to: .planResume)
                     },
-                    onBack: { advance(to: addMethod == .manual ? .manualEntry : .addMedication) }
+                    onBack: {
+                        if didNeedSlotGate, !entitlements.isSuper {
+                            advance(to: .slotLimit)
+                        } else {
+                            advance(to: addMethod == .manual ? .manualEntry : .addMedication)
+                        }
+                    }
                 )
                 .transition(insert)
             case .planResume:
                 PlanResumeView(
-                    drafts: drafts.filter(\.hasMedicineName),
+                    drafts: journeyDraftsForResume(),
                     showsAddMore: false,
                     onContinue: { advanceAfterJourney() },
                     onBack: { advance(to: .confirm) }
@@ -218,14 +244,14 @@ struct FirstTimeOnboardingView: View {
                     secondaryTitle: session.t(.skip),
                     onEnable: { advancePostJourneyFrom(.notifications) },
                     onSecondary: { advancePostJourneyFrom(.notifications) },
-                    onBack: { advance(to: .planResume) }
+                    onBack: { advance(to: .alarmSetup) }
                 )
                 .transition(insert)
             case .alarmSetup:
                 AlarmSetupView(
                     onEnable: { advancePostJourneyFrom(.alarms) },
                     onSkip: { advancePostJourneyFrom(.alarms) },
-                    onBack: { advance(to: .notifications) }
+                    onBack: { advance(to: .planResume) }
                 )
                 .transition(insert)
             case .trial:
@@ -239,9 +265,14 @@ struct FirstTimeOnboardingView: View {
             case .ready:
                 OnboardingPhilReadyView {
                     treatments.setSurfacesPlan(true)
-                    path.reload()
-                    session.advancePostJourney(isSuper: entitlements.isSuper)
-                    session.markOnboardingComplete()
+                    session.finishResumeSetup()
+                    Task {
+                        path.reload()
+                        ReminderScheduler.shared.reschedule()
+                    }
+                    Task {
+                        await treatments.onNeedsSync?()
+                    }
                 }
                 .transition(insert)
             }
@@ -267,11 +298,21 @@ struct FirstTimeOnboardingView: View {
             drafts = [.empty]
             advance(to: .analysing)
         }
-        .overlay {
-            if session.isResolvingPostAuth {
-                resolving
-            }
+        .onChange(of: entitlements.isSuper) { _, isSuper in
+            guard isSuper, phase == .slotLimit else { return }
+            continueWithDetectedAll()
         }
+        .modifier(OldPrescriptionAgeAlert(
+            date: $oldPrescriptionWarningDate,
+            onBack: {
+                oldPrescriptionWarningDate = nil
+                advance(to: addMethod == .manual ? .manualEntry : .addMedication)
+            },
+            onContinue: {
+                oldPrescriptionWarningDate = nil
+                routeAfterDetection()
+            }
+        ))
         .onAppear {
             bootstrapPhase()
             hydrateDraftsIfNeeded(for: phase)
@@ -304,7 +345,7 @@ struct FirstTimeOnboardingView: View {
 
     private func replayOnboardingIfUnsignedAfterLeaving(_ phase: ScenePhase) {
         guard !session.isSessionUnlocked else { return }
-        guard !session.auth.isRestoring, !session.isLoading else { return }
+        guard !session.auth.isRestoring, !session.isLoading, session.userDataLoadState != .loading else { return }
         if phase == .background {
             session.restartPreAuthOnboarding()
             afterSplash = .language
@@ -314,24 +355,11 @@ struct FirstTimeOnboardingView: View {
         }
     }
 
-    private var resolving: some View {
-        VStack(spacing: 16) {
-            PhilReadingImage(size: 112)
-            ProgressView()
-                .tint(CheckMedTheme.flowDot)
-            Text(session.t(.restoring))
-                .font(.system(.body, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CheckMedTheme.background)
-    }
-
     private func routeAfterAuthIfNeeded() {
         guard session.isSessionUnlocked else { return }
         guard session.hasFinishedPreAuthFunnel else { return }
         guard session.hasCompletedSignInThisInstall else { return }
-        // Returning / Keychain-complete: RootView owns ReturningWelcome — never push Adicionar receita.
+        guard session.restorationComplete else { return }
         if session.hasCompletedOnboarding || session.postAuthKind == .returning { return }
         if session.kind == .authenticated, session.postAuthKind != .newAccount { return }
         guard phase == .signIn else { return }
@@ -346,20 +374,30 @@ struct FirstTimeOnboardingView: View {
         )
     }
 
-    private func advance(to next: FirstTimePhase, persist: Bool = true) {
+    private func advance(to next: FirstTimePhase, persist: Bool = true, animated: Bool = true) {
         // Hard gate: never enter scan/medication while identity profile is incomplete.
         let gated: FirstTimePhase
         switch next {
-        case .addMedication, .camera, .manualEntry, .analysing, .confirm:
+        case .addMedication, .camera, .manualEntry, .analysing, .slotLimit, .confirm:
             gated = session.needsIdentityProfile ? .profile : next
         default:
             gated = next
         }
         if gated == .analysing {
             importToken += 1
+            didNeedSlotGate = false
+            selectedDetectionKeys = []
         }
-        withAnimation(.easeInOut(duration: 0.45)) {
-            phase = gated
+        if animated {
+            withAnimation(.easeInOut(duration: 0.45)) {
+                phase = gated
+            }
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                phase = gated
+            }
         }
         hydrateDraftsIfNeeded(for: gated)
         if persist, gated.persistable {
@@ -380,7 +418,7 @@ struct FirstTimeOnboardingView: View {
         if !didBootstrapPhase, session.consumeIncompleteColdLaunchIfNeeded() {
             afterSplash = nextPreAuthPhase(saved: .language)
             didBootstrapPhase = true
-            phase = .splash
+            phase = session.auth.isRestoring ? afterSplash : .splash
             return
         }
         afterSplash = destinationAfterSplash()
@@ -394,15 +432,15 @@ struct FirstTimeOnboardingView: View {
         if !session.hasFinishedPreAuthFunnel {
             afterSplash = nextPreAuthPhase(saved: .language)
             didBootstrapPhase = true
-            phase = .splash
+            phase = session.auth.isRestoring ? afterSplash : .splash
             return
         }
-        if !session.isSessionUnlocked, !session.auth.isRestoring, !session.isLoading {
+        if !session.isSessionUnlocked, !session.auth.isRestoring, !session.isLoading, session.userDataLoadState != .loading {
             session.restartPreAuthOnboarding()
             afterSplash = .language
         }
         didBootstrapPhase = true
-        if session.shouldPlayIntroSplash {
+        if session.shouldPlayIntroSplash, !session.auth.isRestoring, session.userDataLoadState != .loading {
             phase = .splash
         } else {
             session.markIntroSplashSeen()
@@ -411,21 +449,43 @@ struct FirstTimeOnboardingView: View {
         routeAfterAuthIfNeeded()
     }
 
-    /// Notifications → alarms → trial → Phil. Never jump to Home from journey.
+    /// Alarms → notifications → trial → Phil. Never jump to Home from journey.
     private func advanceAfterJourney() {
         session.startPostJourneyQueue()
-        advance(to: .notifications)
+        advance(to: .alarmSetup)
+    }
+
+    private func journeyDraftsForResume() -> [OnboardingPrescriptionDraft] {
+        let stored = treatments.draftsFromActivePlan().filter(\.hasMedicineName)
+        if !stored.isEmpty { return stored }
+        return drafts.filter(\.hasMedicineName)
     }
 
     private func advancePostJourneyFrom(_ step: SessionStore.PostJourneyStep) {
         if session.postJourneyStep == nil {
-            session.startPostJourneyQueue()
+            if session.pendingPostJourneySetup {
+                session.startPostJourneyQueue()
+            } else {
+                treatments.setSurfacesPlan(true)
+                session.finishResumeSetup()
+                return
+            }
+        }
+        if session.postJourneyStep == .philReady || session.postJourneyStep == .done {
+            treatments.setSurfacesPlan(true)
+            session.finishResumeSetup()
+            return
         }
         // Keep queue aligned with the screen the user is leaving.
         if session.postJourneyStep != step {
             session.syncPostJourneyStep(step)
         }
         let next = session.advancePostJourney(isSuper: entitlements.isSuper)
+        if next == .done {
+            treatments.setSurfacesPlan(true)
+            session.finishResumeSetup()
+            return
+        }
         advance(to: firstTimePhase(for: next))
     }
 
@@ -440,7 +500,7 @@ struct FirstTimeOnboardingView: View {
 
     private func destinationAfterSplash() -> FirstTimePhase {
         var saved = FirstTimePhase(rawValue: session.firstTimePhaseRaw) ?? .language
-        if saved == .splash || saved == .analysing { saved = .language }
+        if saved == .splash || saved == .analysing || saved == .slotLimit { saved = .language }
 
         // Pre-auth funnel (UserDefaults) always wins — delete+reinstall clears these flags
         // even when Keychain still says onboarded. Never jump to .ready / .addMedication here.
@@ -461,7 +521,7 @@ struct FirstTimeOnboardingView: View {
         let keychainDone = ProfileSetupKeychain.isComplete(for: session.auth.userId)
             || ProfileSetupKeychain.isOnboardingComplete(for: session.auth.userId)
         if session.hasCompletedOnboarding || session.postAuthKind == .returning || keychainDone {
-            if session.pendingPostJourneySetup { return .notifications }
+            if session.pendingPostJourneySetup { return .planResume }
             // Stay idle; root router will present ReturningWelcome / Home.
             return .signIn
         }
@@ -476,7 +536,7 @@ struct FirstTimeOnboardingView: View {
              .planResume where session.hasConfirmedMedicationPlan || treatments.activeTreatmentCount > 0:
             return .planResume
         case .organize:
-            return .notifications
+            return .alarmSetup
         case .notifications, .alarmSetup, .trial, .ready, .addMedication, .camera, .manualEntry:
             return saved
         default:
@@ -512,29 +572,59 @@ struct FirstTimeOnboardingView: View {
             }
         case .image(let data):
             let parsed = await PrescriptionReader.drafts(fromImageData: data)
-            if parsed.contains(where: \.hasMedicineName) {
-                drafts = cappedMedicines(parsed)
-                draft = drafts[0]
-            }
+            applyDetected(parsed)
         case .pdf(let url):
             let parsed = await PrescriptionReader.drafts(fromPDF: url)
-            if parsed.contains(where: \.hasMedicineName) {
-                drafts = cappedMedicines(parsed)
-                draft = drafts[0]
-            }
+            applyDetected(parsed)
         }
         if drafts.isEmpty {
             drafts = [.empty]
         }
     }
 
-    private func cappedMedicines(_ parsed: [OnboardingPrescriptionDraft]) -> [OnboardingPrescriptionDraft] {
-        var named = parsed.filter(\.hasMedicineName)
-        for index in named.indices { named[index].sanitizeScheduleFields() }
-        return named.cappedForPlan(
-            isSuper: entitlements.isSuper,
-            existingCount: 0
-        )
+    private func applyDetected(_ parsed: [OnboardingPrescriptionDraft]) {
+        let named = parsed.preparedDetectedMedicines()
+        detectedDrafts = named
+        selectedDetectionKeys = []
+        if named.contains(where: \.hasMedicineName) {
+            drafts = named
+            draft = drafts[0]
+        }
+    }
+
+    private func presentOldPrescriptionWarningOrContinue() {
+        if addMethod != .manual,
+           let date = ScanPipeline.oldPrescriptionDateToWarn(in: detectedDrafts) {
+            ScanLog.document("oldPrescription warning date=\(ScanPipeline.iso(date)) thresholdDays=\(ScanPipeline.oldPrescriptionThresholdDays)")
+            oldPrescriptionWarningDate = date
+            return
+        }
+        routeAfterDetection()
+    }
+
+    private func routeAfterDetection() {
+        let named = detectedDrafts.uniqueNamedMedicines
+        let existing = treatments.storedMedicineCount
+        ScanLog.document("slotGate detected=\(named.count) existing=\(existing) remaining=\(entitlements.freeMedicineSlotsRemaining(existingCount: existing))")
+        if addMethod != .manual,
+           entitlements.needsScanSlotLimit(detectedCount: named.count, existingCount: existing) {
+            didNeedSlotGate = true
+            drafts = named.isEmpty ? [.empty] : named
+            advance(to: .slotLimit)
+            return
+        }
+        didNeedSlotGate = false
+        drafts = named.isEmpty ? drafts : named
+        if drafts.isEmpty { drafts = [.empty] }
+        advance(to: .confirm)
+    }
+
+    private func continueWithDetectedAll() {
+        let named = detectedDrafts.uniqueNamedMedicines
+        drafts = named.isEmpty ? [.empty] : named
+        draft = drafts[0]
+        didNeedSlotGate = false
+        advance(to: .confirm)
     }
 }
 

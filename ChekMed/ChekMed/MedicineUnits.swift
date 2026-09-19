@@ -40,7 +40,7 @@ enum MedicineForm: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum MedicineUnit: String, CaseIterable, Identifiable, Sendable {
-    case tablet, capsule, ml, g, mg, mcg, drop, tsp, tbsp, oz, other
+    case tablet, capsule, ml, liter, g, mg, mcg, drop, tsp, tbsp, oz, spray, unit, other
 
     var id: String { rawValue }
 
@@ -49,6 +49,7 @@ enum MedicineUnit: String, CaseIterable, Identifiable, Sendable {
     func toBase(_ amount: Double) -> (value: Double, family: UnitFamily)? {
         switch self {
         case .ml: return (amount, .volume)
+        case .liter: return (amount * 1000.0, .volume)
         case .drop: return (amount / 20.0, .volume) // 20 drops = 1 mL
         case .tsp: return (amount * 5.0, .volume)
         case .tbsp: return (amount * 15.0, .volume)
@@ -56,7 +57,7 @@ enum MedicineUnit: String, CaseIterable, Identifiable, Sendable {
         case .g: return (amount * 1000.0, .mass)
         case .mg: return (amount, .mass)
         case .mcg: return (amount / 1000.0, .mass)
-        case .tablet, .capsule: return (amount, .count)
+        case .tablet, .capsule, .spray, .unit: return (amount, .count)
         case .other: return (amount, .count)
         }
     }
@@ -66,8 +67,15 @@ enum MedicineUnit: String, CaseIterable, Identifiable, Sendable {
         if lower.contains("cápsula") || lower.contains("capsula") || lower.contains("capsule") || lower.contains("gélule") {
             return .capsule
         }
-        if lower.contains("comprimido") || lower.contains("tablet") || lower.contains("pill") {
+        if lower.contains("comprimido") || lower.contains("tablet") || lower.contains("pill") || lower.contains("pílula") || lower.contains("pilula") {
             return .tablet
+        }
+        if lower.contains("spray") || lower.contains("puff") || lower.contains("puffs") {
+            return .spray
+        }
+        if lower.contains("unidades") || lower.contains("units") || lower == "iu" || lower.contains(" iu")
+            || lower.contains("international unit") || lower == "ui" || lower.contains(" ui") {
+            return .unit
         }
         if lower.contains("colher de sopa") || lower.contains("cucharada") || lower.contains("tbsp") || lower.contains("tablespoon") {
             return .tbsp
@@ -83,6 +91,10 @@ enum MedicineUnit: String, CaseIterable, Identifiable, Sendable {
         }
         if lower.contains("mg") || lower.contains("miligram") {
             return .mg
+        }
+        if lower.contains("liter") || lower.contains("litre") || lower.contains("litro") || lower == "l"
+            || lower.hasSuffix(" l") || lower.contains(" l ") {
+            return .liter
         }
         if lower.contains("ml") || lower.contains("mililit") || lower.contains("cm3") || lower.contains("cm³") || lower.contains("cc") {
             return .ml
@@ -179,5 +191,44 @@ enum MedicineUnits {
         let remaining = pack.value * min(100, max(0, stockPercent)) / 100.0
         let next = max(0, remaining - dose.value)
         return (next / pack.value) * 100.0
+    }
+
+    static func hasCompleteRefillData(
+        packageAmount: Double,
+        quantityPerDose: Double,
+        packageUnit: MedicineUnit,
+        doseUnit: MedicineUnit
+    ) -> Bool {
+        guard packageAmount > 0, quantityPerDose > 0,
+              let pack = packageUnit.toBase(packageAmount),
+              let dose = doseUnit.toBase(quantityPerDose)
+        else { return false }
+        return pack.family == dose.family && pack.value > 0 && dose.value > 0
+    }
+
+    static func remainingDisplayAmount(
+        packageAmount: Double,
+        packageUnit: MedicineUnit,
+        stockPercent: Double
+    ) -> (amount: Double, unit: MedicineUnit)? {
+        guard packageAmount > 0, let pack = packageUnit.toBase(packageAmount) else { return nil }
+        let remainingBase = pack.value * min(100, max(0, stockPercent)) / 100.0
+        switch pack.family {
+        case .volume:
+            if packageUnit == .drop {
+                return (remainingBase * dropsPerMilliliter, .drop)
+            }
+            if packageUnit == .liter {
+                return (remainingBase / 1000.0, .liter)
+            }
+            return (remainingBase, .ml)
+        case .mass:
+            if packageUnit == .g {
+                return (remainingBase / 1000.0, .g)
+            }
+            return (remainingBase, .mg)
+        case .count:
+            return (remainingBase, packageUnit)
+        }
     }
 }

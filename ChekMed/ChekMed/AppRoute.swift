@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Destinations for the principal-screen IA (06–40).
-/// Launch (root flow, not stack routes): … → confirm → plan journey → notifications → alarms → trial → Phil → Home.
+/// Launch (root flow, not stack routes): … → confirm → plan journey → alarms → notifications → trial → Phil → Home.
 enum AppRoute: Hashable {
     case todayTreatment
     case upcoming

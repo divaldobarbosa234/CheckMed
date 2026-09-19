@@ -86,8 +86,6 @@ struct NotificationsPermissionView: View {
     var onSecondary: (() -> Void)? = nil
     var onBack: () -> Void
 
-    @State private var isRequesting = false
-
     var body: some View {
         VStack(spacing: 16) {
             SetupStepHeader(title: session.t(.notifsTitle), stepIndex: stepIndex)
@@ -105,43 +103,32 @@ struct NotificationsPermissionView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Spacer()
             CheckMedButton(title: session.t(.notifsEnable)) {
-                requestThenFinish(onEnable)
+                session.markNotificationsPrompted()
+                onEnable()
+                Task {
+                    _ = try? await UNUserNotificationCenter.current()
+                        .requestAuthorization(options: [.alert, .sound, .badge])
+                    _ = await DoseAlarmKit.requestAuthorizationIfNeeded()
+                    await MainActor.run {
+                        ReminderScheduler.shared.reschedule()
+                    }
+                }
             }
-            .disabled(isRequesting)
             if let secondaryTitle, let onSecondary {
                 CheckMedButton(title: secondaryTitle, style: .secondary) {
                     session.markNotificationsPrompted()
                     onSecondary()
                 }
-                .disabled(isRequesting)
             }
             CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
-                .disabled(isRequesting)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)
-    }
-
-    private func requestThenFinish(_ done: @escaping () -> Void) {
-        isRequesting = true
-        Task {
-            _ = try? await UNUserNotificationCenter.current()
-                .requestAuthorization(options: [.alert, .sound, .badge])
-            _ = await DoseAlarmKit.requestAuthorizationIfNeeded()
-            await MainActor.run {
-                session.markNotificationsPrompted()
-                isRequesting = false
-                ReminderScheduler.shared.reschedule()
-                done()
-            }
-        }
     }
 }
 
 struct AlarmSetupView: View {
     @Environment(SessionStore.self) private var session
-    @State private var theme = ReminderPreferences.alarmTheme
-    @State private var isRequesting = false
     var onEnable: () -> Void
     var onSkip: () -> Void
     var onBack: () -> Void
@@ -158,27 +145,20 @@ struct AlarmSetupView: View {
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .multilineTextAlignment(.center)
-            AlarmThemePicker(theme: $theme)
             Spacer(minLength: 8)
             CheckMedButton(title: session.t(.alarmSetupEnable)) {
-                isRequesting = true
+                onEnable()
                 Task {
                     _ = try? await UNUserNotificationCenter.current()
                         .requestAuthorization(options: [.alert, .sound, .badge])
                     _ = await DoseAlarmKit.requestAuthorizationIfNeeded()
                     await MainActor.run {
-                        ReminderPreferences.alarmTheme = theme
                         ReminderScheduler.shared.reschedule()
-                        isRequesting = false
-                        onEnable()
                     }
                 }
             }
-            .disabled(isRequesting)
             CheckMedButton(title: session.t(.skip), style: .secondary, action: onSkip)
-                .disabled(isRequesting)
             CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
-                .disabled(isRequesting)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 24)

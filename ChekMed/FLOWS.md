@@ -51,13 +51,18 @@ App delete wipes UserDefaults. Supabase/session Keychain can survive uninstall (
 Linear post-journey queue — **do not skip**.
 
 - [ ] Scan (photo / PDF / manual)
+- [ ] After photo/PDF analysis: count **detected medicine objects** from the parser. Free remaining slots = **3 − existing ACTIVE medicines** (finished treatments do not count). If detected ≤ remaining (or Super), go Confirm with no Free upgrade message. If detected > remaining, show Limit / trial **before** Confirm: Start 3-day trial (then Confirm with **all** detected, subject to Super limits) **or** choose which medicines to add (up to remaining slots). Remaining 0 → trial only (existing Scan Super gate still paywalls opening Scan). Super never sees the Free 3-medicine gate.
 - [ ] Confirm recipe
 - [ ] View journey
-- [ ] Notifications
 - [ ] Alarms
+- [ ] Notifications
 - [ ] Super 3-day trial
 - [ ] Phil creating plan
 - [ ] Home (Home blended with Progress)
+
+Rescanning the same prescription, or back/forward through Confirm, **re-checks** slots. Do not skip this gate.
+
+**Replace / delete one recipe:** confirm delete of *that* recipe only → Scan → same linear queue. Other active medicines stay. Finished treatments do not count toward the free 3-medicine cap.
 
 ---
 
@@ -68,7 +73,7 @@ Linear post-journey queue — **do not skip**.
 **Floating +** (bottom-right, above tab bar):
 
 - Pharmacies
-- Reports
+- My Report
 - Scan
 - Progress
 
@@ -79,7 +84,7 @@ Linear post-journey queue — **do not skip**.
 | Surface    | Free                         | Paywall trigger        |
 |------------|------------------------------|------------------------|
 | Pharmacies | Browse                       | Search → Super trial   |
-| Reports    | See 4 themes                 | Download → Super trial |
+| My Report  | Open, view, edit, history    | Download / Share PDF → Super trial |
 
 ---
 

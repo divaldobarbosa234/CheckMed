@@ -143,18 +143,36 @@ struct RefillStockScreen: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(med.name)
                         .font(.system(.headline, design: .rounded).weight(.heavy))
-                    Text(session.t(.refillDaysLeftFormat, daysLabel(med)))
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
+                    if med.refillDataComplete {
+                        Text(session.t(.refillDaysLeftFormat, daysLabel(med)))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                        if let days = med.daysLeft, days <= Double(ReminderPreferences.lowStockDaysThreshold) {
+                            Text(session.t(.refillRunningLow))
+                                .font(.system(.caption, design: .rounded).weight(.heavy))
+                                .foregroundStyle(CheckMedTheme.primaryShadow)
+                            if let remaining = remainingLabel(med) {
+                                Text(session.t(.refillApproxRemaining, remaining))
+                                    .font(.system(.caption2, design: .rounded).weight(.bold))
+                                    .foregroundStyle(CheckMedTheme.muted)
+                            }
+                        }
+                    } else {
+                        Text(session.t(.refillIncomplete))
+                            .font(.system(.caption, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.safety)
+                    }
                 }
                 Spacer()
                 StockBatteryView(percent: med.stockPercent)
                     .frame(width: 36, height: 56)
             }
 
-            Text(session.t(.refillStockPercent, Int(med.stockPercent.rounded())))
-                .font(.system(.caption, design: .rounded).weight(.semibold))
-                .foregroundStyle(CheckMedTheme.ink)
+            if med.refillDataComplete {
+                Text(session.t(.refillStockPercent, Int(med.stockPercent.rounded())))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.ink)
+            }
 
             HStack(spacing: 8) {
                 CheckMedButton(title: session.t(.refillUpdate), style: .secondary) {
@@ -204,6 +222,20 @@ struct RefillStockScreen: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
         )
+    }
+
+    private func remainingLabel(_ med: CheckMedStore.MedicineSummary) -> String? {
+        guard med.refillDataComplete,
+              let remaining = MedicineUnits.remainingDisplayAmount(
+                packageAmount: med.packageAmount,
+                packageUnit: med.packageUnit,
+                stockPercent: med.stockPercent
+              )
+        else { return nil }
+        let amount = remaining.amount == remaining.amount.rounded()
+            ? String(Int(remaining.amount.rounded()))
+            : String(format: "%.1f", remaining.amount)
+        return "\(amount) \(remaining.unit.rawValue)"
     }
 
     private func daysLabel(_ med: CheckMedStore.MedicineSummary) -> String {
@@ -353,6 +385,10 @@ struct RefillEditSheet: View {
                     if let days = previewDays {
                         Text(session.t(.refillDaysLeftFormat, days < 1 ? session.t(.refillLessThanDay) : "\(Int(days.rounded(.down)))"))
                             .font(.system(.body, design: .rounded).weight(.heavy))
+                    } else {
+                        Text(session.t(.refillIncomplete))
+                            .font(.system(.caption, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.safety)
                     }
 
                     CheckMedButton(title: session.t(.feelingSave)) { save() }
@@ -379,8 +415,14 @@ struct RefillEditSheet: View {
     }
 
     private var previewDays: Double? {
-        let amount = Double(packageAmount.replacingOccurrences(of: ",", with: ".")) ?? medicine.packageAmount
-        let dose = Double(quantityPerDose.replacingOccurrences(of: ",", with: ".")) ?? medicine.quantityPerDose
+        let amount = Double(packageAmount.replacingOccurrences(of: ",", with: ".")) ?? 0
+        let dose = Double(quantityPerDose.replacingOccurrences(of: ",", with: ".")) ?? 0
+        guard MedicineUnits.hasCompleteRefillData(
+            packageAmount: amount,
+            quantityPerDose: dose,
+            packageUnit: packageUnit,
+            doseUnit: doseUnit
+        ) else { return nil }
         return MedicineUnits.daysLeft(
             packageAmount: amount,
             packageUnit: packageUnit,

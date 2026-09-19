@@ -66,7 +66,11 @@ struct ReturningWelcomeFlow: View {
                     session.finishReturningWelcome(select: .home)
                 }
                 CheckMedButton(title: session.t(.addOtherPrescription), style: .secondary) {
-                    addingPrescription = true
+                    if session.needsUnfinishedPlan(treatments: treatments) {
+                        addingPrescription = true
+                    } else {
+                        session.beginFreshPlan()
+                    }
                 }
             }
             .padding(.horizontal, 24)

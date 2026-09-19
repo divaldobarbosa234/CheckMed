@@ -23,9 +23,13 @@ struct AddPrescriptionIntakeHost: View {
     @State private var didPersistPlan = false
     @State private var medicineCountAtStart = 0
     @State private var didCaptureStartCount = false
+    @State private var detectedDrafts: [OnboardingPrescriptionDraft] = []
+    @State private var selectedDetectionKeys: Set<String> = []
+    @State private var didNeedSlotGate = false
+    @State private var oldPrescriptionWarningDate: Date? = nil
 
     private enum Phase {
-        case choose, camera, manual, analysing, confirm, planResume
+        case choose, camera, manual, analysing, slotLimit, confirm, planResume
     }
 
     var body: some View {
@@ -73,26 +77,43 @@ struct AddPrescriptionIntakeHost: View {
                 OnboardingAnalysingView(
                     isShort: method == .manual,
                     work: runImport,
-                    onFinished: { phase = .confirm },
+                    onFinished: { presentOldPrescriptionWarningOrContinue() },
                     importToken: importToken
+                )
+            case .slotLimit:
+                ScanSlotLimitView(
+                    detected: detectedDrafts,
+                    existingCount: liveExistingCount,
+                    selectedKeys: $selectedDetectionKeys,
+                    onUnlockedAll: { continueWithDetectedAll() },
+                    onContinueWithSelected: { chosen in
+                        drafts = chosen.isEmpty ? [.empty] : chosen
+                        draft = drafts[0]
+                        phase = .confirm
+                    },
+                    onBack: { phase = .choose }
                 )
             case .confirm:
                 OnboardingConfirmView(
                     drafts: $drafts,
                     isManual: method == .manual,
-                    existingMedicineCount: medicineCountAtStart,
+                    existingMedicineCount: liveExistingCount,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
                         guard persistConfirmedDrafts() else { return }
                         phase = .planResume
                     },
                     onBack: {
-                        phase = method == .manual ? .manual : .choose
+                        if didNeedSlotGate, !entitlements.isSuper {
+                            phase = .slotLimit
+                        } else {
+                            phase = method == .manual ? .manual : .choose
+                        }
                     }
                 )
             case .planResume:
                 PlanResumeView(
-                    drafts: drafts.filter(\.hasMedicineName),
+                    drafts: journeyDrafts(),
                     onContinue: finishIntake,
                     onBack: { phase = .confirm }
                 )
@@ -123,7 +144,30 @@ struct AddPrescriptionIntakeHost: View {
             medicineCountAtStart = treatments.storedMedicineCount
             didCaptureStartCount = true
         }
+        .onChange(of: entitlements.isSuper) { _, isSuper in
+            guard isSuper, phase == .slotLimit else { return }
+            continueWithDetectedAll()
+        }
+        .modifier(OldPrescriptionAgeAlert(
+            date: $oldPrescriptionWarningDate,
+            onBack: {
+                oldPrescriptionWarningDate = nil
+                phase = method == .manual ? .manual : .choose
+            },
+            onContinue: {
+                oldPrescriptionWarningDate = nil
+                routeAfterDetection()
+            }
+        ))
     }
+
+    private func journeyDrafts() -> [OnboardingPrescriptionDraft] {
+        let stored = treatments.draftsFromActivePlan().filter(\.hasMedicineName)
+        if !stored.isEmpty { return stored }
+        return drafts.filter(\.hasMedicineName)
+    }
+
+    private var liveExistingCount: Int { treatments.storedMedicineCount }
 
     private func start(_ next: OnboardingAddMethod, proceed: () -> Void) {
         let ownerId = session.planOwnerId
@@ -138,6 +182,8 @@ struct AddPrescriptionIntakeHost: View {
 
     private func goAnalysing() {
         importToken += 1
+        didNeedSlotGate = false
+        selectedDetectionKeys = []
         phase = .analysing
     }
 
@@ -149,58 +195,92 @@ struct AddPrescriptionIntakeHost: View {
             }
         case .image(let data):
             let parsed = await PrescriptionReader.drafts(fromImageData: data)
-            if parsed.contains(where: \.hasMedicineName) {
-                drafts = cappedMedicines(parsed)
-                draft = drafts[0]
-            }
+            applyDetected(parsed)
         case .pdf(let url):
             let parsed = await PrescriptionReader.drafts(fromPDF: url)
-            if parsed.contains(where: \.hasMedicineName) {
-                drafts = cappedMedicines(parsed)
-                draft = drafts[0]
-            }
+            applyDetected(parsed)
         }
         if drafts.isEmpty {
             drafts = [.empty]
         }
     }
 
-    private func cappedMedicines(_ parsed: [OnboardingPrescriptionDraft]) -> [OnboardingPrescriptionDraft] {
-        var named = parsed.filter(\.hasMedicineName)
-        for index in named.indices { named[index].sanitizeScheduleFields() }
-        return named.cappedForPlan(
-            isSuper: entitlements.isSuper,
-            existingCount: medicineCountAtStart
-        )
+    private func applyDetected(_ parsed: [OnboardingPrescriptionDraft]) {
+        let named = parsed.preparedDetectedMedicines()
+        detectedDrafts = named
+        selectedDetectionKeys = []
+        if named.contains(where: \.hasMedicineName) {
+            drafts = named
+            draft = drafts[0]
+        }
+    }
+
+    private func presentOldPrescriptionWarningOrContinue() {
+        if method != .manual,
+           let date = ScanPipeline.oldPrescriptionDateToWarn(in: detectedDrafts) {
+            ScanLog.document("oldPrescription warning date=\(ScanPipeline.iso(date)) thresholdDays=\(ScanPipeline.oldPrescriptionThresholdDays)")
+            oldPrescriptionWarningDate = date
+            return
+        }
+        routeAfterDetection()
+    }
+
+    private func routeAfterDetection() {
+        medicineCountAtStart = treatments.storedMedicineCount
+        let named = detectedDrafts.uniqueNamedMedicines
+        let existing = medicineCountAtStart
+        ScanLog.document("slotGate detected=\(named.count) existing=\(existing) remaining=\(entitlements.freeMedicineSlotsRemaining(existingCount: existing))")
+        if method != .manual,
+           entitlements.needsScanSlotLimit(detectedCount: named.count, existingCount: existing) {
+            didNeedSlotGate = true
+            drafts = named.isEmpty ? [.empty] : named
+            phase = .slotLimit
+            return
+        }
+        didNeedSlotGate = false
+        drafts = named.isEmpty ? drafts : named
+        if drafts.isEmpty { drafts = [.empty] }
+        phase = .confirm
+    }
+
+    private func continueWithDetectedAll() {
+        let named = detectedDrafts.uniqueNamedMedicines
+        drafts = named.isEmpty ? [.empty] : named
+        draft = drafts[0]
+        didNeedSlotGate = false
+        phase = .confirm
     }
 
     /// Persist on confirm (before journey) so Home never depends on PlanResume continue.
     @discardableResult
     private func persistConfirmedDrafts() -> Bool {
+        let liveCount = treatments.storedMedicineCount
+        let capBase = min(medicineCountAtStart, liveCount)
         let capped = drafts.cappedForPlan(
             isSuper: entitlements.isSuper,
-            existingCount: medicineCountAtStart
+            existingCount: capBase
         ).filter(\.hasMedicineName)
+        ScanLog.confirmed(capped)
         guard !capped.isEmpty else {
             #if DEBUG
             print("[CheckMed] add-intake confirm blocked: empty after cap")
             #endif
             if !entitlements.isSuper,
-               medicineCountAtStart >= SuperLimits.freePrescriptions {
+               liveCount >= SuperLimits.freePrescriptions {
                 entitlements.presentPaywall()
             }
             return false
         }
         let ok: Bool
-        if medicineCountAtStart == 0 {
+        if didPersistPlan {
+            // Already wrote this intake once; avoid duplicate rows on confirm → back → confirm.
+            ok = true
+        } else if liveCount == 0 {
             ok = treatments.seedFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
                 profileId: session.planProfileId
             )
-        } else if didPersistPlan {
-            // Already wrote this intake once; avoid duplicate rows on confirm → back → confirm.
-            ok = true
         } else {
             ok = treatments.addFromDrafts(
                 capped,
@@ -220,6 +300,9 @@ struct AddPrescriptionIntakeHost: View {
         // Always arm post-journey chain after any successful confirm (seed or add).
         session.markPendingPostJourneySetup()
         treatments.setSurfacesPlan(true)
+        if firstPersist {
+            treatments.archiveImportedSource(pending)
+        }
         if firstPersist, method == .photo || method == .pdf {
             ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
         }
@@ -231,7 +314,7 @@ struct AddPrescriptionIntakeHost: View {
         if !didPersistPlan {
             guard persistConfirmedDrafts() else { return }
         }
-        // After journey: always notifications → alarms → Super → Phil before Home.
+        // After journey: always alarms → notifications → Super → Phil before Home.
         session.startPostJourneyQueue()
         if let onFinished {
             onFinished()

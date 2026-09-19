@@ -21,6 +21,12 @@ struct OnboardingPrescriptionDraft: Equatable, Sendable {
     var doctorId: String = ""
     var hospitalName: String = ""
     var doctorNotes: String = ""
+    /// Exact OCR/table span that produced this object. Required before confirm.
+    var sourceText: String = ""
+    var prescriptionDate: Date? = nil
+    var scanDate: Date = Date()
+    var treatmentStartDate: Date? = nil
+    var treatmentEndDate: Date? = nil
 
     static let empty = OnboardingPrescriptionDraft(
         medicine: "",
@@ -80,6 +86,30 @@ struct OnboardingPrescriptionDraft: Equatable, Sendable {
 }
 
 extension [OnboardingPrescriptionDraft] {
+    /// Unique named drafts from the parser — this is the scan count (never a hardcoded N).
+    var uniqueNamedMedicines: [OnboardingPrescriptionDraft] {
+        dedupedDistinctMedicines()
+    }
+
+    /// name + strength + form. Not an aggressive fuzzy merge (Amoxicilina ≠ Amoxidal).
+    func dedupedDistinctMedicines() -> [OnboardingPrescriptionDraft] {
+        var seen = Set<String>()
+        var unique: [OnboardingPrescriptionDraft] = []
+        for draft in self where draft.hasMedicineName {
+            let key = PrescriptionParser.distinctObjectKey(draft)
+            if seen.insert(key).inserted {
+                unique.append(draft)
+            }
+        }
+        return unique
+    }
+
+    func preparedDetectedMedicines() -> [OnboardingPrescriptionDraft] {
+        var named = filter(\.hasMedicineName)
+        for index in named.indices { named[index].sanitizeScheduleFields() }
+        return named.dedupedDistinctMedicines()
+    }
+
     func cappedForPlan(isSuper: Bool, existingCount: Int = 0) -> [OnboardingPrescriptionDraft] {
         var seen = Set<String>()
         var unique: [OnboardingPrescriptionDraft] = []
@@ -393,11 +423,13 @@ struct OnboardingConfirmView: View {
 
     private var freePlanBanner: String? {
         guard !entitlements.isSuper else { return nil }
-        if existingMedicineCount > 0, remainingSlots > 0 {
-            return session.t(.confirmRemainingSlots, existingMedicineCount, remainingSlots)
-        }
+        // Fits remaining Free slots → Confirm as today, no upgrade copy.
+        if namedDraftCount <= remainingSlots { return nil }
         if existingMedicineCount >= freeMedicineCap {
             return session.t(.confirmFreePlanFull)
+        }
+        if existingMedicineCount > 0, remainingSlots > 0 {
+            return session.t(.confirmRemainingSlots, existingMedicineCount, remainingSlots)
         }
         return session.t(.confirmFreePlanLimit)
     }
@@ -1391,7 +1423,7 @@ struct OnboardingPhilReadyView: View {
             }
         }
         .task {
-            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard !Task.isCancelled else { return }
             continueNow()
         }
@@ -1401,5 +1433,197 @@ struct OnboardingPhilReadyView: View {
         guard !didContinue else { return }
         didContinue = true
         onContinue()
+    }
+}
+
+/// Free-plan gate after photo/PDF OCR, before Scan/Confirm.
+struct ScanSlotLimitView: View {
+    @Environment(SessionStore.self) private var session
+    @Environment(EntitlementStore.self) private var entitlements
+
+    let detected: [OnboardingPrescriptionDraft]
+    let existingCount: Int
+    @Binding var selectedKeys: Set<String>
+    var onUnlockedAll: () -> Void
+    var onContinueWithSelected: ([OnboardingPrescriptionDraft]) -> Void
+    var onBack: () -> Void
+
+    private var remainingSlots: Int {
+        entitlements.freeMedicineSlotsRemaining(existingCount: existingCount)
+    }
+
+    private var detectedCount: Int { detected.count }
+
+    private var continueTitle: String {
+        remainingSlots == 1
+            ? session.t(.scanLimitContinueOne)
+            : session.t(.scanLimitContinue, remainingSlots)
+    }
+
+    private var selectedDrafts: [OnboardingPrescriptionDraft] {
+        detected.filter { selectedKeys.contains(PrescriptionParser.canonicalMedicineKey($0.medicine)) }
+    }
+
+    private var canContinueWithSelection: Bool {
+        remainingSlots > 0
+            && !selectedDrafts.isEmpty
+            && selectedDrafts.count <= remainingSlots
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 14) {
+                    SetupStepHeader(
+                        title: remainingSlots == 0
+                            ? session.t(.confirmFreePlanFull)
+                            : session.t(.scanLimitSelectTitle)
+                    )
+                    Text(detectedCount == 1
+                         ? session.t(.scanLimitDetectedOne)
+                         : session.t(.scanLimitDetected, detectedCount))
+                        .font(.system(.title3, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(freePlanCopy)
+                        .font(.system(.body, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(session.t(.scanLimitSuperPitch))
+                        .font(.system(.body, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if remainingSlots > 0 {
+                        Text(session.t(.scanLimitSelectHint, remainingSlots))
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                    VStack(spacing: 8) {
+                        ForEach(Array(detected.enumerated()), id: \.offset) { _, draft in
+                            medicineRow(draft)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 16)
+            }
+            VStack(spacing: 12) {
+                CheckMedButton(title: session.t(.scanLimitStartTrial)) {
+                    entitlements.presentPaywall()
+                }
+                if remainingSlots > 0 {
+                    CheckMedButton(
+                        title: continueTitle,
+                        style: .secondary,
+                        action: {
+                            guard canContinueWithSelection else { return }
+                            onContinueWithSelected(selectedDrafts)
+                        }
+                    )
+                    .disabled(!canContinueWithSelection)
+                    .opacity(canContinueWithSelection ? 1 : 0.45)
+                }
+                CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+                SafetyCaption()
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.background)
+        .onAppear {
+            if entitlements.isSuper || !entitlements.needsScanSlotLimit(
+                detectedCount: detectedCount,
+                existingCount: existingCount
+            ) {
+                onUnlockedAll()
+            }
+        }
+        .onChange(of: entitlements.isSuper) { _, isSuper in
+            if isSuper { onUnlockedAll() }
+        }
+    }
+
+    private var freePlanCopy: String {
+        if existingCount > 0 {
+            return session.t(.scanLimitRemaining, existingCount, remainingSlots)
+        }
+        return session.t(.scanLimitFreeCap)
+    }
+
+    private func medicineRow(_ draft: OnboardingPrescriptionDraft) -> some View {
+        let key = PrescriptionParser.canonicalMedicineKey(draft.medicine)
+        let isSelected = selectedKeys.contains(key)
+        let atCap = remainingSlots > 0 && selectedKeys.count >= remainingSlots && !isSelected
+        return Button {
+            guard remainingSlots > 0 else { return }
+            if isSelected {
+                selectedKeys.remove(key)
+            } else if !atCap {
+                selectedKeys.insert(key)
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(isSelected ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(draft.medicine)
+                        .font(.system(.body, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .multilineTextAlignment(.leading)
+                    if !draft.dose.isEmpty {
+                        Text(draft.dose)
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(isSelected ? CheckMedTheme.primaryShadow : CheckMedTheme.hairline, lineWidth: 1.5)
+            )
+            .opacity(remainingSlots == 0 || atCap ? 0.55 : 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(remainingSlots == 0)
+        .accessibilityLabel(draft.medicine)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+}
+
+/// Scan-flow only. Does not write SwiftData or change treatment start.
+struct OldPrescriptionAgeAlert: ViewModifier {
+    @Environment(SessionStore.self) private var session
+    @Binding var date: Date?
+    var onBack: () -> Void
+    var onContinue: () -> Void
+
+    func body(content: Content) -> some View {
+        content.alert(
+            session.t(.oldPrescriptionTitle),
+            isPresented: Binding(
+                get: { date != nil },
+                set: { if !$0 { date = nil } }
+            )
+        ) {
+            Button(session.t(.back), role: .cancel, action: onBack)
+            Button(session.t(.continueButton), action: onContinue)
+        } message: {
+            if let date {
+                Text(
+                    session.t(
+                        .oldPrescriptionBody,
+                        ScanPipeline.displayPrescriptionDate(date, locale: session.locale.foundationLocale)
+                    )
+                )
+            }
+        }
     }
 }

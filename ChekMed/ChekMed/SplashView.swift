@@ -2,9 +2,10 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
+/// Branded intro only. Never a blank yellow fill — that was the stuck launch screen.
+/// The video plays once and holds. Language / How it works must not crossfade through this screen.
 struct SplashView: View {
     @Environment(SessionStore.self) private var session
-    var seconds: Double = 3
     var onFinished: () -> Void
 
     @State private var didFinish = false
@@ -13,7 +14,8 @@ struct SplashView: View {
     var body: some View {
         ZStack {
             CheckMedTheme.primary.ignoresSafeArea()
-            splashMedia
+            PhilView(size: 228, mood: .celebrate)
+            splashVideo
             VStack {
                 Spacer()
                 Text(session.t(.splashTagline))
@@ -30,27 +32,20 @@ struct SplashView: View {
         }
         .onAppear { startPlayback() }
         .onDisappear { stopPlayback() }
-        .task {
-            let nanos = UInt64(max(0.4, seconds) * 1_000_000_000)
-            try? await Task.sleep(nanoseconds: nanos)
-            finishIfNeeded()
-        }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { note in
             guard let item = note.object as? AVPlayerItem, item == player?.currentItem else { return }
-            finishIfNeeded()
+            player?.pause()
         }
         .accessibilityLabel("Phil")
         .accessibilityAddTraits(.isImage)
     }
 
     @ViewBuilder
-    private var splashMedia: some View {
+    private var splashVideo: some View {
         if let player {
             SplashPlayerLayer(player: player)
                 .ignoresSafeArea()
                 .accessibilityHidden(true)
-        } else if Bundle.main.url(forResource: "SplashPhil", withExtension: "mp4") == nil {
-            PhilView(size: 228, mood: .celebrate)
         }
     }
 
@@ -85,16 +80,18 @@ private struct SplashPlayerLayer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PlayerView {
         let view = PlayerView()
-        view.backgroundColor = UIColor(red: 251 / 255, green: 214 / 255, blue: 4 / 255, alpha: 1)
+        view.backgroundColor = UIColor(red: 69 / 255, green: 185 / 255, blue: 79 / 255, alpha: 1)
+        view.isOpaque = true
         view.playerLayer.player = player
+        view.playerLayer.backgroundColor = UIColor(red: 69 / 255, green: 185 / 255, blue: 79 / 255, alpha: 1).cgColor
         view.playerLayer.videoGravity = .resizeAspectFill
         return view
     }
 
     func updateUIView(_ uiView: PlayerView, context: Context) {
         uiView.playerLayer.player = player
-        uiView.playerLayer.videoGravity = .resizeAspectFill
-        if player.timeControlStatus != .playing {
+        let ended = player.currentItem.map { $0.currentTime() >= $0.duration && $0.duration.isNumeric } ?? false
+        if player.timeControlStatus != .playing, !ended {
             player.play()
         }
     }

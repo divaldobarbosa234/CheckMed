@@ -92,6 +92,11 @@ struct HomeView: View {
     @State private var moodPhase: HomeMoodPhase = .picker
     @State private var moodMessage = ""
     @State private var hideMoodTask: Task<Void, Never>?
+    @State private var gameCelebrate: GameCelebrate?
+    @State private var hideCelebrateTask: Task<Void, Never>?
+    @State private var gamePrimed = false
+    @State private var lastGameTaken = -1
+    @State private var lastGameSkipped = -1
 
     private var greetingWord: String {
         let hour = session.foundationCalendar.component(.hour, from: Date())
@@ -163,7 +168,24 @@ struct HomeView: View {
 
     private var progressStats: AdherenceSnapshot { treatments.adherence() }
 
+    private var challenge: GamificationSnapshot {
+        Gamification.snapshot(
+            nodes: path.nodes,
+            currentStreak: progressStats.streakDays,
+            longestStreak: progressStats.streakDays,
+            hasActiveTreatment: hasActivePlan && !isPlanVisibilityPending
+        )
+    }
+
     private var hasActivePlan: Bool { treatments.activeMedicineCount > 0 }
+
+    /// Loading is not empty. Existing active rows that are not yet visible must
+    /// not render "Escanear receita".
+    private var isPlanVisibilityPending: Bool {
+        !session.restorationComplete
+            || !session.isPlanSurfaceReady
+            || (treatments.hasActivePlan && treatments.activeMedicineCount == 0)
+    }
 
     private var progressWeekFraction: CGFloat {
         guard let percent = progressStats.weekPercent else { return 0 }
@@ -188,8 +210,15 @@ struct HomeView: View {
         NavigationStack(path: $navPath) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
+                    let game = challenge
                     header
-                    if hasActivePlan {
+                    if isPlanVisibilityPending {
+                        restoringPlanCard
+                    } else if hasActivePlan {
+                        GamificationStreakCard(snapshot: game)
+                        TodaysChallengeCard(snapshot: game) { doseId in
+                            path.take(id: doseId)
+                        }
                         if moodPhase != .hidden {
                             moodCard
                                 .transition(.asymmetric(
@@ -235,6 +264,7 @@ struct HomeView: View {
                 Task { @MainActor in
                     treatments.refreshDoseLogsForDisplay()
                     path.reload()
+                    primeGamificationIfNeeded()
                 }
                 FreezeDiag.log("Home onAppear END")
             }
@@ -249,12 +279,45 @@ struct HomeView: View {
                     applyMoodVisibilityForToday(animated: false)
                 }
             }
+            .onChange(of: session.restorationComplete) { _, ready in
+                if ready {
+                    path.reload()
+                    primeGamificationIfNeeded()
+                }
+            }
+            .onChange(of: session.isPlanSurfaceReady) { _, ready in
+                if ready {
+                    path.reload()
+                    primeGamificationIfNeeded()
+                }
+            }
+            .onChange(of: session.planOwnerId) { _, _ in
+                resetGamificationSession()
+            }
+            .onChange(of: session.planProfileId) { _, _ in
+                resetGamificationSession()
+            }
+            .onChange(of: path.takenCount) { _, _ in
+                handleGamificationProgress()
+            }
+            .onChange(of: path.skippedCount) { _, _ in
+                handleGamificationProgress()
+            }
             .onDisappear {
                 hideMoodTask?.cancel()
                 hideMoodTask = nil
+                hideCelebrateTask?.cancel()
+                hideCelebrateTask = nil
             }
             .sheet(item: feelingItem) { item in
                 FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
+            }
+            .overlay(alignment: .top) {
+                if let gameCelebrate {
+                    GamificationCelebrateBanner(event: gameCelebrate, streak: lastGameTaken)
+                        .padding(.top, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
             }
             .task {
                 FreezeDiag.log("Home.task start")
@@ -512,6 +575,93 @@ struct HomeView: View {
         }
     }
 
+    private func resetGamificationSession() {
+        gamePrimed = false
+        gameCelebrate = nil
+        lastGameTaken = -1
+        lastGameSkipped = -1
+    }
+
+    private func primeGamificationIfNeeded() {
+        guard session.restorationComplete, session.isPlanSurfaceReady else { return }
+        guard !isPlanVisibilityPending, hasActivePlan else { return }
+        guard !gamePrimed else { return }
+        let snap = challenge
+        GamificationMemory.seedIfNeeded(
+            ownerId: session.planOwnerId,
+            profileId: session.planProfileId,
+            streak: snap.currentStreak,
+            dayStamp: todayStamp,
+            doneSignature: snap.doneSignature
+        )
+        lastGameTaken = snap.takenCount
+        lastGameSkipped = snap.skippedCount
+        gamePrimed = true
+    }
+
+    private func handleGamificationProgress() {
+        guard gamePrimed, session.restorationComplete, session.isPlanSurfaceReady else { return }
+        let snap = challenge
+        guard snap.isActive else { return }
+        let owner = session.planOwnerId
+        let profile = session.planProfileId
+        let recorded = GamificationMemory.lastDoneSignature(ownerId: owner, profileId: profile)
+        if snap.doneSignature == recorded {
+            lastGameTaken = snap.takenCount
+            lastGameSkipped = snap.skippedCount
+            return
+        }
+        let takenIncreased = snap.takenCount > lastGameTaken && lastGameTaken >= 0
+        let skippedIncreased = snap.skippedCount > lastGameSkipped && lastGameSkipped >= 0
+        lastGameTaken = snap.takenCount
+        lastGameSkipped = snap.skippedCount
+
+        if skippedIncreased {
+            presentGameCelebrate(.needsAttention)
+            return
+        }
+        guard takenIncreased else { return }
+
+        if snap.isComplete, !GamificationMemory.didCelebrateComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp) {
+            GamificationMemory.markComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp)
+            GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
+            if case .milestone(let day) = snap.coach, day > GamificationMemory.lastMilestone(ownerId: owner, profileId: profile) {
+                GamificationMemory.markMilestone(ownerId: owner, profileId: profile, day: day)
+                presentGameCelebrate(.milestone(day))
+            } else if snap.coach == .backOnTrack {
+                presentGameCelebrate(.backOnTrack)
+            } else {
+                presentGameCelebrate(.dayComplete)
+            }
+            return
+        }
+
+        let added = snap.lines.filter { line in
+            line.isTaken && !recorded.split(separator: ",").map(String.init).contains(line.id)
+        }
+        GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
+        if snap.coach == .backOnTrack {
+            presentGameCelebrate(.backOnTrack)
+        } else if let name = added.first?.medicine {
+            presentGameCelebrate(.took(name))
+        }
+    }
+
+    private func presentGameCelebrate(_ event: GameCelebrate) {
+        guard session.selectedMainTab == .home, navPath.isEmpty else { return }
+        hideCelebrateTask?.cancel()
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
+            gameCelebrate = event
+        }
+        hideCelebrateTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_400_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.28)) {
+                gameCelebrate = nil
+            }
+        }
+    }
+
     private var medicationsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
@@ -580,6 +730,26 @@ struct HomeView: View {
             }
         }
         .padding(16)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+    }
+
+    private var restoringPlanCard: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ProgressView()
+                .tint(CheckMedTheme.primary)
+            Text(session.t(.restoringPlan))
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.ink)
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(CheckMedTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .overlay(

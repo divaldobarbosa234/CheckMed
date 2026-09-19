@@ -137,7 +137,7 @@ struct PhilReadingImage: View {
     var body: some View {
         Image("phil_reading")
             .resizable()
-            .interpolation(.high)
+            .interpolation(.medium)
             .renderingMode(.original)
             .scaledToFit()
             .frame(width: size, height: size)

@@ -4,6 +4,7 @@ import CoreData
 
 struct AdherenceSnapshot: Equatable, Sendable {
     var streakDays: Int
+    var longestStreakDays: Int
     var takenCount: Int
     var takenLateCount: Int
     var missedCount: Int
@@ -176,7 +177,8 @@ final class CheckMedStore {
         let hasPlan = hasExistingTreatments
         if session.hasConfirmedMedicationPlan || (session.hasCompletedOnboarding && hasPlan) {
             if hasPlan { session.markMedicationPlanConfirmed() }
-            setSurfacesPlan(hasPlan || session.hasConfirmedMedicationPlan)
+            // Confirmed flags must not surface an empty Home. Only real treatments.
+            setSurfacesPlan(hasPlan)
             if !session.didPurgeUnconfirmedPlans(ownerId: owner) {
                 session.markDidPurgeUnconfirmedPlans(ownerId: owner)
             }
@@ -975,6 +977,23 @@ final class CheckMedStore {
 
     func unresolvedDosesForSummary(now: Date = Date()) -> [UnresolvedDose] {
         _ = revision
+        return unresolvedDosesMatchingSummaryRules(now: now)
+            .filter { !MissedDoseAcknowledgement.contains($0.id) }
+            .sorted { $0.scheduledAt < $1.scheduledAt }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    /// Window/status matches before acknowledgement and the max-8 cap. Diagnostic only.
+    func missedSummaryDiagnosticCounts(now: Date = Date()) -> (unresolved: Int, acknowledged: Int, eligible: Int) {
+        let matching = unresolvedDosesMatchingSummaryRules(now: now)
+        let acknowledged = matching.filter { MissedDoseAcknowledgement.contains($0.id) }.count
+        let eligible = unresolvedDosesForSummary(now: now).count
+        return (matching.count, acknowledged, eligible)
+    }
+
+    /// Same status / 36h / active-treatment rules as the summary sheet, including acknowledged logs.
+    private func unresolvedDosesMatchingSummaryRules(now: Date) -> [UnresolvedDose] {
         guard surfacesPlan else { return [] }
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
@@ -998,7 +1017,6 @@ final class CheckMedStore {
                 // Same-day import: backfilled morning slots are not a miss.
                 return nil
             }
-            guard !MissedDoseAcknowledgement.contains(log.id) else { return nil }
             return UnresolvedDose(
                 id: log.id,
                 medicine: medicine.name,
@@ -1008,9 +1026,6 @@ final class CheckMedStore {
                 status: status
             )
         }
-        .sorted { $0.scheduledAt < $1.scheduledAt }
-        .prefix(8)
-        .map { $0 }
     }
 
     func completeTreatment(id: UUID) {
@@ -1494,6 +1509,7 @@ final class CheckMedStore {
             FreezeDiag.log("adherence END (no plan)")
             return AdherenceSnapshot(
                 streakDays: 0,
+                longestStreakDays: 0,
                 takenCount: 0,
                 takenLateCount: 0,
                 missedCount: 0,
@@ -1547,6 +1563,7 @@ final class CheckMedStore {
         )
         return AdherenceSnapshot(
             streakDays: streak,
+            longestStreakDays: 0,
             takenCount: takenCount,
             takenLateCount: takenLateCount,
             missedCount: missedCount,
@@ -2142,6 +2159,50 @@ final class CheckMedStore {
         _ = now
         FreezeDiag.log(String(format: "streakDays END counted=%d %.0fms", counted, Date().timeIntervalSince(t0) * 1000))
         return counted
+    }
+
+    /// Longest consecutive streak using the same day rule as `streakDays`. Read-only.
+    /// Not called from Home rendering — Journey/Progress only.
+    func longestAdherenceStreak() -> Int {
+        _ = revision
+        guard surfacesPlan else { return 0 }
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        return max(streakDays(now: now, today: today), longestStreakDays(now: now, today: today))
+    }
+
+    private func longestStreakDays(now: Date, today: Date) -> Int {
+        let history = logs()
+        guard !history.isEmpty else { return 0 }
+        var byDay: [TimeInterval: [DoseLogStatus]] = [:]
+        byDay.reserveCapacity(min(history.count, 400))
+        let floor = calendar.date(byAdding: .day, value: -400, to: today) ?? today
+        for log in history {
+            guard log.scheduledAt >= floor else { continue }
+            let day = calendar.startOfDay(for: log.scheduledAt)
+            let status = DoseLogStatus(rawValue: log.status) ?? .pending
+            byDay[day.timeIntervalSince1970, default: []].append(status)
+        }
+        guard let earliest = byDay.keys.min() else { return 0 }
+        var cursor = Date(timeIntervalSince1970: earliest)
+        var run = 0
+        var best = 0
+        while cursor <= today {
+            let statuses = byDay[cursor.timeIntervalSince1970] ?? []
+            let isToday = calendar.isDate(cursor, inSameDayAs: today)
+            if statuses.isEmpty {
+                if !isToday { run = 0 }
+            } else if Gamification.dayContributesToStreak(statuses: statuses, isToday: isToday) {
+                run += 1
+                if run > best { best = run }
+            } else {
+                run = 0
+            }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
+            cursor = next
+        }
+        _ = now
+        return best
     }
 
     private func activeTreatments() -> [TreatmentRecord] {

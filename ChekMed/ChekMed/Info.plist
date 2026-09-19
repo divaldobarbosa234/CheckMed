@@ -9,7 +9,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>CheckMed uses your location only to search nearby pharmacies. Availability is not a medical recommendation — confirm stock with the pharmacy.</string>
 	<key>NSAlarmKitUsageDescription</key>
-	<string>CheckMed uses alarms for medication dose times so Phil can wake the device even in Silent or Focus. Taken and Skip cancel or reschedule the next dose.</string>
+	<string>CheckMed uses alarms for medication dose times so Phil can wake the device even in Silent or Focus. Stopping or snoozing an alarm does not mark a dose as taken — only an explicit confirmation does.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>

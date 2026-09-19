@@ -21,7 +21,6 @@ struct PaywallView: View {
             session.t(.paywallSuper1),
             session.t(.paywallSuper2),
             session.t(.paywallSuper3),
-            session.t(.paywallSuper4),
             session.t(.paywallSuper5),
             session.t(.paywallSuper6),
             session.t(.paywallSuper7),
@@ -348,6 +347,7 @@ struct OnboardingSuperTrialView: View {
     @Environment(EntitlementStore.self) private var entitlements
 
     var onFinished: () -> Void
+    @State private var didFinish = false
 
     private var trialProduct: Product? {
         entitlements.yearlyProduct ?? entitlements.monthlyProduct
@@ -392,16 +392,22 @@ struct OnboardingSuperTrialView: View {
         }
         .task {
             await entitlements.refresh()
-            if entitlements.isSuper { onFinished() }
+            if entitlements.isSuper { finishOnce() }
         }
         .onChange(of: entitlements.isSuper) { _, isSuper in
-            if isSuper { onFinished() }
+            if isSuper { finishOnce() }
         }
+    }
+
+    private func finishOnce() {
+        guard !didFinish else { return }
+        didFinish = true
+        onFinished()
     }
 
     private var closeRow: some View {
         HStack {
-            Button(action: onFinished) {
+            Button(action: finishOnce) {
                 Image(systemName: "xmark")
                     .font(.system(size: 17, weight: .heavy))
                     .foregroundStyle(.white)
@@ -453,7 +459,7 @@ struct OnboardingSuperTrialView: View {
             .disabled(trialProduct == nil || entitlements.isLoading)
             .opacity(trialProduct == nil ? 0.65 : 1)
 
-            Button(session.t(.paywallNotNow), action: onFinished)
+            Button(session.t(.paywallNotNow), action: finishOnce)
                 .font(.system(.body, design: .rounded).weight(.heavy))
                 .foregroundStyle(.white)
                 .padding(.vertical, 8)

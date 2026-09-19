@@ -104,11 +104,20 @@ struct ResumePlanSetupFlow: View {
                             #endif
                             return
                         }
-                        let ok = treatments.seedFromDrafts(
-                            capped,
-                            ownerId: session.planOwnerId,
-                            profileId: session.planProfileId
-                        )
+                        let ok: Bool
+                        if treatments.existingActivePlanId() != nil {
+                            ok = treatments.addFromDrafts(
+                                capped,
+                                ownerId: session.planOwnerId,
+                                profileId: session.planProfileId
+                            )
+                        } else {
+                            ok = treatments.seedFromDrafts(
+                                capped,
+                                ownerId: session.planOwnerId,
+                                profileId: session.planProfileId
+                            )
+                        }
                         guard ok else {
                             #if DEBUG
                             print("[CheckMed] resume seedFromDrafts failed")
@@ -125,25 +134,30 @@ struct ResumePlanSetupFlow: View {
                 )
             case .planResume:
                 PlanResumeView(
-                    drafts: drafts.filter(\.hasMedicineName),
+                    drafts: journeyDrafts(),
                     showsAddMore: false,
                     onContinue: { advanceAfterJourney() },
-                    onBack: { phase = .confirm }
+                    onBack: {
+                        if session.hasConfirmedMedicationPlan { return }
+                        phase = .confirm
+                    }
                 )
             case .notifications:
                 NotificationsPermissionView(
                     secondaryTitle: session.t(.skip),
                     onEnable: { advancePostJourneyFrom(.notifications) },
                     onSecondary: { advancePostJourneyFrom(.notifications) },
-                    onBack: { session.showResumeSetup = false }
+                    onBack: {
+                        session.syncPostJourneyStep(.alarms)
+                        phase = .alarmSetup
+                    }
                 )
             case .alarmSetup:
                 AlarmSetupView(
                     onEnable: { advancePostJourneyFrom(.alarms) },
                     onSkip: { advancePostJourneyFrom(.alarms) },
                     onBack: {
-                        session.syncPostJourneyStep(.notifications)
-                        phase = .notifications
+                        phase = .planResume
                     }
                 )
             case .trial:
@@ -184,14 +198,29 @@ struct ResumePlanSetupFlow: View {
         }
     }
 
+    private func journeyDrafts() -> [OnboardingPrescriptionDraft] {
+        let stored = treatments.draftsFromActivePlan().filter(\.hasMedicineName)
+        if !stored.isEmpty { return stored }
+        return drafts.filter(\.hasMedicineName)
+    }
+
     private func advanceAfterJourney() {
         session.startPostJourneyQueue()
-        phase = .notifications
+        phase = .alarmSetup
     }
 
     private func advancePostJourneyFrom(_ step: SessionStore.PostJourneyStep) {
         if session.postJourneyStep == nil {
-            session.startPostJourneyQueue()
+            if session.pendingPostJourneySetup {
+                session.startPostJourneyQueue()
+            } else {
+                finishToHome()
+                return
+            }
+        }
+        if session.postJourneyStep == .philReady || session.postJourneyStep == .done {
+            finishToHome()
+            return
         }
         if session.postJourneyStep != step {
             session.syncPostJourneyStep(step)
@@ -222,25 +251,25 @@ struct ResumePlanSetupFlow: View {
             phase = uiPhase(for: step)
             return
         }
-        if session.pendingPostJourneySetup {
-            session.startPostJourneyQueue()
-            phase = .notifications
-            return
-        }
         if !drafts.contains(where: \.hasMedicineName), !session.hasConfirmedMedicationPlan {
             phase = .confirm
             return
         }
-        // Confirmed plan mid unfinished setup: start linear chain at notifications.
-        session.startPostJourneyQueue()
-        phase = .notifications
+        // Confirmed / armed: Your Journey first. Continue starts alarms → notifications → trial → Phil.
+        phase = .planResume
     }
 
     private func finishToHome() {
         session.markOnboardingPaywallOffered()
         treatments.setSurfacesPlan(true)
-        path.reload()
         session.finishResumeSetup()
+        Task {
+            path.reload()
+            ReminderScheduler.shared.reschedule()
+        }
+        Task {
+            await treatments.onNeedsSync?()
+        }
     }
 }
 

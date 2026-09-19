@@ -63,17 +63,20 @@ final class AuthManager {
     var isGoogleConfigured: Bool { AuthConfig.isGoogleConfigured }
     var userId: UUID? { client?.auth.currentUser?.id }
 
-    /// Called before `isAuthenticated` flips on, so routing can avoid a Home flash.
-    @ObservationIgnored
-    var onBeforeAuthenticated: ((_ isRestore: Bool) -> Void)?
-    /// Called when a session is restored (`true`) or the user just signed in (`false`).
+    /// Report only. SessionStore decides restore / navigation after this.
     @ObservationIgnored
     var onAuthenticated: ((_ isRestore: Bool) async -> Void)?
+    /// Fired once when the launch session is known (signed in or not). Never waits for SyncEngine.
+    @ObservationIgnored
+    var onSessionCheckFinished: (() -> Void)?
+    private var authEventCount = 0
 
     private var client: SupabaseClient?
     private var listenerTask: Task<Void, Never>?
     private var didStart = false
     private var sawInitialSession = false
+    /// Invalidates leftover Keychain sign-out so it cannot wipe a live Google session.
+    private var leftoverSignOutGeneration = 0
     private let appleSignIn = AppleSignInCoordinator()
     private var pendingAppleDisplayName: String?
 
@@ -84,34 +87,49 @@ final class AuthManager {
         configureClient()
         configureGoogle()
         guard let client else {
-            isRestoring = false
+            releaseRestoreGate(reason: "no supabase client")
             return
         }
         listen(to: client)
+        LaunchLog.auth("checkingSession start skipPersisted=\(skipPersistedSession)")
         if skipPersistedSession {
+            leftoverSignOutGeneration += 1
+            let generation = leftoverSignOutGeneration
+            apply(session: nil)
+            releaseRestoreGate(reason: "new install")
             Task { [weak self] in
                 GIDSignIn.sharedInstance.signOut()
+                guard let self, generation == self.leftoverSignOutGeneration, !self.isAuthenticated else {
+                    LaunchLog.auth("skip leftover signOut — Google/session already present")
+                    return
+                }
                 do {
-                    try await client.auth.signOut()
+                    try await NetworkDeadline.run(seconds: 12) {
+                        try await client.auth.signOut()
+                    }
                 } catch {
-                    // Storage already wiped; SDK may error with no session.
+                    LaunchLog.error("signOut during skip-restore: \(error.localizedDescription)")
                 }
-                await MainActor.run {
-                    guard let self else { return }
-                    self.apply(session: nil)
-                    self.sawInitialSession = true
-                    self.isRestoring = false
+                guard generation == self.leftoverSignOutGeneration, !self.isAuthenticated else {
+                    LaunchLog.auth("skip leftover signOut apply — session already present")
+                    return
                 }
+                self.apply(session: nil)
             }
         }
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            await MainActor.run {
-                guard let self, !self.sawInitialSession else { return }
-                self.sawInitialSession = true
-                self.isRestoring = false
-            }
+    }
+
+    /// Launch restore ends when the first auth event (or explicit no-session)
+    /// is known. Never set `isRestoring = true` again in this process.
+    private func releaseRestoreGate(reason: String) {
+        sawInitialSession = true
+        guard isRestoring else {
+            onSessionCheckFinished?()
+            return
         }
+        isRestoring = false
+        onSessionCheckFinished?()
+        LaunchLog.auth("checkingSession complete authenticated=\(isAuthenticated) reason=\(reason)")
     }
 
     func clearMessages() {
@@ -215,7 +233,9 @@ final class AuthManager {
             return
         }
 
+        leftoverSignOutGeneration += 1
         isLoading = true
+        LaunchLog.auth("Starting Google sign-in")
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleClientID)
 
         do {
@@ -223,6 +243,9 @@ final class AuthManager {
                 client: client,
                 presenter: presenter,
                 retryOnKeychain: true
+            )
+            LaunchLog.auth(
+                "Google callback user=\(client.auth.currentUser?.id.uuidString ?? "nil")"
             )
         } catch {
             if Self.isGoogleCancel(error) {
@@ -324,19 +347,29 @@ final class AuthManager {
     }
 
     private func listen(to client: SupabaseClient) {
-        listenerTask?.cancel()
+        if listenerTask != nil {
+            LaunchLog.auth("listener removed")
+            listenerTask?.cancel()
+        }
         listenerTask = Task { [weak self] in
+            LaunchLog.auth("listener registered")
             for await (event, session) in client.auth.authStateChanges {
                 await self?.handleAuthChange(event, session)
             }
+            LaunchLog.auth("listener removed")
         }
     }
 
     private func handleAuthChange(_ event: AuthChangeEvent, _ session: Session?) async {
+        authEventCount += 1
+        LaunchLog.auth(
+            "Auth listener fired event=\(event) count=\(authEventCount) hasSession=\(session != nil) "
+                + "user=\(session?.user.id.uuidString ?? "nil")"
+        )
         if CheckMedAuthPersistence.skipRestoreThisProcess, event == .initialSession {
             apply(session: nil)
-            sawInitialSession = true
-            isRestoring = false
+            releaseRestoreGate(reason: "ignore leftover session")
+            LaunchLog.auth("checkingSession ignore leftover session (new install)")
             if session != nil, let client {
                 do {
                     try await client.auth.signOut()
@@ -349,12 +382,13 @@ final class AuthManager {
         }
         let wasAuthenticated = isAuthenticated
         let sameUser = wasAuthenticated && session?.user.id != nil && session?.user.id == userId
+        apply(session: session)
+        // Session known — leave the branded restore screen before any profile/replica work.
+        if event == .initialSession || event == .signedOut || session != nil {
+            releaseRestoreGate(reason: "event=\(event)")
+        }
         if event == .signedIn, sameUser {
-            apply(session: session)
-            if !sawInitialSession {
-                sawInitialSession = true
-                isRestoring = false
-            }
+            LaunchLog.auth("signedIn same user — report only, no restore")
             return
         }
         let isRestore: Bool
@@ -366,29 +400,29 @@ final class AuthManager {
         default:
             isRestore = wasAuthenticated
         }
-        if session != nil, event == .initialSession || event == .signedIn {
-            onBeforeAuthenticated?(isRestore)
-        }
-        apply(session: session)
         if session != nil {
             switch event {
             case .initialSession:
+                LaunchLog.auth("session found restore=true")
                 await onAuthenticated?(true)
             case .signedIn:
+                LaunchLog.auth("signedIn restore=\(isRestore)")
                 await onAuthenticated?(isRestore)
             default:
                 break
             }
-        }
-        if !sawInitialSession {
-            sawInitialSession = true
-            isRestoring = false
+        } else if event == .initialSession || event == .signedOut {
+            LaunchLog.auth("no session event=\(event)")
         }
     }
 
     private func apply(session: Session?) {
+        let wasAuthenticated = isAuthenticated
         isAuthenticated = session != nil
         email = session?.user.email
+        if session != nil, !wasAuthenticated {
+            LaunchLog.auth("Session created user=\(session?.user.id.uuidString ?? "nil")")
+        }
         if let user = session?.user {
             displayName = Self.inferredDisplayName(from: user)
             if displayName == "friend", let pending = pendingAppleDisplayName, !pending.isEmpty {
@@ -407,20 +441,22 @@ final class AuthManager {
     func fetchProfile() async -> CheckMedProfile? {
         guard let client, let userId else { return nil }
         do {
-            let rows: [CheckMedProfile] = try await client
-                .from("profiles")
-                .select("id, owner_id, display_name, companion_name, date_of_birth, language, time_zone, pronouns, gender")
-                .eq("owner_id", value: userId.uuidString)
-                .limit(1)
-                .execute()
-                .value
+            let rows: [CheckMedProfile] = try await NetworkDeadline.run(seconds: 15) {
+                try await client
+                    .from("profiles")
+                    .select("id, owner_id, display_name, companion_name, date_of_birth, language, time_zone, pronouns, gender")
+                    .eq("owner_id", value: userId.uuidString)
+                    .limit(1)
+                    .execute()
+                    .value
+            }
             if let profile = rows.first {
                 displayName = profile.displayName?.nilIfEmpty ?? displayName
                 companionName = profile.companionName.nilIfEmpty ?? "Phil"
                 return profile
             }
         } catch {
-            // Profile is best-effort; a valid session still signs the user in.
+            LaunchLog.error("profile fetch: \(error.localizedDescription)")
         }
         return nil
     }

@@ -37,6 +37,12 @@ extension EntitlementStore {
         return existingCount < SuperLimits.freePrescriptions
     }
 
+    /// Photo/PDF: gate after validated distinct medicine objects (never a hardcoded N).
+    func needsScanSlotLimit(detectedCount: Int, existingCount: Int) -> Bool {
+        guard !isSuper else { return false }
+        return detectedCount > freeMedicineSlotsRemaining(existingCount: existingCount)
+    }
+
     func allowsPhotoPDF(usedCount: Int, existingMedicines: Int) -> Bool {
         if isSuper { return usedCount < SuperLimits.superPhotoPDFItems }
         // Free plan: keep scanning while medicine slots remain.
@@ -90,8 +96,7 @@ enum PrescriptionReader {
     }
 
     private static func normalized(_ extraction: PrescriptionExtraction) -> [OnboardingPrescriptionDraft] {
-        let raw = extraction.drafts.isEmpty ? [extraction.draft] : extraction.drafts
-        let medicines = raw.filter { PrescriptionParser.keepsAsMedicine($0) }
+        let medicines = ScanPipeline.medicines(from: extraction)
         if medicines.isEmpty { return [.empty] }
         return medicines
     }
@@ -125,7 +130,7 @@ enum PrescriptionReader {
             guard let page = document.page(at: index),
                   let cgImage = rasterize(page)
             else { continue }
-            images.append(UIImage(cgImage: cgImage))
+            images.append(UIImage(cgImage: bestOrientedCGImage(cgImage)))
         }
         guard let first = images.first else { return nil }
         if images.count == 1 { return jpeg(from: first) }
@@ -170,7 +175,7 @@ enum PrescriptionReader {
     nonisolated private static func recognizeTextSync(from data: Data) -> String {
         let compact = downsampledJPEG(from: data)
         guard let image = UIImage(data: compact), let cgImage = image.cgImage else { return "" }
-        return ocr(cgImage)
+        return bestOrientedOCR(cgImage)
     }
 
     nonisolated private static func pdfTextSync(from url: URL) -> String {
@@ -190,7 +195,7 @@ enum PrescriptionReader {
         let rasterLimit = min(document.pageCount, 3)
         for index in 0..<rasterLimit {
             guard let page = document.page(at: index), let image = rasterize(page) else { continue }
-            ocrText += ocr(image)
+            ocrText += bestOrientedOCR(image)
             ocrText += "\n"
         }
         return (text + "\n" + ocrText).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -198,9 +203,13 @@ enum PrescriptionReader {
 
     nonisolated private static func rasterize(_ page: PDFPage) -> CGImage? {
         let bounds = page.bounds(for: .mediaBox)
-        let longest = max(bounds.width, bounds.height)
+        let rotation = ((page.rotation % 360) + 360) % 360
+        let swapped = rotation == 90 || rotation == 270
+        let drawWidth = swapped ? bounds.height : bounds.width
+        let drawHeight = swapped ? bounds.width : bounds.height
+        let longest = max(drawWidth, drawHeight)
         let scale = longest > 0 ? min(2.2, 1600 / longest) : 1
-        let size = CGSize(width: max(1, bounds.width * scale), height: max(1, bounds.height * scale))
+        let size = CGSize(width: max(1, drawWidth * scale), height: max(1, drawHeight * scale))
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
@@ -211,6 +220,11 @@ enum PrescriptionReader {
             context.cgContext.saveGState()
             context.cgContext.translateBy(x: 0, y: size.height)
             context.cgContext.scaleBy(x: scale, y: -scale)
+            if rotation != 0 {
+                context.cgContext.translateBy(x: drawWidth / 2, y: drawHeight / 2)
+                context.cgContext.rotate(by: -CGFloat(rotation) * .pi / 180)
+                context.cgContext.translateBy(x: -bounds.width / 2, y: -bounds.height / 2)
+            }
             page.draw(with: .mediaBox, to: context.cgContext)
             context.cgContext.restoreGState()
         }
@@ -232,6 +246,79 @@ enum PrescriptionReader {
         }
         let observations = request.results ?? []
         return observations.compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+    }
+
+    /// Try 0° and 180° (and 90/270 if both look inverted). Pick the span with table headers + drug+strength hits.
+    nonisolated private static func bestOrientedOCR(_ image: CGImage) -> String {
+        bestOriented(image).text
+    }
+
+    nonisolated private static func bestOrientedCGImage(_ image: CGImage) -> CGImage {
+        bestOriented(image).image
+    }
+
+    nonisolated private static func bestOriented(_ image: CGImage) -> (image: CGImage, text: String) {
+        let text0 = ocr(image)
+        var bestImage = image
+        var bestText = text0
+        var bestScore = ocrOrientationScore(text0)
+        if let rotated = rotate(image, degrees: 180) {
+            let text = ocr(rotated)
+            let score = ocrOrientationScore(text)
+            if score > bestScore {
+                bestScore = score
+                bestText = text
+                bestImage = rotated
+            }
+        }
+        if bestScore < 8 {
+            for degrees in [90, 270] {
+                guard let rotated = rotate(image, degrees: degrees) else { continue }
+                let text = ocr(rotated)
+                let score = ocrOrientationScore(text)
+                if score > bestScore {
+                    bestScore = score
+                    bestText = text
+                    bestImage = rotated
+                }
+            }
+        }
+        return (bestImage, bestText)
+    }
+
+    nonisolated private static func ocrOrientationScore(_ text: String) -> Int {
+        let folded = MedicationCatalogEntry.fold(text)
+        guard folded.count >= 8 else { return 0 }
+        var score = 0
+        let headers = ["medicamento", "dosis", "indicacion", "indicaciones", "medicine", "dose", "receta", "receita", "ordonnance"]
+        for header in headers where folded.contains(header) {
+            score += 6
+        }
+        score += PrescriptionParser.strengthHits(in: text).count * 8
+        score += MedicationCatalog.wholeWordHits(in: text).count * 2
+        return score
+    }
+
+    nonisolated private static func rotate(_ image: CGImage, degrees: Int) -> CGImage? {
+        let turn = ((degrees % 360) + 360) % 360
+        if turn == 0 { return image }
+        let swapped = turn == 90 || turn == 270
+        let size = swapped
+            ? CGSize(width: image.height, height: image.width)
+            : CGSize(width: image.width, height: image.height)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let rendered = renderer.image { context in
+            UIColor.white.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            context.cgContext.translateBy(x: size.width / 2, y: size.height / 2)
+            context.cgContext.rotate(by: CGFloat(turn) * .pi / 180)
+            let rect = CGRect(x: -CGFloat(image.width) / 2, y: -CGFloat(image.height) / 2, width: CGFloat(image.width), height: CGFloat(image.height))
+            context.cgContext.draw(image, in: rect)
+        }
+        return rendered.cgImage
     }
 }
 
@@ -270,6 +357,10 @@ enum PrescriptionParser {
         "age", "idade", "edad", "âge", "sex", "sexo", "gender", "gênero",
         "weight", "peso", "dr",
         "si", "if", "cuando", "quando", "warning", "aviso",
+        "medicamento", "medicamentos", "dosis", "dosi", "indicaciones", "indicacion",
+        "observaciones", "observacoes", "nacimiento", "nascimento", "colegiado",
+        "tratamiento", "tratamento", "antibiotico", "antibiótico", "sintomas", "síntomas",
+        "finalizar", "contacto", "contacte", "receta", "médica", "medica",
     ]
 
     private static let boilerplateSnippets = [
@@ -319,13 +410,35 @@ enum PrescriptionParser {
                 next.packageUnit = globalPackage.unit
             }
             next.form = MedicineForm.infer(from: next.dose, medicineName: next.medicine).rawValue
+            if next.sourceText.isEmpty {
+                next.sourceText = next.medicine
+            }
             return next
+        }
+
+        let tableRows = parseMedicationTable(lines: lines, fallback: cleaned)
+        if !tableRows.isEmpty {
+            for row in tableRows {
+                let key = distinctObjectKey(row)
+                guard keepsAsMedicine(row), seen.insert(key).inserted else { continue }
+                drafts.append(enrich(row))
+                if drafts.count >= limit { return drafts }
+            }
+            if !drafts.isEmpty { return drafts }
         }
 
         for (index, line) in lines.enumerated() {
             let nearby = nearbyText(lines: lines, index: index)
             for hit in strengthHits(in: line) {
-                let key = canonicalMedicineKey("\(hit.name) \(hit.strength)")
+                let key = distinctObjectKey(
+                    OnboardingPrescriptionDraft(
+                        medicine: "\(hit.name) \(hit.strength)",
+                        dose: "",
+                        frequency: "",
+                        duration: "",
+                        timesPerDay: ""
+                    )
+                )
                 guard PrescriptionParser.keepsAsMedicineName(hit.name), seen.insert(key).inserted else { continue }
                 drafts.append(
                     enrich(
@@ -337,7 +450,8 @@ enum PrescriptionParser {
                             timesPerDay: nonempty(
                                 findTimesPerDay(in: nearby),
                                 findTimesPerDay(in: cleaned)
-                            )
+                            ),
+                            sourceText: nearby
                         )
                     )
                 )
@@ -367,7 +481,8 @@ enum PrescriptionParser {
                             timesPerDay: nonempty(
                                 findTimesPerDay(in: nearby),
                                 findTimesPerDay(in: cleaned)
-                            )
+                            ),
+                            sourceText: nearby
                         )
                     )
                 )
@@ -395,7 +510,8 @@ enum PrescriptionParser {
                                 dose: globalDose,
                                 frequency: globalFrequency,
                                 duration: globalDuration,
-                                timesPerDay: findTimesPerDay(in: cleaned)
+                                timesPerDay: findTimesPerDay(in: cleaned),
+                                sourceText: String(cleaned[nameRange])
                             )
                         )
                     )
@@ -409,7 +525,10 @@ enum PrescriptionParser {
                 let words = line.split(separator: " ").map(String.init)
                 guard words.count <= 4, words.allSatisfy({ $0.first?.isLetter == true }) else { continue }
                 let key = canonicalMedicineKey(line)
-                guard isPlausibleName(line), looksLikeDrugToken(line), seen.insert(key).inserted else { continue }
+                let catalogExact = MedicationCatalog.wholeWordHits(in: line).contains {
+                    MedicationCatalogEntry.fold($0) == MedicationCatalogEntry.fold(line.split(separator: " ").first.map(String.init) ?? line)
+                }
+                guard isPlausibleName(line), catalogExact, seen.insert(key).inserted else { continue }
                 drafts.append(
                     enrich(
                         OnboardingPrescriptionDraft(
@@ -417,7 +536,8 @@ enum PrescriptionParser {
                             dose: globalDose,
                             frequency: globalFrequency,
                             duration: globalDuration,
-                            timesPerDay: findTimesPerDay(in: cleaned)
+                            timesPerDay: findTimesPerDay(in: cleaned),
+                            sourceText: line
                         )
                     )
                 )
@@ -426,6 +546,94 @@ enum PrescriptionParser {
         }
 
         return drafts
+    }
+
+    /// Prefer Medicamento | Dosis | Indicaciones rows. One object per distinct row.
+    private static func parseMedicationTable(lines: [String], fallback: String) -> [OnboardingPrescriptionDraft] {
+        guard let headerIndex = lines.firstIndex(where: isMedicationTableHeader) else { return [] }
+        var rows: [OnboardingPrescriptionDraft] = []
+        var index = headerIndex + 1
+        while index < lines.count {
+            let line = lines[index]
+            if isTableStop(line) { break }
+            if isMedicationTableHeader(line) {
+                index += 1
+                continue
+            }
+            let nearby = nearbyText(lines: lines, index: index)
+            if let hit = strengthHits(in: line).first, keepsAsMedicineName(hit.name) {
+                let follow = index + 1 < lines.count ? lines[index + 1] : ""
+                let span = [line, follow].filter { !$0.isEmpty }.joined(separator: "\n")
+                rows.append(
+                    OnboardingPrescriptionDraft(
+                        medicine: "\(hit.name) \(hit.strength)",
+                        dose: nonempty(findDose(in: nearby), findDose(in: fallback)),
+                        frequency: nonempty(findFrequency(in: nearby), findFrequency(in: fallback)),
+                        duration: nonempty(findDuration(in: nearby), findDuration(in: fallback)),
+                        timesPerDay: nonempty(findTimesPerDay(in: nearby), findTimesPerDay(in: fallback)),
+                        sourceText: span
+                    )
+                )
+                index += 1
+                continue
+            }
+            index += 1
+        }
+        return rows
+    }
+
+    private static func isMedicationTableHeader(_ line: String) -> Bool {
+        let folded = MedicationCatalogEntry.fold(line)
+        let hasMedicine = folded.contains("medicamento") || folded.contains("medicine") || folded.contains("medicament")
+        let hasDose = folded.contains("dosis") || folded.contains("dose") || folded.contains("posolog")
+        return hasMedicine && hasDose
+    }
+
+    private static func isTableStop(_ line: String) -> Bool {
+        let folded = MedicationCatalogEntry.fold(line)
+        let stops = [
+            "observacion", "observacao", "fecha de nacimiento", "nombre del paciente",
+            "nome do paciente", "receta medica", "receita medica", "firma", "assinatura",
+        ]
+        return stops.contains(where: { folded.contains($0) })
+    }
+
+    static func findPrescriptionDate(in raw: String) -> Date? {
+        let folded = raw.lowercased()
+        let pattern = #"(?i)(?:fecha|date|data)\s*(?:de\s+(?:la\s+)?(?:receta|receita|prescription))?\s*[:\-]?\s*(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4})"#
+        guard let text = firstGroup(pattern, in: raw) else { return nil }
+        if folded.contains("nacimiento") || folded.contains("birth") || folded.contains("nascimento") {
+            let birth = folded.range(of: "nacimiento") ?? folded.range(of: "nascimento") ?? folded.range(of: "birth")
+            if let birth, let hit = folded.range(of: text.lowercased()), hit.lowerBound > birth.lowerBound {
+                return nil
+            }
+        }
+        return parsePrintedDate(text)
+    }
+
+    private static func parsePrintedDate(_ text: String) -> Date? {
+        let cleaned = text.replacingOccurrences(of: "-", with: "/").replacingOccurrences(of: ".", with: "/")
+        let parts = cleaned.split(separator: "/").map(String.init)
+        guard parts.count == 3,
+              let day = Int(parts[0]), let month = Int(parts[1]), var year = Int(parts[2])
+        else { return nil }
+        if year < 100 { year += 2000 }
+        var components = DateComponents()
+        components.day = day
+        components.month = month
+        components.year = year
+        return Calendar.current.date(from: components)
+    }
+
+    /// Normalized name + strength + form. Does not fuzzy-merge brands.
+    static func distinctObjectKey(_ draft: OnboardingPrescriptionDraft) -> String {
+        let folded = MedicationCatalogEntry.fold(draft.medicine)
+        let strength = strengthHits(in: draft.medicine).first?.strength
+            ?? draft.medicine.lowercased().split(whereSeparator: { $0.isNumber || $0 == "." || $0 == "," }).joined()
+        let form = draft.form.isEmpty
+            ? MedicineForm.infer(from: draft.dose, medicineName: draft.medicine).rawValue
+            : draft.form
+        return "\(folded)|\(strength)|\(form.lowercased())"
     }
 
     private static func numberedItem(in line: String) -> String? {
@@ -448,12 +656,12 @@ enum PrescriptionParser {
         preferred.isEmpty ? fallback : preferred
     }
 
-    private struct StrengthHit {
+    struct StrengthHit {
         var name: String
         var strength: String
     }
 
-    private static func strengthHits(in line: String) -> [StrengthHit] {
+    static func strengthHits(in line: String) -> [StrengthHit] {
         let strength = try? NSRegularExpression(
             pattern: #"(?i)\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]{2,}(?:\s+[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'’\-]{2,}){0,3})\s+(\d+(?:[.,]\d+)?\s*(?:mg|mcg|µg|ug|g|ml|ui|iu|%|miligramos?|milligrams?))\b"#
         )

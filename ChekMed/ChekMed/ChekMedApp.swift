@@ -110,6 +110,7 @@ struct ChekMedApp: App {
             treatments.bindIdentity(ownerId: ownerId, profileId: profileId)
             treatments.setTimeZone(session.foundationTimeZone)
             family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
+            applyLoadedPlanVisibility()
         }
         session.onPhilPlanPersist = { [treatments] status in
             treatments.setPhilPlanStatus(status)
@@ -130,15 +131,14 @@ struct ChekMedApp: App {
                 treatments.adoptProfile(from: session.localPlanProfileId, to: remoteId)
             }
             family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
-            _ = treatments.reconcileUnconfirmedMedicationPlan(session: session)
-            if treatments.hasExistingTreatments {
-                session.markMedicationPlanConfirmed()
-                treatments.setSurfacesPlan(true)
-            }
+            applyLoadedPlanVisibility()
             return SessionStore.UserDataRestoreResult(
                 hasTreatments: treatments.hasExistingTreatments,
                 failed: restore.failed && !treatments.hasExistingTreatments
             )
+        }
+        if session.isSessionUnlocked {
+            applyLoadedPlanVisibility()
         }
         if session.kind != .authenticated {
             _ = treatments.reconcileUnconfirmedMedicationPlan(session: session)
@@ -146,5 +146,23 @@ struct ChekMedApp: App {
         }
         treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
         session.startAuthIfNeeded()
+    }
+
+    /// Show Home treatments from local SwiftData as soon as identity is bound.
+    /// Replica may still run in the background; that must not keep `surfacesPlan` false.
+    private func applyLoadedPlanVisibility() {
+        _ = treatments.reconcileUnconfirmedMedicationPlan(session: session)
+        if treatments.hasExistingTreatments {
+            if !session.hasConfirmedMedicationPlan {
+                session.markMedicationPlanConfirmed()
+            }
+            if treatments.hasActivePlan {
+                treatments.setSurfacesPlan(true)
+            }
+        }
+        session.notePlanSurfaceReady()
+        if treatments.surfacesPlan {
+            LaunchLog.restore("plan surface localTreatments=\(treatments.hasExistingTreatments) active=\(treatments.hasActivePlan)")
+        }
     }
 }

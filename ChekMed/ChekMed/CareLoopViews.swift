@@ -84,12 +84,28 @@ struct JourneyReportScreen: View {
         return treatments.journeyReports()
     }
 
+    private var journeyGame: GamificationSnapshot {
+        let stats = treatments.adherence()
+        return Gamification.snapshot(
+            nodes: treatments.todayNodes(),
+            currentStreak: stats.streakDays,
+            longestStreak: treatments.longestAdherenceStreak(),
+            hasActiveTreatment: treatments.activeMedicineCount > 0
+        )
+    }
+
     var body: some View {
         ScreenScaffold(
             title: session.t(.journeyTitle),
             bubble: session.t(.journeyBubble)
         ) {
             // Free users can browse/view; Super gates share/export.
+            if journeyGame.isActive {
+                JourneyGamificationCard(
+                    snapshot: journeyGame,
+                    history: treatments.dayStatuses()
+                )
+            }
             if reports.isEmpty {
                 Text(session.t(.journeyEmpty))
                     .font(.system(.body, design: .rounded).weight(.bold))
@@ -163,7 +179,6 @@ struct CommunityScreen: View {
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
     @State private var medicine = ""
-    @State private var draft = ""
 
     private var query: String {
         let typed = medicine.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -189,19 +204,6 @@ struct CommunityScreen: View {
             }
             ForEach(comments) { row in
                 commentCard(author: row.author, body: row.body)
-            }
-            TextField(session.t(.communityPlaceholder), text: $draft, axis: .vertical)
-                .lineLimit(2...4)
-                .padding(14)
-                .background(CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            CheckMedButton(title: session.t(.communityPost)) {
-                treatments.addComment(
-                    medicineName: query,
-                    author: session.displayName,
-                    body: draft
-                )
-                draft = ""
             }
         }
     }
@@ -258,6 +260,7 @@ struct PharmacySearchScreen: View {
     @State private var userLocation: CLLocation?
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var selectedResultID: String?
+    @State private var showPremiumGate = false
 
     var body: some View {
         ScreenScaffold(
@@ -309,6 +312,12 @@ struct PharmacySearchScreen: View {
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.safety)
         }
+        .alert(session.t(.pharmacyPremiumOnly), isPresented: $showPremiumGate) {
+            Button(session.t(.pharmacyStartTrial)) {
+                entitlements.presentPaywall()
+            }
+            Button(session.t(.cancel), role: .cancel) {}
+        }
         .onAppear {
             seedQueryIfNeeded()
         }
@@ -333,7 +342,7 @@ struct PharmacySearchScreen: View {
 
     private func runSearchOrPaywall() async {
         guard entitlements.canSearchPharmacies else {
-            entitlements.presentPaywall()
+            showPremiumGate = true
             return
         }
         await search()
