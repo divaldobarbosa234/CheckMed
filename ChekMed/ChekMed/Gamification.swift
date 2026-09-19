@@ -4,6 +4,8 @@ import Foundation
 /// Never writes SwiftData. Never confirms, creates, or edits doses.
 enum Gamification {
     static let milestoneDays = [1, 3, 7, 14, 21, 30, 60, 90]
+    /// Phase 1 overlay reactions only.
+    static let reactionMilestones = [1, 3, 7]
 
     /// Same past-day rule as `CheckMedStore.streakDays`:
     /// a past day counts when it has at least one confirmed-taken log and no open or missed-like logs.
@@ -25,17 +27,22 @@ enum Gamification {
         nodes: [DoseNode],
         currentStreak: Int,
         longestStreak: Int,
-        hasActiveTreatment: Bool
+        hasActiveTreatment: Bool,
+        todayTaken: Int? = nil,
+        todayScheduled: Int? = nil
     ) -> GamificationSnapshot {
         guard hasActiveTreatment else {
             return .inactive
         }
-        let required = nodes.count
-        let taken = nodes.filter { $0.status == .done }.count
-        let skipped = nodes.filter { $0.status == .skipped }.count
+        let nodeTaken = nodes.filter { $0.status == .done }.count
+        let nodeSkipped = nodes.filter { $0.status == .skipped }.count
         let remaining = nodes.filter { $0.status != .done && $0.status != .skipped }.count
+        let taken = todayTaken ?? nodeTaken
+        let required = max(todayScheduled ?? 0, nodes.count)
+        let absentFromPath = max(0, required - nodes.count)
+        let skipped = nodeSkipped + absentFromPath
         let complete = required > 0 && taken == required
-        let needsAttention = skipped > 0
+        let needsAttention = skipped > 0 && !complete
         let lines: [ChallengeDoseLine] = nodes.map { node in
             ChallengeDoseLine(
                 id: node.id,
@@ -76,7 +83,13 @@ enum Gamification {
     }
 
     static func highestMilestone(atOrBelow streak: Int) -> Int {
-        milestoneDays.last { $0 <= streak } ?? 0
+        reactionMilestones.last { $0 <= streak } ?? 0
+    }
+
+    static func philDoseReaction(takenCount: Int) -> GameCelebrate {
+        if takenCount <= 1 { return .tookFirst }
+        if takenCount == 2 { return .tookOnTrack }
+        return .tookKeepGoing
     }
 
     private static func coachContext(
@@ -95,7 +108,7 @@ enum Gamification {
             return .needsAttention
         }
         if complete {
-            if milestoneDays.contains(currentStreak) {
+            if reactionMilestones.contains(currentStreak) {
                 return .milestone(currentStreak)
             }
             return .challengeComplete
@@ -176,7 +189,9 @@ struct GamificationSnapshot: Equatable, Sendable {
 }
 
 enum GameCelebrate: Equatable {
-    case took(String)
+    case tookFirst
+    case tookOnTrack
+    case tookKeepGoing
     case dayComplete
     case milestone(Int)
     case needsAttention
@@ -247,6 +262,46 @@ enum GamificationContractChecks {
         )
         expect(snap.takenCount == 1 && snap.requiredCount == 2, "challenge counts dose events not medicines")
         expect(!snap.isComplete, "incomplete until every scheduled dose is taken")
+        let missed = DoseNode(id: "3", time: "20:00", medicine: "C", detail: "1 tab", status: .skipped)
+        let sevenTaken = (1...7).map { DoseNode(id: "t\($0)", time: "08:00", medicine: "M\($0)", status: .done) }
+        let incomplete = Gamification.snapshot(
+            nodes: sevenTaken + [missed],
+            currentStreak: 1,
+            longestStreak: 1,
+            hasActiveTreatment: true,
+            todayTaken: 7,
+            todayScheduled: 8
+        )
+        expect(incomplete.requiredCount == 8 && incomplete.takenCount == 7, "missed stays in denominator")
+        expect(!incomplete.isComplete && incomplete.needsAttention, "7/8 is not challenge complete")
+        let absentMissed = Gamification.snapshot(
+            nodes: sevenTaken,
+            currentStreak: 1,
+            longestStreak: 1,
+            hasActiveTreatment: true,
+            todayTaken: 7,
+            todayScheduled: 8
+        )
+        expect(absentMissed.requiredCount == 8 && !absentMissed.isComplete && absentMissed.needsAttention, "missed logs missing from path still keep denominator")
+        let eightTaken = (1...8).map { DoseNode(id: "d\($0)", time: "08:00", medicine: "M\($0)", status: .done) }
+        let completeDay = Gamification.snapshot(
+            nodes: eightTaken,
+            currentStreak: 1,
+            longestStreak: 1,
+            hasActiveTreatment: true,
+            todayTaken: 8,
+            todayScheduled: 8
+        )
+        expect(completeDay.isComplete && !completeDay.needsAttention, "8/8 is challenge complete")
+        let withFuture = Gamification.snapshot(
+            nodes: sevenTaken + [DoseNode(id: "f", time: "21:00", medicine: "Later", status: .locked)],
+            currentStreak: 1,
+            longestStreak: 1,
+            hasActiveTreatment: true,
+            todayTaken: 7,
+            todayScheduled: 8
+        )
+        expect(!withFuture.isComplete && !withFuture.needsAttention && withFuture.remainingCount == 1, "future remaining is not missed")
         expect(Gamification.snapshot(nodes: [], currentStreak: 0, longestStreak: 0, hasActiveTreatment: false).isActive == false, "no fake challenge without treatment")
         expect(Gamification.dayContributesToStreak(statuses: [.taken], isToday: true), "today counts on first taken")
         expect(!Gamification.dayContributesToStreak(statuses: [.taken, .missed], isToday: false), "past missed day does not count")

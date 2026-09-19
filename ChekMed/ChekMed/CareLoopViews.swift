@@ -89,8 +89,10 @@ struct JourneyReportScreen: View {
         return Gamification.snapshot(
             nodes: treatments.todayNodes(),
             currentStreak: stats.streakDays,
-            longestStreak: treatments.longestAdherenceStreak(),
-            hasActiveTreatment: treatments.activeMedicineCount > 0
+            longestStreak: stats.longestStreakDays,
+            hasActiveTreatment: treatments.activeMedicineCount > 0,
+            todayTaken: stats.todayTaken,
+            todayScheduled: stats.todayTotal
         )
     }
 

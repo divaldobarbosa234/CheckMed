@@ -1003,8 +1003,10 @@ struct DoseCompletedScreen: View {
         return Gamification.snapshot(
             nodes: path.nodes,
             currentStreak: stats.streakDays,
-            longestStreak: treatments.longestAdherenceStreak(),
-            hasActiveTreatment: treatments.activeMedicineCount > 0
+            longestStreak: stats.longestStreakDays,
+            hasActiveTreatment: treatments.activeMedicineCount > 0,
+            todayTaken: stats.todayTaken,
+            todayScheduled: stats.todayTotal
         )
     }
 
@@ -1205,6 +1207,9 @@ struct ProgressDashboardScreen: View {
     @Environment(CheckMedStore.self) private var treatments
 
     private var stats: AdherenceSnapshot { treatments.adherence() }
+    private var hasUpcomingScheduledDose: Bool {
+        treatments.todayNodes().contains { $0.status == .current || $0.status == .locked }
+    }
     private var weekFraction: CGFloat {
         guard let percent = stats.weekPercent else { return 0 }
         return CGFloat(percent) / 100
@@ -1221,8 +1226,10 @@ struct ProgressDashboardScreen: View {
                         snapshot: Gamification.snapshot(
                             nodes: treatments.todayNodes(),
                             currentStreak: stats.streakDays,
-                            longestStreak: treatments.longestAdherenceStreak(),
-                            hasActiveTreatment: true
+                            longestStreak: stats.longestStreakDays,
+                            hasActiveTreatment: true,
+                            todayTaken: stats.todayTaken,
+                            todayScheduled: stats.todayTotal
                         ),
                         history: treatments.dayStatuses()
                     )
@@ -1334,7 +1341,7 @@ struct ProgressDashboardScreen: View {
                     HStack(spacing: 6) {
                         Image(systemName: "pills.fill")
                             .font(.system(size: 11, weight: .bold))
-                        Text(session.t(.progressNextSoon))
+                        Text(hasUpcomingScheduledDose ? session.t(.progressNextSoon) : session.t(.todayNothing))
                             .font(.system(.caption2, design: .rounded).weight(.bold))
                     }
                     .foregroundStyle(CheckMedTheme.primaryShadow)

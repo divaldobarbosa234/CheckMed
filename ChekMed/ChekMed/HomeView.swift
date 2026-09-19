@@ -166,14 +166,24 @@ struct HomeView: View {
         todayMedicines.filter { $0.takeDoseId != nil }.count
     }
 
+    /// Path nodes are empty until `reload()` runs after first layout. Today's
+    /// logs already exist in the store — read them synchronously so Challenge
+    /// keeps its slot above the week card on frame 1.
+    private var challengeNodes: [DoseNode] {
+        path.nodes.isEmpty ? treatments.todayNodes() : path.nodes
+    }
+
     private var progressStats: AdherenceSnapshot { treatments.adherence() }
 
     private var challenge: GamificationSnapshot {
-        Gamification.snapshot(
-            nodes: path.nodes,
-            currentStreak: progressStats.streakDays,
-            longestStreak: progressStats.streakDays,
-            hasActiveTreatment: hasActivePlan && !isPlanVisibilityPending
+        let stats = progressStats
+        return Gamification.snapshot(
+            nodes: challengeNodes,
+            currentStreak: stats.streakDays,
+            longestStreak: stats.longestStreakDays,
+            hasActiveTreatment: hasActivePlan && !isPlanVisibilityPending,
+            todayTaken: stats.todayTaken,
+            todayScheduled: stats.todayTotal
         )
     }
 
@@ -185,11 +195,6 @@ struct HomeView: View {
         !session.restorationComplete
             || !session.isPlanSurfaceReady
             || (treatments.hasActivePlan && treatments.activeMedicineCount == 0)
-    }
-
-    private var progressWeekFraction: CGFloat {
-        guard let percent = progressStats.weekPercent else { return 0 }
-        return CGFloat(percent) / 100
     }
 
     var body: some View {
@@ -210,15 +215,31 @@ struct HomeView: View {
         NavigationStack(path: $navPath) {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
-                    let game = challenge
+                    let stats = progressStats
+                    let nodes = challengeNodes
+                    let game = Gamification.snapshot(
+                        nodes: nodes,
+                        currentStreak: stats.streakDays,
+                        longestStreak: stats.longestStreakDays,
+                        hasActiveTreatment: hasActivePlan && !isPlanVisibilityPending,
+                        todayTaken: stats.todayTaken,
+                        todayScheduled: stats.todayTotal
+                    )
                     header
                     if isPlanVisibilityPending {
                         restoringPlanCard
                     } else if hasActivePlan {
-                        GamificationStreakCard(snapshot: game)
                         TodaysChallengeCard(snapshot: game) { doseId in
                             path.take(id: doseId)
                         }
+                        WeeklyAdherenceCard(
+                            stats: stats,
+                            snapshot: game,
+                            hasUpcomingDose: nodes.contains { $0.status == .current || $0.status == .locked }
+                        ) {
+                            navPath.append(AppRoute.treatmentOverview)
+                        }
+                        GamificationStreakCard(snapshot: game)
                         if moodPhase != .hidden {
                             moodCard
                                 .transition(.asymmetric(
@@ -226,7 +247,6 @@ struct HomeView: View {
                                     removal: .opacity.combined(with: .scale(scale: 0.96))
                                 ))
                         }
-                        progressWeekCard
                         medicationsCard
                         progressGlanceLinks
                         if let days = treatments.daysUntilNextRevision(calendar: session.foundationCalendar), days >= 0 {
@@ -261,6 +281,8 @@ struct HomeView: View {
                 FreezeDiag.log("Home onAppear START")
                 LaunchLog.home("onAppear tab=\(session.selectedMainTab)")
                 applyMoodVisibilityForToday(animated: false)
+                path.reload()
+                primeGamificationIfNeeded()
                 Task { @MainActor in
                     treatments.refreshDoseLogsForDisplay()
                     path.reload()
@@ -272,11 +294,15 @@ struct HomeView: View {
                 LaunchLog.home("tab→\(tab)")
                 if tab == .home {
                     applyMoodVisibilityForToday(animated: false)
+                } else {
+                    dismissPhilReaction(animated: false)
                 }
             }
             .onChange(of: navPath.count) { _, count in
                 if count == 0, session.selectedMainTab == .home {
                     applyMoodVisibilityForToday(animated: false)
+                } else if count > 0 {
+                    dismissPhilReaction(animated: false)
                 }
             }
             .onChange(of: session.restorationComplete) { _, ready in
@@ -306,17 +332,21 @@ struct HomeView: View {
             .onDisappear {
                 hideMoodTask?.cancel()
                 hideMoodTask = nil
-                hideCelebrateTask?.cancel()
-                hideCelebrateTask = nil
+                dismissPhilReaction(animated: false)
             }
             .sheet(item: feelingItem) { item in
                 FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
             }
             .overlay(alignment: .top) {
                 if let gameCelebrate {
-                    GamificationCelebrateBanner(event: gameCelebrate, streak: lastGameTaken)
+                    GamificationCelebrateBanner(
+                        event: gameCelebrate,
+                        streak: lastGameTaken,
+                        missedCount: challenge.skippedCount
+                    )
                         .padding(.top, 8)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                        .allowsHitTesting(false)
                 }
             }
             .task {
@@ -597,6 +627,7 @@ struct HomeView: View {
         lastGameTaken = snap.takenCount
         lastGameSkipped = snap.skippedCount
         gamePrimed = true
+        print("[PHIL-DIAG] primed already presented=true signature=\(snap.doneSignature) milestone=\(GamificationMemory.lastMilestone(ownerId: session.planOwnerId, profileId: session.planProfileId))")
     }
 
     private func handleGamificationProgress() {
@@ -609,6 +640,7 @@ struct HomeView: View {
         if snap.doneSignature == recorded {
             lastGameTaken = snap.takenCount
             lastGameSkipped = snap.skippedCount
+            print("[PHIL-DIAG] skip signature already presented dose IDs=\(recorded)")
             return
         }
         let takenIncreased = snap.takenCount > lastGameTaken && lastGameTaken >= 0
@@ -622,13 +654,34 @@ struct HomeView: View {
         }
         guard takenIncreased else { return }
 
+        let added = snap.lines.filter { line in
+            line.isTaken && !recorded.split(separator: ",").map(String.init).contains(line.id)
+        }
+        let doseID = added.first?.id ?? ""
+        print("[PHIL-DIAG] medication confirmation event")
+        print("[PHIL-DIAG] dose ID=\(doseID)")
+        print("[PHIL-DIAG] gamification progress before=\(recorded) after=\(snap.doneSignature)")
+
+        GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
+
+        let shownMilestone = GamificationMemory.lastMilestone(ownerId: owner, profileId: profile)
+        if Gamification.reactionMilestones.contains(snap.currentStreak),
+           snap.currentStreak > shownMilestone {
+            if snap.isComplete {
+                GamificationMemory.markComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp)
+            }
+            GamificationMemory.markMilestone(ownerId: owner, profileId: profile, day: snap.currentStreak)
+            print("[PHIL-DIAG] milestone=\(snap.currentStreak)")
+            print("[PHIL-DIAG] already presented=false")
+            presentGameCelebrate(.milestone(snap.currentStreak))
+            return
+        }
+
         if snap.isComplete, !GamificationMemory.didCelebrateComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp) {
             GamificationMemory.markComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp)
-            GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
-            if case .milestone(let day) = snap.coach, day > GamificationMemory.lastMilestone(ownerId: owner, profileId: profile) {
-                GamificationMemory.markMilestone(ownerId: owner, profileId: profile, day: day)
-                presentGameCelebrate(.milestone(day))
-            } else if snap.coach == .backOnTrack {
+            print("[PHIL-DIAG] challenge completion event")
+            print("[PHIL-DIAG] already presented=false")
+            if snap.coach == .backOnTrack {
                 presentGameCelebrate(.backOnTrack)
             } else {
                 presentGameCelebrate(.dayComplete)
@@ -636,19 +689,39 @@ struct HomeView: View {
             return
         }
 
-        let added = snap.lines.filter { line in
-            line.isTaken && !recorded.split(separator: ",").map(String.init).contains(line.id)
+        if snap.needsAttention {
+            presentGameCelebrate(.needsAttention)
+            return
         }
-        GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
+
         if snap.coach == .backOnTrack {
             presentGameCelebrate(.backOnTrack)
-        } else if let name = added.first?.medicine {
-            presentGameCelebrate(.took(name))
+        } else {
+            let reaction = Gamification.philDoseReaction(takenCount: snap.takenCount)
+            print("[PHIL-DIAG] reaction=\(reaction)")
+            presentGameCelebrate(reaction)
+        }
+    }
+
+    private func dismissPhilReaction(animated: Bool) {
+        hideCelebrateTask?.cancel()
+        hideCelebrateTask = nil
+        guard gameCelebrate != nil else { return }
+        if animated {
+            withAnimation(.easeInOut(duration: 0.28)) {
+                gameCelebrate = nil
+            }
+        } else {
+            gameCelebrate = nil
         }
     }
 
     private func presentGameCelebrate(_ event: GameCelebrate) {
-        guard session.selectedMainTab == .home, navPath.isEmpty else { return }
+        guard session.selectedMainTab == .home, navPath.isEmpty else {
+            print("[PHIL-DIAG] reaction=\(event) skipped not on dashboard")
+            return
+        }
+        if gameCelebrate == event { return }
         hideCelebrateTask?.cancel()
         withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) {
             gameCelebrate = event
@@ -865,87 +938,6 @@ struct HomeView: View {
         case .skipped: CheckMedTheme.skip
         case .locked: CheckMedTheme.locked
         }
-    }
-
-    private var progressWeekCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.t(.progressWeekTitle))
-                        .font(.system(.headline, design: .rounded).weight(.heavy))
-                    Text(session.t(.progressKeepGoing))
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                }
-                Spacer()
-                HStack(spacing: 4) {
-                    Text("🔥")
-                    Text("\(progressStats.streakDays) \(session.t(.homeStreak))")
-                        .font(.system(.caption2, design: .rounded).weight(.heavy))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(CheckMedTheme.belly, in: Capsule())
-            }
-
-            HStack(alignment: .center, spacing: 16) {
-                ZStack {
-                    Circle()
-                        .stroke(CheckMedTheme.hairline, lineWidth: 10)
-                    Circle()
-                        .trim(from: 0, to: progressWeekFraction)
-                        .stroke(CheckMedTheme.primary, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Text("\(progressStats.weekPercent ?? 0)%")
-                        .font(.system(.title2, design: .rounded).weight(.black))
-                }
-                .frame(width: 92, height: 92)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(session.t(.progressDosesTaken, progressStats.weekTaken, progressStats.weekPlanned))
-                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                    HStack(spacing: 6) {
-                        Image(systemName: "pills.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Text(session.t(.progressNextSoon))
-                            .font(.system(.caption2, design: .rounded).weight(.bold))
-                    }
-                    .foregroundStyle(CheckMedTheme.primaryShadow)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(CheckMedTheme.mintWash, in: Capsule())
-                }
-
-                Spacer(minLength: 0)
-                Button {
-                    navPath.append(AppRoute.treatmentOverview)
-                } label: {
-                    VStack(spacing: 5) {
-                        Image(systemName: "pills.fill")
-                            .foregroundStyle(CheckMedTheme.primaryShadow)
-                        Text("\(progressStats.treatmentCount)")
-                            .font(.system(.title3, design: .rounded).weight(.black))
-                        Text(session.t(.progressTreatmentsLabel))
-                            .font(.system(.caption2, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(10)
-                    .frame(width: 86)
-                    .background(CheckMedTheme.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(16)
-        .background(CheckMedTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-        )
-        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
     }
 
     /// Compact Progress glance — full Progress stays on + menu.

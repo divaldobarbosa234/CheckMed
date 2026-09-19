@@ -83,6 +83,9 @@ final class CheckMedStore {
     @ObservationIgnored private var cachedMedicines: [MedicineRecord]?
     @ObservationIgnored private var cachedSchedules: [DoseScheduleRecord]?
     @ObservationIgnored private var cachedLogs: [DoseLogRecord]?
+    @ObservationIgnored private var cachedAdherence: AdherenceSnapshot?
+    @ObservationIgnored private var cachedAdherenceRevision = -1
+    @ObservationIgnored private var cachedAdherenceDay: Date?
     @ObservationIgnored private var logsEnsuredDay: Date?
     @ObservationIgnored private var logsEnsuredSignature: Int?
     @ObservationIgnored private var suppressNotify = false
@@ -1505,9 +1508,17 @@ final class CheckMedStore {
         FreezeDiag.context("adherence START revision=\(revision)", hasChanges: context.hasChanges)
         let t0 = Date()
         _ = revision
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        if let cached = cachedAdherence,
+           cachedAdherenceRevision == revision,
+           cachedAdherenceDay == today {
+            FreezeDiag.log("adherence END (cached)")
+            return cached
+        }
         guard surfacesPlan else {
             FreezeDiag.log("adherence END (no plan)")
-            return AdherenceSnapshot(
+            let empty = AdherenceSnapshot(
                 streakDays: 0,
                 longestStreakDays: 0,
                 takenCount: 0,
@@ -1523,9 +1534,11 @@ final class CheckMedStore {
                 weekPlanned: 0,
                 weekPercent: nil
             )
+            cachedAdherence = empty
+            cachedAdherenceRevision = revision
+            cachedAdherenceDay = today
+            return empty
         }
-        let now = Date()
-        let today = calendar.startOfDay(for: now)
         let activeTreatmentIds = Set(activeTreatments().map(\.id))
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
@@ -1557,13 +1570,14 @@ final class CheckMedStore {
         let weekPlanned = weekLogs.count
         let weekPercent: Int? = weekPlanned == 0 ? nil : Int((Double(weekTaken) / Double(weekPlanned) * 100).rounded())
         let streak = streakDays(now: now, today: today)
+        let longest = longestStreakDays(now: now, today: today, history: history)
         FreezeDiag.context(
             String(format: "adherence END logs=%d revision=%d %.0fms", history.count, revision, Date().timeIntervalSince(t0) * 1000),
             hasChanges: context.hasChanges
         )
-        return AdherenceSnapshot(
+        let snap = AdherenceSnapshot(
             streakDays: streak,
-            longestStreakDays: 0,
+            longestStreakDays: max(streak, longest),
             takenCount: takenCount,
             takenLateCount: takenLateCount,
             missedCount: missedCount,
@@ -1577,6 +1591,10 @@ final class CheckMedStore {
             weekPlanned: weekPlanned,
             weekPercent: weekPercent
         )
+        cachedAdherence = snap
+        cachedAdherenceRevision = revision
+        cachedAdherenceDay = today
+        return snap
     }
 
     func reminderDrafts(now: Date = Date()) -> [ReminderDraft] {
@@ -2162,17 +2180,15 @@ final class CheckMedStore {
     }
 
     /// Longest consecutive streak using the same day rule as `streakDays`. Read-only.
-    /// Not called from Home rendering — Journey/Progress only.
     func longestAdherenceStreak() -> Int {
         _ = revision
         guard surfacesPlan else { return 0 }
         let now = Date()
         let today = calendar.startOfDay(for: now)
-        return max(streakDays(now: now, today: today), longestStreakDays(now: now, today: today))
+        return max(streakDays(now: now, today: today), longestStreakDays(now: now, today: today, history: logs()))
     }
 
-    private func longestStreakDays(now: Date, today: Date) -> Int {
-        let history = logs()
+    private func longestStreakDays(now: Date, today: Date, history: [DoseLogRecord]) -> Int {
         guard !history.isEmpty else { return 0 }
         var byDay: [TimeInterval: [DoseLogStatus]] = [:]
         byDay.reserveCapacity(min(history.count, 400))
@@ -2359,6 +2375,9 @@ final class CheckMedStore {
         cachedMedicines = nil
         cachedSchedules = nil
         cachedLogs = nil
+        cachedAdherence = nil
+        cachedAdherenceRevision = -1
+        cachedAdherenceDay = nil
     }
 
     private func save() {

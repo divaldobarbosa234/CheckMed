@@ -48,7 +48,7 @@ struct GamificationStreakCard: View {
         case .challengeComplete:
             return session.t(.philChallengeComplete)
         case .needsAttention:
-            return session.t(.philMissedOne)
+            return missedSupportLine
         case .backOnTrack:
             return session.t(.philBackOnTrack)
         case .milestone(let days):
@@ -62,6 +62,12 @@ struct GamificationStreakCard: View {
             }
             return session.t(.philFirstDay)
         }
+    }
+
+    private var missedSupportLine: String {
+        snapshot.skippedCount <= 1
+            ? session.t(.philMissedOne)
+            : session.t(.philMissedSeveral, snapshot.skippedCount)
     }
 }
 
@@ -95,6 +101,8 @@ struct TodaysChallengeCard: View {
                     .foregroundStyle(CheckMedTheme.muted)
             } else {
                 progressBar
+            }
+            if snapshot.hasScheduledDoses, !snapshot.isComplete {
                 ForEach(snapshot.lines) { line in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Button {
@@ -127,9 +135,10 @@ struct TodaysChallengeCard: View {
                         .font(.system(.caption, design: .rounded).weight(.heavy))
                         .foregroundStyle(CheckMedTheme.primaryShadow)
                 } else if snapshot.needsAttention {
-                    Text(session.t(.philMissedOne))
+                    Text(missedSupportLine)
                         .font(.system(.caption, design: .rounded).weight(.heavy))
                         .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -142,9 +151,20 @@ struct TodaysChallengeCard: View {
                 .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
         )
         .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        .frame(minHeight: reservedHeight, alignment: .top)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(session.t(.challengeTitle))
         .accessibilityValue(snapshot.hasScheduledDoses ? session.t(.challengeProgress, snapshot.takenCount, snapshot.requiredCount) : session.t(.challengeNoDosesToday))
+    }
+
+    /// Keep this card’s slot even when path nodes have not arrived yet, so the
+    /// week section cannot jump into the Challenge position.
+    private var reservedHeight: CGFloat {
+        let header: CGFloat = 108
+        guard snapshot.hasScheduledDoses else { return header }
+        if snapshot.isComplete { return 148 }
+        let rows = max(snapshot.lines.count, snapshot.requiredCount)
+        return header + CGFloat(rows) * 46
     }
 
     private var progressBar: some View {
@@ -159,6 +179,172 @@ struct TodaysChallengeCard: View {
         .frame(height: 10)
         .accessibilityHidden(true)
     }
+
+    private var missedSupportLine: String {
+        snapshot.skippedCount <= 1
+            ? session.t(.philMissedOne)
+            : session.t(.philMissedSeveral, snapshot.skippedCount)
+    }
+}
+
+/// Read-only Dashboard/Progress card. Values come from an existing `AdherenceSnapshot`.
+struct WeeklyAdherenceCard: View {
+    @Environment(SessionStore.self) private var session
+    let stats: AdherenceSnapshot
+    let snapshot: GamificationSnapshot
+    let hasUpcomingDose: Bool
+    var onTreatments: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(session.t(.progressWeekTitle))
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                    Text(session.t(.progressKeepGoing))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                }
+                Spacer()
+                HStack(spacing: 4) {
+                    Text("🔥")
+                    Text("\(stats.streakDays) \(session.t(.homeStreak))")
+                        .font(.system(.caption2, design: .rounded).weight(.heavy))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(CheckMedTheme.belly, in: Capsule())
+            }
+
+            HStack(alignment: .center, spacing: 16) {
+                ZStack {
+                    Circle()
+                        .stroke(CheckMedTheme.hairline, lineWidth: 10)
+                    Circle()
+                        .trim(from: 0, to: weekFraction)
+                        .stroke(CheckMedTheme.primary, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Text("\(stats.weekPercent ?? 0)%")
+                        .font(.system(.title2, design: .rounded).weight(.black))
+                }
+                .frame(width: 92, height: 92)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned))
+                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    HStack(spacing: 6) {
+                        Image(systemName: "pills.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(hasUpcomingDose ? session.t(.progressNextSoon) : session.t(.todayNothing))
+                            .font(.system(.caption2, design: .rounded).weight(.bold))
+                    }
+                    .foregroundStyle(CheckMedTheme.primaryShadow)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(CheckMedTheme.mintWash, in: Capsule())
+                }
+
+                Spacer(minLength: 0)
+                Button {
+                    onTreatments?()
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: "pills.fill")
+                            .foregroundStyle(CheckMedTheme.primaryShadow)
+                        Text("\(stats.treatmentCount)")
+                            .font(.system(.title3, design: .rounded).weight(.black))
+                        Text(session.t(.progressTreatmentsLabel))
+                            .font(.system(.caption2, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(10)
+                    .frame(width: 86)
+                    .background(CheckMedTheme.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(onTreatments == nil)
+            }
+
+            if snapshot.isActive {
+                Divider().overlay(CheckMedTheme.hairline)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(session.t(.progressTreatmentsHeader))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .textCase(.uppercase)
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(CheckMedTheme.primaryShadow)
+                        Text(session.t(.progressTreatmentStarted))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    }
+                    HStack(spacing: 6) {
+                        Text("🔥")
+                        Text(session.t(.streakCurrent, stats.streakDays))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    }
+                    Text(stats.longestStreakDays == 1
+                         ? session.t(.streakLongestOne)
+                         : session.t(.streakLongest, stats.longestStreakDays))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(session.t(.milestonesTitle))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .textCase(.uppercase)
+                    ForEach(Gamification.milestoneDays, id: \.self) { day in
+                        let reached = snapshot.reachedMilestones.contains(day)
+                        let focus = snapshot.reachedMilestones.last ?? snapshot.nextMilestone
+                        HStack(spacing: 8) {
+                            Image(systemName: reached ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(reached ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+                            Text(GamificationMilestoneCopy.title(day, session: session))
+                                .font(.system(.subheadline, design: .rounded).weight(day == focus ? .black : .semibold))
+                            Spacer()
+                        }
+                        .accessibilityLabel("\(GamificationMilestoneCopy.title(day, session: session)), \(reached ? session.t(.taken) : session.t(.homeStatusUpcoming))")
+                    }
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(session.t(.progressWeekTitle))
+        .accessibilityValue(session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned))
+    }
+
+    private var weekFraction: CGFloat {
+        guard let percent = stats.weekPercent else { return 0 }
+        return CGFloat(percent) / 100
+    }
+}
+
+enum GamificationMilestoneCopy {
+    static func title(_ day: Int, session: SessionStore) -> String {
+        switch day {
+        case 1: session.t(.milestoneStarted)
+        case 3: session.t(.milestone3Days)
+        case 7: session.t(.milestoneWeek)
+        case 14: session.t(.milestoneTwoWeeks)
+        case 21: session.t(.milestoneThreeWeeks)
+        case 30: session.t(.milestone30)
+        case 60: session.t(.milestone60)
+        case 90: session.t(.milestone90)
+        default: session.t(.philMilestoneDay, day)
+        }
+    }
 }
 
 struct JourneyGamificationCard: View {
@@ -170,7 +356,9 @@ struct JourneyGamificationCard: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(session.t(.streakCurrent, snapshot.currentStreak))
                 .font(.system(.title3, design: .rounded).weight(.black))
-            Text(session.t(.streakLongest, snapshot.longestStreak))
+            Text(snapshot.longestStreak == 1
+                 ? session.t(.streakLongestOne)
+                 : session.t(.streakLongest, snapshot.longestStreak))
                 .font(.system(.subheadline, design: .rounded).weight(.semibold))
                 .foregroundStyle(CheckMedTheme.muted)
             Text(session.t(.milestonesTitle))
@@ -178,14 +366,18 @@ struct JourneyGamificationCard: View {
                 .foregroundStyle(CheckMedTheme.muted)
                 .textCase(.uppercase)
             ForEach(Gamification.milestoneDays, id: \.self) { day in
+                let reached = snapshot.reachedMilestones.contains(day)
+                let focus = snapshot.reachedMilestones.last ?? snapshot.nextMilestone
+                let current = day == focus
                 HStack(spacing: 8) {
-                    Image(systemName: snapshot.reachedMilestones.contains(day) ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(snapshot.reachedMilestones.contains(day) ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
-                    Text(milestoneTitle(day))
-                        .font(.system(.body, design: .rounded).weight(.bold))
+                    Image(systemName: reached ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(reached ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+                    Text(GamificationMilestoneCopy.title(day, session: session))
+                        .font(.system(.body, design: .rounded).weight(current ? .black : .bold))
+                        .foregroundStyle(current ? CheckMedTheme.ink : CheckMedTheme.ink.opacity(reached ? 1 : 0.72))
                     Spacer()
                 }
-                .accessibilityLabel("\(milestoneTitle(day)), \(snapshot.reachedMilestones.contains(day) ? session.t(.taken) : session.t(.homeStatusUpcoming))")
+                .accessibilityLabel("\(GamificationMilestoneCopy.title(day, session: session)), \(reached ? session.t(.taken) : session.t(.homeStatusUpcoming))")
             }
             if !history.isEmpty {
                 Text(session.t(.dailyHistoryTitle))
@@ -212,20 +404,6 @@ struct JourneyGamificationCard: View {
         )
     }
 
-    private func milestoneTitle(_ day: Int) -> String {
-        switch day {
-        case 1: session.t(.milestoneStarted)
-        case 3: session.t(.milestone3Days)
-        case 7: session.t(.milestoneWeek)
-        case 14: session.t(.milestoneTwoWeeks)
-        case 21: session.t(.milestoneHabit)
-        case 30: session.t(.milestone30)
-        case 60: session.t(.milestone60)
-        case 90: session.t(.milestone90)
-        default: session.t(.philMilestoneDay, day)
-        }
-    }
-
     private func historyColor(_ kind: String) -> Color {
         switch kind {
         case "done": CheckMedTheme.primary
@@ -240,10 +418,11 @@ struct GamificationCelebrateBanner: View {
     @Environment(SessionStore.self) private var session
     let event: GameCelebrate
     let streak: Int
+    var missedCount: Int = 1
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
-            PhilView(size: 56, mood: .celebrate, smiling: true)
+            PhilView(size: eventScale, mood: .celebrate, smiling: true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -264,21 +443,39 @@ struct GamificationCelebrateBanner: View {
 
     private var title: String {
         switch event {
-        case .took(let name): session.t(.philNiceTook, name)
+        case .tookFirst: session.t(.philDoseFirst)
+        case .tookOnTrack: session.t(.philDoseOnTrack)
+        case .tookKeepGoing: session.t(.philDoseKeepGoing)
         case .dayComplete: session.t(.challengeCompleteTitle)
-        case .milestone(let day): session.t(.philMilestoneDay, day)
-        case .needsAttention: session.t(.philMissedOne)
+        case .milestone(let day):
+            switch day {
+            case 1: session.t(.philMilestone1)
+            case 3: session.t(.philMilestone3)
+            case 7: session.t(.philMilestone7)
+            default: session.t(.philMilestoneDay, day)
+            }
+        case .needsAttention:
+            missedCount <= 1 ? session.t(.philMissedOne) : session.t(.philMissedSeveral, missedCount)
         case .backOnTrack: session.t(.philBackOnTrack)
         }
     }
 
     private var subtitle: String {
         switch event {
-        case .took: session.t(.streakKeepGoing)
-        case .dayComplete: session.t(.challengeStayedOnTrack)
+        case .tookFirst, .tookOnTrack, .tookKeepGoing: session.t(.streakKeepGoing)
+        case .dayComplete: session.t(.philChallengeComplete)
+        case .milestone(1): session.t(.streakKeepGoing)
+        case .milestone(3), .milestone(7): session.t(.challengeStayedOnTrack)
         case .milestone: session.t(.streakKeepGoing)
         case .needsAttention: session.t(.philBackOnTrack)
         case .backOnTrack: session.t(.streakKeepGoing)
+        }
+    }
+
+    private var eventScale: CGFloat {
+        switch event {
+        case .dayComplete, .milestone: 64
+        default: 56
         }
     }
 }
