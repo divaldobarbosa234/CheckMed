@@ -364,10 +364,11 @@ struct TodaysChallengeCard: View {
     }
 }
 
-/// Read-only Dashboard/Progress card. Values come from an existing `AdherenceSnapshot`.
+/// Read-only Dashboard weekly card. Day statuses come from canonical DoseLogs; streak from `AdherenceSnapshot`.
 struct WeeklyAdherenceCard: View {
     @Environment(SessionStore.self) private var session
     let stats: AdherenceSnapshot
+    var weekly: DoseLoop.WeeklyMedicationProgressSnapshot = .empty
     let snapshot: GamificationSnapshot
     let hasUpcomingDose: Bool
     var onTreatments: (() -> Void)? = nil
@@ -376,7 +377,7 @@ struct WeeklyAdherenceCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(session.t(.progressWeekTitle))
+                    Text(session.t(.weeklyYourWeek))
                         .font(.system(.headline, design: .rounded).weight(.heavy))
                     Text(session.t(.progressKeepGoing))
                         .font(.system(.caption, design: .rounded).weight(.semibold))
@@ -391,6 +392,11 @@ struct WeeklyAdherenceCard: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(CheckMedTheme.belly, in: Capsule())
+                .accessibilityLabel(session.t(.streakCurrent, stats.streakDays))
+            }
+
+            if !weekly.days.isEmpty {
+                weeklyDayRow
             }
 
             HStack(alignment: .center, spacing: 16) {
@@ -401,14 +407,25 @@ struct WeeklyAdherenceCard: View {
                         .trim(from: 0, to: weekFraction)
                         .stroke(CheckMedTheme.primary, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                    Text("\(stats.weekPercent ?? 0)%")
+                    Text(percentLabel)
                         .font(.system(.title2, design: .rounded).weight(.black))
                 }
                 .frame(width: 92, height: 92)
+                .accessibilityHidden(true)
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned))
-                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    if weekly.applicableDays > 0 {
+                        Text(session.t(.weeklyDaysComplete, weekly.completedDays, weekly.applicableDays))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                        if let percent = displayedPercent {
+                            Text(session.t(.weeklyAdherencePercent, percent))
+                                .font(.system(.caption, design: .rounded).weight(.bold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                        }
+                    } else {
+                        Text(session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    }
                     HStack(spacing: 6) {
                         Image(systemName: "pills.fill")
                             .font(.system(size: 11, weight: .bold))
@@ -499,12 +516,118 @@ struct WeeklyAdherenceCard: View {
         )
         .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(session.t(.progressWeekTitle))
-        .accessibilityValue(session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned))
+        .accessibilityLabel(session.t(.weeklyYourWeek))
+        .accessibilityValue(accessibilitySummary)
+    }
+
+    private var weeklyDayRow: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(weekly.days.enumerated()), id: \.offset) { _, day in
+                weeklyDayCell(day)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func weeklyDayCell(_ day: DoseLoop.WeeklyDaySnapshot) -> some View {
+        VStack(spacing: 6) {
+            Text(weekdayLabel(for: day.weekdayIndex))
+                .font(.system(.caption2, design: .rounded).weight(.bold))
+                .foregroundStyle(day.isToday ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+            Text(symbol(for: day.status))
+                .font(.system(.body, design: .rounded).weight(.black))
+                .foregroundStyle(symbolColor(for: day.status))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(day.isToday ? CheckMedTheme.mintWash : Color.clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(dayAccessibilityLabel(day))
+    }
+
+    private func weekdayLabel(for mondayIndex: Int) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.locale = session.locale.foundationLocale
+        let names = cal.shortWeekdaySymbols
+        guard names.count == 7 else { return "" }
+        let ordered = Array(names[1...6]) + [names[0]]
+        guard mondayIndex >= 0, mondayIndex < ordered.count else { return "" }
+        return ordered[mondayIndex]
+    }
+
+    private func weekdayName(for mondayIndex: Int) -> String {
+        var cal = Calendar(identifier: .gregorian)
+        cal.locale = session.locale.foundationLocale
+        let names = cal.weekdaySymbols
+        guard names.count == 7 else { return "" }
+        let ordered = Array(names[1...6]) + [names[0]]
+        guard mondayIndex >= 0, mondayIndex < ordered.count else { return "" }
+        return ordered[mondayIndex]
+    }
+
+    private func symbol(for status: DoseLoop.WeeklyDayStatus) -> String {
+        switch status {
+        case .complete: "✓"
+        case .incomplete: "!"
+        case .future: "•"
+        case .notApplicable, .noScheduledDoses: "—"
+        }
+    }
+
+    private func symbolColor(for status: DoseLoop.WeeklyDayStatus) -> Color {
+        switch status {
+        case .complete: CheckMedTheme.primaryShadow
+        case .incomplete: CheckMedTheme.danger
+        case .future: CheckMedTheme.muted
+        case .notApplicable, .noScheduledDoses: CheckMedTheme.hairline
+        }
+    }
+
+    private func statusPhrase(_ day: DoseLoop.WeeklyDaySnapshot) -> String {
+        switch day.status {
+        case .complete: session.t(.weeklyDayComplete)
+        case .incomplete: session.t(.weeklyDayMissed)
+        case .future: session.t(.weeklyDayUpcoming)
+        case .notApplicable: session.t(.weeklyDayNotApplicable)
+        case .noScheduledDoses: session.t(.weeklyDayNoDoses)
+        }
+    }
+
+    private func dayAccessibilityLabel(_ day: DoseLoop.WeeklyDaySnapshot) -> String {
+        var parts = [weekdayName(for: day.weekdayIndex)]
+        if day.isToday {
+            parts.append(session.t(.weeklyDayToday))
+            if day.scheduledCount > 0 {
+                parts.append(session.t(.weeklyDayDosesCompleted, day.completedCount, day.scheduledCount))
+            }
+        }
+        parts.append(statusPhrase(day))
+        return parts.joined(separator: ", ")
+    }
+
+    private var displayedPercent: Int? {
+        weekly.adherencePercentage ?? stats.weekPercent
+    }
+
+    private var percentLabel: String {
+        guard let percent = displayedPercent else { return "—" }
+        return "\(percent)%"
+    }
+
+    private var accessibilitySummary: String {
+        if weekly.applicableDays > 0 {
+            var parts = [session.t(.weeklyDaysComplete, weekly.completedDays, weekly.applicableDays)]
+            if let percent = displayedPercent {
+                parts.append(session.t(.weeklyAdherencePercent, percent))
+            }
+            parts.append(session.t(.streakCurrent, stats.streakDays))
+            return parts.joined(separator: ", ")
+        }
+        return session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned)
     }
 
     private var weekFraction: CGFloat {
-        guard let percent = stats.weekPercent else { return 0 }
+        guard let percent = displayedPercent else { return 0 }
         return CGFloat(percent) / 100
     }
 }

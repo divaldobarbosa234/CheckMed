@@ -87,7 +87,11 @@ final class CheckMedStore {
     @ObservationIgnored private var cachedAdherence: AdherenceSnapshot?
     @ObservationIgnored private var cachedAdherenceRevision = -1
     @ObservationIgnored private var cachedAdherenceDay: Date?
+    @ObservationIgnored private var cachedWeekly: DoseLoop.WeeklyMedicationProgressSnapshot?
+    @ObservationIgnored private var cachedWeeklyRevision = -1
+    @ObservationIgnored private var cachedWeeklyDay: Date?
     @ObservationIgnored private var lastChallengeDiag: String?
+    @ObservationIgnored private var lastWeeklyDiag: String?
     @ObservationIgnored private var logsEnsuredDay: Date?
     @ObservationIgnored private var logsEnsuredSignature: Int?
     @ObservationIgnored private var suppressNotify = false
@@ -1637,6 +1641,71 @@ final class CheckMedStore {
         return counts
     }
 
+    /// Read-only Mon–Sun progress. Cached by revision + calendar day. Does not write.
+    func weeklyMedicationProgress(now: Date = Date()) -> DoseLoop.WeeklyMedicationProgressSnapshot {
+        _ = revision
+        let today = calendar.startOfDay(for: now)
+        if let cached = cachedWeekly,
+           cachedWeeklyRevision == revision,
+           cachedWeeklyDay == today {
+            return cached
+        }
+        guard surfacesPlan else {
+            let empty = DoseLoop.WeeklyMedicationProgressSnapshot.empty
+            cachedWeekly = empty
+            cachedWeeklyRevision = revision
+            cachedWeeklyDay = today
+            return empty
+        }
+        let windows = treatments().compactMap { treatment -> DoseLoop.TreatmentWindow? in
+            guard treatment.status == "active" || treatment.status == "completed" else { return nil }
+            return DoseLoop.TreatmentWindow(start: treatment.startDate, end: treatment.endDate)
+        }
+        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
+        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+        let bounds = DoseLoop.mondayWeekInterval(containing: now, calendar: calendar)
+        let weekLogs: [DoseLoop.DoseSummaryProbe] = logs().compactMap { log in
+            guard log.scheduledAt >= bounds.start, log.scheduledAt < bounds.end else { return nil }
+            guard let schedule = schedulesById[log.scheduleId],
+                  let medicine = medicinesById[schedule.medicineId] else { return nil }
+            return DoseLoop.DoseSummaryProbe(
+                id: log.id,
+                scheduleId: log.scheduleId,
+                medicineId: medicine.id,
+                scheduledAt: log.scheduledAt,
+                status: DoseLogStatus(rawValue: log.status) ?? .pending
+            )
+        }
+        let snapshot = DoseLoop.weeklyMedicationProgress(
+            logs: weekLogs,
+            treatmentWindows: windows,
+            now: now,
+            calendar: calendar,
+            todayCounts: todayChallengeCounts(now: now)
+        )
+        #if DEBUG
+        let signature = "\(snapshot.weekStart.timeIntervalSince1970)|\(snapshot.completedDays)|\(snapshot.applicableDays)|\(snapshot.adherencePercentage ?? -1)|\(snapshot.days.map { "\($0.status)" }.joined(separator: ","))"
+        if lastWeeklyDiag != signature {
+            if let previous = lastWeeklyDiag {
+                print("[WEEKLY-DIAG] STATE CHANGE old=\(previous) new=\(signature) reason=canonicalDoseLogs")
+            }
+            lastWeeklyDiag = signature
+            print(
+                "[WEEKLY-DIAG] weekStart=\(ScanPipeline.iso(snapshot.weekStart, calendar: calendar)) weekEnd=\(ScanPipeline.iso(snapshot.weekEnd, calendar: calendar)) applicableDays=\(snapshot.applicableDays) completedDays=\(snapshot.completedDays) adherence=\(snapshot.adherencePercentage ?? -1)"
+            )
+            for day in snapshot.days {
+                print(
+                    "[WEEKLY-DIAG] DAY date=\(ScanPipeline.iso(day.date, calendar: calendar)) status=\(day.status) scheduled=\(day.scheduledCount) taken=\(day.takenCount) takenLate=\(day.takenLateCount) missed=\(day.missedCount) completed=\(day.completedCount)"
+                )
+            }
+        }
+        #endif
+        cachedWeekly = snapshot
+        cachedWeeklyRevision = revision
+        cachedWeeklyDay = today
+        return snapshot
+    }
+
     private func todayChallengeProbes() -> [DoseLoop.DoseSummaryProbe] {
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
@@ -1704,9 +1773,9 @@ final class CheckMedStore {
         let takenCount = takenOnTime + takenLateCount
         let plannedCount = due.count
         let percent: Int? = plannedCount == 0 ? nil : Int((Double(takenCount) / Double(plannedCount) * 100).rounded())
-        var weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start ?? today
-        weekStart = calendar.startOfDay(for: weekStart)
-        let weekEnd = calendar.date(byAdding: .day, value: 7, to: weekStart) ?? now
+        let weekBounds = DoseLoop.mondayWeekInterval(containing: now, calendar: calendar)
+        let weekStart = weekBounds.start
+        let weekEnd = weekBounds.end
         let weekLogs = activeHistory.filter { log in
             log.scheduledAt >= weekStart && log.scheduledAt < weekEnd
         }
@@ -2563,6 +2632,9 @@ final class CheckMedStore {
         cachedAdherence = nil
         cachedAdherenceRevision = -1
         cachedAdherenceDay = nil
+        cachedWeekly = nil
+        cachedWeeklyRevision = -1
+        cachedWeeklyDay = nil
     }
 
     private func save() {

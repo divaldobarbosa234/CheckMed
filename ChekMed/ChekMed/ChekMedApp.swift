@@ -17,11 +17,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let doseFailures = DoseLoopContractChecks.failures()
             let gamificationFailures = GamificationContractChecks.failures()
             let journeyFailures = DailyMedicationJourneyContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures
+            let weeklyFailures = WeeklyMedicationProgressContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures
             if !failures.isEmpty {
                 print("DoseLoop failures:", doseFailures)
                 print("Gamification failures:", gamificationFailures)
                 print("DailyJourney failures:", journeyFailures)
+                print("WeeklyProgress failures:", weeklyFailures)
             }
             assert(
                 failures.isEmpty,
@@ -29,6 +31,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     doseFailures.isEmpty ? nil : "DOSE LOOP FAILURE: \(doseFailures.joined(separator: "; "))",
                     gamificationFailures.isEmpty ? nil : "GAMIFICATION FAILURE: \(gamificationFailures.joined(separator: "; "))",
                     journeyFailures.isEmpty ? nil : "DAILY JOURNEY FAILURE: \(journeyFailures.joined(separator: "; "))",
+                    weeklyFailures.isEmpty ? nil : "WEEKLY PROGRESS FAILURE: \(weeklyFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }

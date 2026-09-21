@@ -261,6 +261,7 @@ struct HomeView: View {
                         .id("todays-challenge")
                         WeeklyAdherenceCard(
                             stats: stats,
+                            weekly: treatments.weeklyMedicationProgress(),
                             snapshot: game,
                             hasUpcomingDose: nodes.contains { $0.status == .current || $0.status == .locked }
                         ) {

@@ -267,6 +267,146 @@ enum DoseLoop {
             isComplete: scheduled > 0 && completed == scheduled && unresolved == 0
         )
     }
+
+    enum WeeklyDayStatus: Equatable, Sendable {
+        case notApplicable
+        case future
+        case noScheduledDoses
+        case incomplete
+        case complete
+    }
+
+    struct TreatmentWindow: Equatable, Sendable {
+        var start: Date
+        var end: Date?
+    }
+
+    struct WeeklyDaySnapshot: Equatable, Sendable {
+        var date: Date
+        var weekdayIndex: Int
+        var status: WeeklyDayStatus
+        var scheduledCount: Int
+        var takenCount: Int
+        var takenLateCount: Int
+        var missedCount: Int
+        var completedCount: Int
+        var isToday: Bool
+    }
+
+    struct WeeklyMedicationProgressSnapshot: Equatable, Sendable {
+        var weekStart: Date
+        var weekEnd: Date
+        var days: [WeeklyDaySnapshot]
+        var completedDays: Int
+        var applicableDays: Int
+        var adherencePercentage: Int?
+
+        static let empty = WeeklyMedicationProgressSnapshot(
+            weekStart: .distantPast,
+            weekEnd: .distantPast,
+            days: [],
+            completedDays: 0,
+            applicableDays: 0,
+            adherencePercentage: nil
+        )
+    }
+
+    /// Monday 00:00 → next Monday 00:00 using Calendar week-of-year, not hardcoded offsets.
+    static func mondayWeekInterval(containing date: Date, calendar: Calendar) -> (start: Date, end: Date) {
+        var cal = calendar
+        cal.firstWeekday = 2
+        let day = cal.startOfDay(for: date)
+        let start = cal.dateInterval(of: .weekOfYear, for: day).map { cal.startOfDay(for: $0.start) } ?? day
+        let end = cal.date(byAdding: .day, value: 7, to: start) ?? start
+        return (start, end)
+    }
+
+    static func treatmentCovers(day: Date, windows: [TreatmentWindow], calendar: Calendar) -> Bool {
+        let d = calendar.startOfDay(for: day)
+        return windows.contains { window in
+            let start = calendar.startOfDay(for: window.start)
+            guard d >= start else { return false }
+            if let end = window.end {
+                return d <= calendar.startOfDay(for: end)
+            }
+            return true
+        }
+    }
+
+    /// Read-only Mon–Sun day statuses. Today uses the same `TodayChallengeCounts` as Today's Challenge.
+    static func weeklyMedicationProgress(
+        logs: [DoseSummaryProbe],
+        treatmentWindows: [TreatmentWindow],
+        now: Date,
+        calendar: Calendar,
+        todayCounts: TodayChallengeCounts
+    ) -> WeeklyMedicationProgressSnapshot {
+        let interval = mondayWeekInterval(containing: now, calendar: calendar)
+        let today = calendar.startOfDay(for: now)
+        var byDay: [TimeInterval: [DoseSummaryProbe]] = [:]
+        for log in logs {
+            let day = calendar.startOfDay(for: log.scheduledAt)
+            byDay[day.timeIntervalSince1970, default: []].append(log)
+        }
+        var days: [WeeklyDaySnapshot] = []
+        days.reserveCapacity(7)
+        for index in 0..<7 {
+            guard let date = calendar.date(byAdding: .day, value: index, to: interval.start) else { continue }
+            let dayStart = calendar.startOfDay(for: date)
+            let isToday = calendar.isDate(dayStart, inSameDayAs: today)
+            let isFuture = dayStart > today
+            let inTreatment = treatmentCovers(day: dayStart, windows: treatmentWindows, calendar: calendar)
+            let counts: TodayChallengeCounts
+            if isToday {
+                counts = todayCounts
+            } else {
+                counts = todayChallengeCounts(
+                    logs: byDay[dayStart.timeIntervalSince1970] ?? [],
+                    now: now,
+                    calendar: calendar
+                )
+            }
+            let status: WeeklyDayStatus
+            if !inTreatment {
+                status = .notApplicable
+            } else if isFuture {
+                status = .future
+            } else if counts.scheduledCount == 0 {
+                status = .noScheduledDoses
+            } else if counts.isComplete {
+                status = .complete
+            } else {
+                status = .incomplete
+            }
+            days.append(
+                WeeklyDaySnapshot(
+                    date: dayStart,
+                    weekdayIndex: index,
+                    status: status,
+                    scheduledCount: counts.scheduledCount,
+                    takenCount: counts.takenCount,
+                    takenLateCount: counts.takenLateCount,
+                    missedCount: counts.missedCount,
+                    completedCount: counts.completedCount,
+                    isToday: isToday
+                )
+            )
+        }
+        let completedDays = days.filter { $0.status == .complete }.count
+        let applicableDays = days.filter { $0.status == .complete || $0.status == .incomplete }.count
+        let percent: Int? = applicableDays == 0
+            ? nil
+            : Int((Double(completedDays) / Double(applicableDays) * 100).rounded())
+        return WeeklyMedicationProgressSnapshot(
+            weekStart: interval.start,
+            weekEnd: interval.end,
+            days: days,
+            completedDays: completedDays,
+            applicableDays: applicableDays,
+            adherencePercentage: percent
+        )
+    }
+
     static func shouldPresentIdentitySetup(
         needsIdentityProfile: Bool,
         isReturningConfiguredUser: Bool
@@ -542,6 +682,183 @@ enum DoseLoopContractChecks {
             duplicatePending.scheduledCount == 8 && duplicatePending.isComplete,
             "CHALLENGE CASE 8: duplicate pending sibling does not start a new same-day challenge"
         )
+        return failures
+    }
+}
+
+enum WeeklyMedicationProgressContractChecks {
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ ok: Bool, _ name: String) {
+            if !ok { failures.append(name) }
+        }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        cal.firstWeekday = 2
+        func day(_ offset: Int, hour: Int = 8) -> Date {
+            var comps = DateComponents()
+            comps.year = 2026
+            comps.month = 9
+            comps.day = 14 + offset
+            comps.hour = hour
+            return cal.date(from: comps) ?? Date()
+        }
+        let monday = day(0)
+        let wednesday = day(2)
+        let friday = day(4)
+        let sunday = day(6)
+        let interval = DoseLoop.mondayWeekInterval(containing: wednesday, calendar: cal)
+        expect(cal.isDate(interval.start, inSameDayAs: monday), "week starts Monday")
+        expect(cal.isDate(interval.end, inSameDayAs: day(7)), "week ends next Monday")
+
+        func probe(_ date: Date, medicine: UUID, status: DoseLogStatus, minuteOffset: Int = 0) -> DoseLoop.DoseSummaryProbe {
+            DoseLoop.DoseSummaryProbe(
+                id: UUID(),
+                scheduleId: UUID(),
+                medicineId: medicine,
+                scheduledAt: date.addingTimeInterval(TimeInterval(minuteOffset * 60)),
+                status: status
+            )
+        }
+        func counts(_ logs: [DoseLoop.DoseSummaryProbe], now: Date) -> DoseLoop.TodayChallengeCounts {
+            DoseLoop.todayChallengeCounts(logs: logs, now: now, calendar: cal)
+        }
+        let med = UUID()
+        let fullWindow = [DoseLoop.TreatmentWindow(start: monday, end: sunday)]
+        let nowSunday = day(6, hour: 20)
+
+        var fullLogs: [DoseLoop.DoseSummaryProbe] = []
+        for offset in 0..<7 {
+            fullLogs.append(probe(day(offset), medicine: med, status: .taken))
+        }
+        let case1 = DoseLoop.weeklyMedicationProgress(
+            logs: fullLogs,
+            treatmentWindows: fullWindow,
+            now: nowSunday,
+            calendar: cal,
+            todayCounts: counts(fullLogs.filter { cal.isDate($0.scheduledAt, inSameDayAs: sunday) }, now: nowSunday)
+        )
+        expect(case1.days.count == 7, "CASE 1: seven day cells")
+        expect(case1.days.allSatisfy { $0.status == .complete }, "CASE 1: all complete")
+        expect(case1.completedDays == 7 && case1.applicableDays == 7 && case1.adherencePercentage == 100, "CASE 1: 7/7 100%")
+
+        var missedLogs = fullLogs
+        missedLogs[3] = probe(day(3), medicine: med, status: .missed)
+        let case2 = DoseLoop.weeklyMedicationProgress(
+            logs: missedLogs,
+            treatmentWindows: fullWindow,
+            now: nowSunday,
+            calendar: cal,
+            todayCounts: counts(missedLogs.filter { cal.isDate($0.scheduledAt, inSameDayAs: sunday) }, now: nowSunday)
+        )
+        expect(case2.days[3].status == .incomplete, "CASE 2: missed day is incomplete")
+        expect(case2.completedDays == 6 && case2.applicableDays == 7, "CASE 2: 6/7 complete, not 7/7")
+        expect(case2.adherencePercentage != 100, "CASE 2: not 100%")
+
+        missedLogs[3] = probe(day(3), medicine: med, status: .takenLate)
+        let case3 = DoseLoop.weeklyMedicationProgress(
+            logs: missedLogs,
+            treatmentWindows: fullWindow,
+            now: nowSunday,
+            calendar: cal,
+            todayCounts: counts(missedLogs.filter { cal.isDate($0.scheduledAt, inSameDayAs: sunday) }, now: nowSunday)
+        )
+        expect(case3.days[3].status == .complete, "CASE 3: takenLate recovers the day to complete")
+        expect(case3.completedDays == 7 && case3.applicableDays == 7, "CASE 3: weekly summary updates")
+
+        let startWed = [DoseLoop.TreatmentWindow(start: wednesday, end: nil)]
+        let wedLogs = (2...4).map { probe(day($0), medicine: med, status: .taken) }
+        let nowFri = day(4, hour: 18)
+        let case4 = DoseLoop.weeklyMedicationProgress(
+            logs: wedLogs,
+            treatmentWindows: startWed,
+            now: nowFri,
+            calendar: cal,
+            todayCounts: counts([wedLogs.last!], now: nowFri)
+        )
+        expect(case4.days[0].status == .notApplicable && case4.days[1].status == .notApplicable, "CASE 4: Mon/Tue not applicable")
+        expect(case4.days[2].status == .complete && case4.days[3].status == .complete && case4.days[4].status == .complete, "CASE 4: Wed onward actual")
+        expect(!case4.days.contains(where: { $0.status == .incomplete }), "CASE 4: no false missed")
+        expect(case4.completedDays == 3 && case4.applicableDays == 3, "CASE 4: denominator is treatment days only")
+
+        let nowWed = day(2, hour: 12)
+        let case5Logs = (0...2).map { probe(day($0), medicine: med, status: .taken) }
+        let case5 = DoseLoop.weeklyMedicationProgress(
+            logs: case5Logs,
+            treatmentWindows: fullWindow,
+            now: nowWed,
+            calendar: cal,
+            todayCounts: counts([case5Logs[2]], now: nowWed)
+        )
+        expect(case5.days[2].isToday && case5.days[2].status == .complete, "CASE 5: today complete")
+        expect(case5.days[3...6].allSatisfy { $0.status == .future }, "CASE 5: Thu–Sun future")
+        expect(!case5.days[3...6].contains(where: { $0.status == .incomplete }), "CASE 5: future is not missed")
+        expect(case5.completedDays == 3 && case5.applicableDays == 3, "CASE 5: Mon–Wed elapsed only")
+
+        let endFri = [DoseLoop.TreatmentWindow(start: monday, end: friday)]
+        let case6 = DoseLoop.weeklyMedicationProgress(
+            logs: (0...4).map { probe(day($0), medicine: med, status: .taken) },
+            treatmentWindows: endFri,
+            now: nowSunday,
+            calendar: cal,
+            todayCounts: counts([], now: nowSunday)
+        )
+        expect(case6.days[5].status == .notApplicable && case6.days[6].status == .notApplicable, "CASE 6: Sat/Sun not applicable")
+        expect(case6.days[5].status != .incomplete && case6.days[6].status != .incomplete, "CASE 6: not missed after end")
+
+        let case7 = DoseLoop.weeklyMedicationProgress(
+            logs: [],
+            treatmentWindows: [],
+            now: nowSunday,
+            calendar: cal,
+            todayCounts: .init(
+                scheduledCount: 0,
+                takenCount: 0,
+                takenLateCount: 0,
+                completedCount: 0,
+                missedCount: 0,
+                remainingCount: 0,
+                unresolvedCount: 0,
+                isComplete: false
+            )
+        )
+        expect(case7.days.allSatisfy { $0.status == .notApplicable }, "CASE 7: no treatment is not applicable")
+        expect(case7.applicableDays == 0 && case7.adherencePercentage == nil, "CASE 7: no fake adherence")
+
+        let eightMeds = (0..<8).map { _ in UUID() }
+        func eight(_ statuses: [DoseLogStatus], at: Date) -> [DoseLoop.DoseSummaryProbe] {
+            zip(eightMeds, statuses).enumerated().map { index, pair in
+                probe(at, medicine: pair.0, status: pair.1, minuteOffset: index)
+            }
+        }
+        let sevenMissed = Array(repeating: DoseLogStatus.taken, count: 7) + [.missed]
+        let eightNow = day(2, hour: 21)
+        let eightMissedLogs = eight(sevenMissed, at: wednesday)
+        let case8 = DoseLoop.weeklyMedicationProgress(
+            logs: eightMissedLogs,
+            treatmentWindows: startWed,
+            now: eightNow,
+            calendar: cal,
+            todayCounts: counts(eightMissedLogs, now: eightNow)
+        )
+        expect(case8.days[2].status == .incomplete, "CASE 8: 7 taken + 1 missed is incomplete")
+        expect(case8.days[2].scheduledCount == 8 && case8.days[2].completedCount == 7, "CASE 8: counts from DoseLogs not medicines")
+
+        let sevenLate = Array(repeating: DoseLogStatus.taken, count: 7) + [.takenLate]
+        let eightLateLogs = eight(sevenLate, at: wednesday)
+        let case9 = DoseLoop.weeklyMedicationProgress(
+            logs: eightLateLogs,
+            treatmentWindows: startWed,
+            now: eightNow,
+            calendar: cal,
+            todayCounts: counts(eightLateLogs, now: eightNow)
+        )
+        expect(case9.days[2].status == .complete, "CASE 9: 7 taken + 1 takenLate is complete")
+        expect(case9.days[2].completedCount == 8, "CASE 9: completedCount includes takenLate")
+
+        let case10Missed = case8
+        expect(case10Missed.days[2].isToday && case10Missed.days[2].status == .incomplete, "CASE 10: today matches 7/8 missed")
+        expect(case9.days[2].isToday && case9.days[2].status == .complete, "CASE 10: after takenLate today is complete")
         return failures
     }
 }
