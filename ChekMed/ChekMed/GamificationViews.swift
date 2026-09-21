@@ -3,7 +3,6 @@ import SwiftUI
 struct GamificationStreakCard: View {
     @Environment(SessionStore.self) private var session
     let snapshot: GamificationSnapshot
-    var journey: DailyMedicationJourneySnapshot? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
@@ -40,24 +39,6 @@ struct GamificationStreakCard: View {
     }
 
     private var coachLine: String {
-        if let journey {
-            switch journey.state {
-            case .noTreatment:
-                return session.t(.journeyAllSet)
-            case .startingDay:
-                return session.t(.journeyReadyToday)
-            case .upcoming:
-                return session.t(.journeyNextComing)
-            case .inProgress:
-                return session.t(.journeyProgressToday, journey.todayTaken, journey.todayTotal)
-            case .missed:
-                return missedSupportLine
-            case .almostComplete:
-                return session.t(.journeyOneMore)
-            case .complete:
-                return session.t(.journeyDayComplete)
-            }
-        }
         switch snapshot.coach {
         case .upcoming:
             return session.t(.philReadyNext)
@@ -91,6 +72,179 @@ struct GamificationStreakCard: View {
         snapshot.skippedCount <= 1
             ? session.t(.philMissedOne)
             : session.t(.philMissedSeveral, snapshot.skippedCount)
+    }
+}
+
+/// Compact day-status card. Navigation only — never confirms doses or presents Phil.
+struct DailyMedicationJourneyCard: View {
+    @Environment(SessionStore.self) private var session
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let journey: DailyMedicationJourneySnapshot
+    var streakDays: Int = 0
+    var onFocusChallenge: (() -> Void)? = nil
+
+    private var journeyAction: DailyMedicationJourney.Action? {
+        DailyMedicationJourney.action(for: journey.state)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                PhilView(size: 56, mood: philMood, smiling: journey.state == .complete || journey.state == .inProgress || journey.state == .almostComplete)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(session.t(.journeyHowToday))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .textCase(.uppercase)
+                    HStack(spacing: 6) {
+                        Image(systemName: stateSymbol)
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(accent)
+                        Text(stateTitle)
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.ink)
+                    }
+                    Text(stateMessage)
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if journey.todayTotal > 0 {
+                        progressBar
+                        Text(session.t(.challengeProgress, journey.todayTaken, journey.todayTotal))
+                            .font(.system(.caption, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.primaryShadow)
+                    }
+                    if let next = journey.nextDose, journey.state != .complete, journey.state != .missed {
+                        Text(session.t(.journeyNextMedicine, next.time, next.medicine))
+                            .font(.system(.caption2, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.flowDot)
+                    }
+                    if streakDays > 0 {
+                        Text("🔥 \(session.t(.streakCurrent, streakDays))")
+                            .font(.system(.caption2, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.ink)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .allowsHitTesting(false)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilitySummary)
+            .accessibilityAddTraits(.isStaticText)
+
+            if let journeyAction, onFocusChallenge != nil {
+                CheckMedButton(title: actionTitle(journeyAction), style: .secondary) {
+                    #if DEBUG
+                    print("[JOURNEY-DIAG] ACTION state=\(journey.state) action=\(journeyAction) destination=todays-challenge")
+                    #endif
+                    onFocusChallenge?()
+                }
+                .accessibilityLabel(actionTitle(journeyAction))
+                .accessibilityHint(session.t(.journeyActionHint))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(accent.opacity(0.35), lineWidth: 1.5)
+        )
+        .frame(minHeight: 120, alignment: .top)
+    }
+
+    private func actionTitle(_ action: DailyMedicationJourney.Action) -> String {
+        switch action {
+        case .viewChallenge: session.t(.journeyViewChallenge)
+        case .continueChallenge: session.t(.journeyContinueChallenge)
+        case .getBackOnTrack: session.t(.journeyGetBackOnTrack)
+        }
+    }
+
+    private var philMood: CompanionMood {
+        switch journey.state {
+        case .complete: .complete
+        case .missed: .idle
+        default: .idle
+        }
+    }
+
+    private var stateSymbol: String {
+        switch journey.state {
+        case .noTreatment: "doc.text.viewfinder"
+        case .startingDay: "sunrise.fill"
+        case .upcoming: "clock.fill"
+        case .inProgress: "checkmark.circle.fill"
+        case .missed: "heart.circle.fill"
+        case .almostComplete: "flag.fill"
+        case .complete: "star.circle.fill"
+        }
+    }
+
+    private var accent: Color {
+        switch journey.state {
+        case .noTreatment: CheckMedTheme.muted
+        case .startingDay: CheckMedTheme.flowDot
+        case .upcoming: CheckMedTheme.current
+        case .inProgress: CheckMedTheme.primaryShadow
+        case .missed: CheckMedTheme.flowDot
+        case .almostComplete: CheckMedTheme.primary
+        case .complete: CheckMedTheme.primaryShadow
+        }
+    }
+
+    private var stateTitle: String {
+        switch journey.state {
+        case .noTreatment: session.t(.journeyStateNone)
+        case .startingDay: session.t(.journeyStateStarting)
+        case .upcoming: session.t(.journeyStateUpcoming)
+        case .inProgress: session.t(.journeyStateOnTrack)
+        case .missed: session.t(.journeyStateMissed)
+        case .almostComplete: session.t(.journeyStateAlmost)
+        case .complete: session.t(.journeyStateComplete)
+        }
+    }
+
+    private var stateMessage: String {
+        switch journey.state {
+        case .noTreatment: session.t(.journeyNoTreatment)
+        case .startingDay: session.t(.journeyStarting)
+        case .upcoming: session.t(.journeyNextComing)
+        case .inProgress: session.t(.journeyOnTrack)
+        case .missed:
+            journey.missedCount <= 1
+                ? session.t(.philMissedOne)
+                : session.t(.philMissedSeveral, journey.missedCount)
+        case .almostComplete: session.t(.journeyAlmostThere)
+        case .complete: session.t(.journeyDayComplete)
+        }
+    }
+
+    private var progressFraction: Double {
+        guard journey.todayTotal > 0 else { return 0 }
+        return Double(journey.todayTaken) / Double(journey.todayTotal)
+    }
+
+    private var progressBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(CheckMedTheme.hairline)
+                Capsule()
+                    .fill(accent)
+                    .frame(width: max(8, geo.size.width * CGFloat(progressFraction)))
+            }
+        }
+        .frame(height: 8)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: journey.todayTaken)
+        .accessibilityHidden(true)
+    }
+
+    private var accessibilitySummary: String {
+        let progress = journey.todayTotal > 0
+            ? session.t(.journeyA11yProgress, journey.todayTaken, journey.todayTotal)
+            : session.t(.journeyNoTreatment)
+        return "\(session.t(.journeyHowToday)). \(stateTitle). \(progress). \(stateMessage)"
     }
 }
 
@@ -129,7 +283,7 @@ struct TodaysChallengeCard: View {
                 ForEach(snapshot.lines) { line in
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Button {
-                            guard !line.isTaken, !line.isMissed else { return }
+                            guard !line.isTaken else { return }
                             onConfirmDose?(line.id)
                         } label: {
                             Image(systemName: line.isTaken ? "checkmark.circle.fill" : (line.isMissed ? "minus.circle" : "circle"))
@@ -138,9 +292,9 @@ struct TodaysChallengeCard: View {
                                 .frame(width: 32, height: 32)
                         }
                         .buttonStyle(.plain)
-                        .disabled(line.isTaken || line.isMissed || onConfirmDose == nil)
+                        .disabled(line.isTaken || onConfirmDose == nil)
                         .accessibilityLabel(session.t(.taken))
-                        .accessibilityHint(line.isTaken || line.isMissed ? "" : session.t(.taken))
+                        .accessibilityHint(line.isTaken ? "" : session.t(line.isMissed ? .missedTookItLater : .taken))
                         VStack(alignment: .leading, spacing: 2) {
                             Text(line.medicine)
                                 .font(.system(.body, design: .rounded).weight(.heavy))

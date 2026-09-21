@@ -79,6 +79,26 @@ enum DailyMedicationJourney {
             nextDose: nextDose
         )
     }
+
+    /// Navigation/focus only. Never mutates DoseLogs.
+    enum Action: Equatable, Sendable {
+        case viewChallenge
+        case continueChallenge
+        case getBackOnTrack
+    }
+
+    static func action(for state: DailyMedicationJourneyState) -> Action? {
+        switch state {
+        case .noTreatment, .complete:
+            return nil
+        case .startingDay, .upcoming, .inProgress:
+            return .viewChallenge
+        case .almostComplete:
+            return .continueChallenge
+        case .missed:
+            return .getBackOnTrack
+        }
+    }
 }
 
 #if DEBUG
@@ -258,6 +278,38 @@ enum DailyMedicationJourneyContractChecks {
             planSurfaceReady: true
         )
         expect(again == inProgress, "CASE 13/14: snapshot is idempotent and does not mutate")
+
+        let zeroOfOne = DailyMedicationJourney.snapshot(
+            from: game(nodes: [line("one", time: "08:00", status: .current)], taken: 0, scheduled: 1),
+            nodes: [line("one", time: "08:00", status: .current)],
+            planSurfaceReady: true
+        )
+        expect(zeroOfOne?.state == .startingDay, "4B CASE 3: 0/1 is startingDay, not almostComplete")
+        let oneOfOne = DailyMedicationJourney.snapshot(
+            from: game(nodes: [line("one", time: "08:00", status: .done)], taken: 1, scheduled: 1),
+            nodes: [line("one", time: "08:00", status: .done)],
+            planSurfaceReady: true
+        )
+        expect(oneOfOne?.state == .complete, "4B CASE 4: 1/1 is complete")
+
+        // 4B.5 — later legitimate / late-same-dose recovery does not shrink the denominator
+        let recoveredEight = (1...8).map { line("r\($0)", time: "08:00", status: .done) }
+        let recovered = DailyMedicationJourney.snapshot(
+            from: game(nodes: recoveredEight, taken: 8, scheduled: 8),
+            nodes: recoveredEight,
+            planSurfaceReady: true
+        )
+        expect(sevenMissed?.todayTotal == 8, "4B.5 CASE 1: missed does not reduce today's total")
+        expect(recovered?.state == .complete && recovered?.todayTotal == 8, "4B.5 CASE 2/11: 8/8 after late recovery is complete")
+
+        expect(DailyMedicationJourney.action(for: .noTreatment) == nil, "4C CASE 1: noTreatment has no action")
+        expect(DailyMedicationJourney.action(for: .startingDay) == .viewChallenge, "4C CASE 2: startingDay views Challenge")
+        expect(DailyMedicationJourney.action(for: .upcoming) == .viewChallenge, "4C CASE 2: upcoming views Challenge")
+        expect(DailyMedicationJourney.action(for: .inProgress) == .viewChallenge, "4C CASE 3: onTrack views Challenge")
+        expect(DailyMedicationJourney.action(for: .almostComplete) == .continueChallenge, "4C CASE 4: almostComplete continues Challenge")
+        expect(DailyMedicationJourney.action(for: .missed) == .getBackOnTrack, "4C CASE 5: missed focuses Challenge, does not mutate")
+        expect(recovered?.state == .complete, "4C CASE 6: 7 taken + takenLate equivalent is complete")
+        expect(DailyMedicationJourney.action(for: .complete) == nil, "4C CASE 7: complete has no next-challenge action")
 
         return failures
     }

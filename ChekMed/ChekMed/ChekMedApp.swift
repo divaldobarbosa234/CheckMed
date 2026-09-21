@@ -17,10 +17,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let doseFailures = DoseLoopContractChecks.failures()
             let gamificationFailures = GamificationContractChecks.failures()
             let journeyFailures = DailyMedicationJourneyContractChecks.failures()
-            print("DoseLoop failures:", doseFailures)
-            print("Gamification failures:", gamificationFailures)
-            print("DailyJourney failures:", journeyFailures)
             let failures = doseFailures + gamificationFailures + journeyFailures
+            if !failures.isEmpty {
+                print("DoseLoop failures:", doseFailures)
+                print("Gamification failures:", gamificationFailures)
+                print("DailyJourney failures:", journeyFailures)
+            }
             assert(
                 failures.isEmpty,
                 [

@@ -92,7 +92,8 @@ struct JourneyReportScreen: View {
             longestStreak: stats.longestStreakDays,
             hasActiveTreatment: treatments.activeMedicineCount > 0,
             todayTaken: stats.todayTaken,
-            todayScheduled: stats.todayTotal
+            todayScheduled: stats.todayTotal,
+            todayMissed: stats.todayMissedCount
         )
     }
 

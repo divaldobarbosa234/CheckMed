@@ -29,19 +29,23 @@ enum Gamification {
         longestStreak: Int,
         hasActiveTreatment: Bool,
         todayTaken: Int? = nil,
-        todayScheduled: Int? = nil
+        todayScheduled: Int? = nil,
+        todayMissed: Int? = nil
     ) -> GamificationSnapshot {
         guard hasActiveTreatment else {
             return .inactive
         }
         let nodeTaken = nodes.filter { $0.status == .done }.count
         let nodeSkipped = nodes.filter { $0.status == .skipped }.count
-        let remaining = nodes.filter { $0.status != .done && $0.status != .skipped }.count
+        let remainingNodes = nodes.filter { $0.status != .done && $0.status != .skipped }.count
         let taken = todayTaken ?? nodeTaken
-        let required = max(todayScheduled ?? 0, nodes.count)
+        let required = todayScheduled ?? nodes.count
         let absentFromPath = max(0, required - nodes.count)
-        let skipped = nodeSkipped + absentFromPath
-        let complete = required > 0 && taken == required
+        let skipped = todayMissed ?? (nodeSkipped + absentFromPath)
+        let remaining = todayMissed != nil
+            ? max(required - taken - skipped, 0)
+            : remainingNodes
+        let complete = required > 0 && taken == required && skipped == 0
         let needsAttention = skipped > 0 && !complete
         let lines: [ChallengeDoseLine] = nodes.map { node in
             ChallengeDoseLine(
@@ -315,6 +319,30 @@ enum GamificationContractChecks {
         expect(Gamification.snapshot(nodes: [], currentStreak: 0, longestStreak: 0, hasActiveTreatment: false).isActive == false, "no fake challenge without treatment")
         expect(Gamification.dayContributesToStreak(statuses: [.taken], isToday: true), "today counts on first taken")
         expect(!Gamification.dayContributesToStreak(statuses: [.taken, .missed], isToday: false), "past missed day does not count")
+        let recoveredLate = Gamification.snapshot(
+            nodes: eightTaken,
+            currentStreak: 1,
+            longestStreak: 1,
+            hasActiveTreatment: true,
+            todayTaken: 8,
+            todayScheduled: 8,
+            todayMissed: 0
+        )
+        expect(recoveredLate.isComplete && recoveredLate.skippedCount == 0, "CHALLENGE CASE 6: takenLate counts as complete, no missed Phil")
+        let extraSameDay = eightTaken + [DoseNode(id: "dup", time: "08:00", medicine: "M1", status: .locked)]
+        let noReplacement = Gamification.snapshot(
+            nodes: extraSameDay,
+            currentStreak: 1,
+            longestStreak: 1,
+            hasActiveTreatment: true,
+            todayTaken: 8,
+            todayScheduled: 8,
+            todayMissed: 0
+        )
+        expect(
+            noReplacement.isComplete && noReplacement.requiredCount == 8 && noReplacement.remainingCount == 0,
+            "CHALLENGE CASE 5/8: 8/8 does not open another same-day challenge"
+        )
         return failures
     }
 }

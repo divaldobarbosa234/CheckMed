@@ -1006,7 +1006,8 @@ struct DoseCompletedScreen: View {
             longestStreak: stats.longestStreakDays,
             hasActiveTreatment: treatments.activeMedicineCount > 0,
             todayTaken: stats.todayTaken,
-            todayScheduled: stats.todayTotal
+            todayScheduled: stats.todayTotal,
+            todayMissed: stats.todayMissedCount
         )
     }
 
@@ -1229,7 +1230,8 @@ struct ProgressDashboardScreen: View {
                             longestStreak: stats.longestStreakDays,
                             hasActiveTreatment: true,
                             todayTaken: stats.todayTaken,
-                            todayScheduled: stats.todayTotal
+                            todayScheduled: stats.todayTotal,
+                            todayMissed: stats.todayMissedCount
                         ),
                         history: treatments.dayStatuses()
                     )

@@ -13,6 +13,7 @@ struct AdherenceSnapshot: Equatable, Sendable {
     var treatmentCount: Int
     var todayTaken: Int
     var todayTotal: Int
+    var todayMissedCount: Int
     var hasHistory: Bool
     var weekTaken: Int
     var weekPlanned: Int
@@ -86,6 +87,7 @@ final class CheckMedStore {
     @ObservationIgnored private var cachedAdherence: AdherenceSnapshot?
     @ObservationIgnored private var cachedAdherenceRevision = -1
     @ObservationIgnored private var cachedAdherenceDay: Date?
+    @ObservationIgnored private var lastChallengeDiag: String?
     @ObservationIgnored private var logsEnsuredDay: Date?
     @ObservationIgnored private var logsEnsuredSignature: Int?
     @ObservationIgnored private var suppressNotify = false
@@ -880,6 +882,19 @@ final class CheckMedStore {
         let previous = DoseLogStatus(rawValue: log.status) ?? .pending
         if previous.isConfirmedTaken, !next.isConfirmedTaken { return }
         if previous == next, next != .snoozed { return }
+        let revisionBefore = revision
+        #if DEBUG
+        if previous.isMissedLike || previous == .pendingConfirmation {
+            print(
+                "[MISSED-DIAG] CONFIRM MISSED doseID=\(log.id.uuidString) oldStatus=\(previous.rawValue) newStatus=\(next.rawValue) takenAt=\(ScanPipeline.iso(now, calendar: calendar)) revisionBefore=\(revisionBefore)"
+            )
+            if next.isConfirmedTaken {
+                print(
+                    "[CHALLENGE-DIAG] LATE TAKE doseID=\(log.id.uuidString) oldStatus=\(previous.rawValue) newStatus=\(next.rawValue) scheduledAt=\(ScanPipeline.iso(log.scheduledAt, calendar: calendar)) takenAt=\(ScanPipeline.iso(now, calendar: calendar))"
+                )
+            }
+        }
+        #endif
         FreezeDiag.log("SWIFTDATA WRITE START source=applyDoseAction")
         FreezeDiag.log(
             "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(previous.rawValue) newStatus=\(next.rawValue) scheduledAt=\(log.scheduledAt)"
@@ -913,6 +928,15 @@ final class CheckMedStore {
         save()
         notify()
         requestSync()
+        #if DEBUG
+        if previous.isMissedLike || previous == .pendingConfirmation || next.isConfirmedTaken {
+            let status = DoseLogStatus(rawValue: log.status) ?? next
+            let inSummary = unresolvedDosesMatchingSummaryRules(now: now).contains { $0.id == log.id }
+            print(
+                "[MISSED-DIAG] AFTER CONFIRM doseID=\(log.id.uuidString) status=\(status.rawValue) unresolved=\(inSummary) taken=\(status == .taken) takenLate=\(status == .takenLate) inSummary=\(inSummary) revisionAfter=\(revision) revisionBefore=\(revisionBefore)"
+            )
+        }
+        #endif
     }
 
     /// Create upcoming logs + expire overdue ones. Call from lifecycle / sync /
@@ -922,6 +946,9 @@ final class CheckMedStore {
         let t0 = Date()
         let previous = suppressNotify
         suppressNotify = true
+        // Drop the in-memory log snapshot so foreground restore reads SwiftData
+        // before reconcile / missed-summary. Never call from View.body.
+        invalidateCache()
         ensureUpcomingLogs()
         reconcileExpiredDoseLogs()
         suppressNotify = previous
@@ -979,6 +1006,8 @@ final class CheckMedStore {
         var time: String
         var scheduledAt: Date
         var status: DoseLogStatus
+        var medicineId: UUID
+        var treatmentId: UUID
     }
 
     func unresolvedDosesForSummary(now: Date = Date()) -> [UnresolvedDose] {
@@ -1002,19 +1031,64 @@ final class CheckMedStore {
     private func unresolvedDosesMatchingSummaryRules(now: Date) -> [UnresolvedDose] {
         guard surfacesPlan else { return [] }
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
-        let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
+        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
         let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        let liveLogs = logs()
+        let probes: [DoseLoop.DoseSummaryProbe] = liveLogs.compactMap { log in
+            guard let schedule = schedulesById[log.scheduleId] else { return nil }
+            return DoseLoop.DoseSummaryProbe(
+                id: log.id,
+                scheduleId: log.scheduleId,
+                medicineId: schedule.medicineId,
+                scheduledAt: log.scheduledAt,
+                status: DoseLogStatus(rawValue: log.status) ?? .pending
+            )
+        }
+        #if DEBUG
+        for group in DoseLoop.duplicateSlotGroups(logs: probes, calendar: calendar) {
+            let statuses = group.map(\.status.rawValue).joined(separator: ",")
+            let ids = group.map(\.id.uuidString).joined(separator: ",")
+            print(
+                "[MISSED-DIAG] DUPLICATE SLOT medicineID=\(group[0].medicineId.uuidString) scheduledAt=\(ScanPipeline.iso(group[0].scheduledAt, calendar: calendar)) doseIDs=\(ids) statuses=\(statuses)"
+            )
+        }
+        #endif
+        let unresolvedIds = DoseLoop.unresolvedIdsForMissedSummary(
+            logs: probes,
+            now: now,
+            calendar: calendar
+        )
         let window = now.addingTimeInterval(-36 * 60 * 60)
-        return logs().compactMap { log in
+        return liveLogs.compactMap { log in
             let status = DoseLogStatus(rawValue: log.status) ?? .pending
-            let needsDialogue = status == .pendingConfirmation
-                || status == .missed
-                || (status == .pending && log.scheduledAt < now)
-                || status == .snoozed && log.scheduledAt < now
-            guard needsDialogue else { return nil }
-            guard log.scheduledAt >= window else { return nil }
-            guard let schedule = schedulesById[log.scheduleId],
-                  let medicine = medicinesById[schedule.medicineId],
+            let acknowledged = MissedDoseAcknowledgement.contains(log.id)
+            let included = unresolvedIds.contains(log.id)
+            let schedule = schedulesById[log.scheduleId]
+            let medicine = schedule.flatMap { medicinesById[$0.medicineId] }
+            #if DEBUG
+            let inWindow = log.scheduledAt >= window
+            let looksUnresolved = DoseLoop.qualifiesForMissedSummary(status: status, scheduledAt: log.scheduledAt, now: now)
+            if included || (inWindow && looksUnresolved) {
+                let reason: String
+                if status.isConfirmedTaken {
+                    reason = "canonical dose already confirmed"
+                } else if !inWindow {
+                    reason = "outside 36h window"
+                } else if !looksUnresolved {
+                    reason = "canonical status is not unresolved"
+                } else if !included {
+                    reason = "sibling slot already confirmed taken"
+                } else {
+                    reason = "canonical state still unresolved"
+                }
+                print(
+                    "[MISSED-DIAG] doseID=\(log.id.uuidString) medicineID=\(medicine?.id.uuidString ?? "nil") scheduledAt=\(ScanPipeline.iso(log.scheduledAt, calendar: calendar)) status=\(status.rawValue) takenAt=\(log.loggedAt.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil") acknowledged=\(acknowledged) isUnresolved=\(included) isTaken=\(status == .taken) isTakenLate=\(status == .takenLate) treatmentID=\(medicine?.treatmentId.uuidString ?? "nil") source=unresolvedDosesMatchingSummaryRules revision=\(revision) reason=\(reason)"
+                )
+            }
+            #endif
+            guard included else { return nil }
+            guard let schedule,
+                  let medicine,
                   activeTreatmentIds.contains(medicine.treatmentId) else { return nil }
             if let treatment = activeTreatments().first(where: { $0.id == medicine.treatmentId }),
                calendar.isDate(treatment.startDate, inSameDayAs: now),
@@ -1029,7 +1103,9 @@ final class CheckMedStore {
                 doseLabel: medicine.doseLabel,
                 time: schedule.timeOfDay,
                 scheduledAt: log.scheduledAt,
-                status: status
+                status: status,
+                medicineId: medicine.id,
+                treatmentId: medicine.treatmentId
             )
         }
     }
@@ -1422,6 +1498,7 @@ final class CheckMedStore {
             grace: ReminderPreferences.confirmationGraceInterval
         )
         if previous.isConfirmedTaken, !next.isConfirmedTaken { return }
+        if previous == next, next != .snoozed { return }
         FreezeDiag.log("SWIFTDATA WRITE START source=persistDoseAction")
         FreezeDiag.log(
             "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(previous.rawValue) newStatus=\(next.rawValue) scheduledAt=\(log.scheduledAt)"
@@ -1481,7 +1558,7 @@ final class CheckMedStore {
         guard !activeTreatmentIds.isEmpty else { return [] }
         let dayLogs = todayLogs().sorted { $0.scheduledAt < $1.scheduledAt }
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
-        let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
+        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
         var nodes: [DoseNode] = dayLogs.compactMap { log in
             guard let schedule = schedulesById[log.scheduleId],
                   let medicine = medicinesById[schedule.medicineId],
@@ -1496,6 +1573,7 @@ final class CheckMedStore {
                 scheduledAt: log.scheduledAt
             )
         }
+        nodes = collapseDuplicateSlotNodes(nodes)
         guard !nodes.isEmpty else { return [] }
         if let currentIndex = nodes.firstIndex(where: { $0.status == .current || $0.status == .locked }) {
             for index in nodes.indices {
@@ -1505,6 +1583,76 @@ final class CheckMedStore {
             }
         }
         return nodes
+    }
+
+    /// Display-only: one Challenge/path node per medicine + minute. Never deletes logs.
+    private func collapseDuplicateSlotNodes(_ nodes: [DoseNode]) -> [DoseNode] {
+        func rank(_ status: PathStatus) -> Int {
+            switch status {
+            case .done: return 3
+            case .current: return 2
+            case .skipped: return 1
+            case .locked: return 0
+            }
+        }
+        var chosen: [String: DoseNode] = [:]
+        var order: [String] = []
+        for node in nodes {
+            let key = DoseLoop.obligationKey(
+                medicineId: node.medicineId,
+                scheduledAt: node.scheduledAt,
+                calendar: calendar
+            )
+            if chosen[key] == nil {
+                order.append(key)
+                chosen[key] = node
+            } else if rank(node.status) > rank(chosen[key]!.status) {
+                chosen[key] = node
+            }
+        }
+        return order.compactMap { chosen[$0] }
+    }
+
+    /// Read-only today's challenge counts. One slot per medicine + minute.
+    func todayChallengeCounts(now: Date = Date()) -> DoseLoop.TodayChallengeCounts {
+        _ = revision
+        let counts = DoseLoop.todayChallengeCounts(
+            logs: todayChallengeProbes(),
+            now: now,
+            calendar: calendar
+        )
+        #if DEBUG
+        let signature = "\(calendar.startOfDay(for: now).timeIntervalSince1970)|\(counts.scheduledCount)|\(counts.completedCount)|\(counts.takenLateCount)|\(counts.missedCount)|\(counts.remainingCount)|\(counts.isComplete)"
+        let day = ScanPipeline.iso(calendar.startOfDay(for: now), calendar: calendar)
+        if lastChallengeDiag != signature {
+            if let previous = lastChallengeDiag {
+                print("[CHALLENGE-DIAG] STATE CHANGE old=\(previous) new=\(signature) reason=canonicalTodaySlots")
+            }
+            lastChallengeDiag = signature
+            print(
+                "[CHALLENGE-DIAG] date=\(day) scheduled=\(counts.scheduledCount) taken=\(counts.takenCount) takenLate=\(counts.takenLateCount) completed=\(counts.completedCount) missed=\(counts.missedCount) remaining=\(counts.remainingCount) isComplete=\(counts.isComplete)"
+            )
+        }
+        #endif
+        return counts
+    }
+
+    private func todayChallengeProbes() -> [DoseLoop.DoseSummaryProbe] {
+        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
+        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+        let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        return todayLogs().compactMap { log in
+            guard let schedule = schedulesById[log.scheduleId],
+                  let medicine = medicinesById[schedule.medicineId],
+                  activeTreatmentIds.contains(medicine.treatmentId) else { return nil }
+            return DoseLoop.DoseSummaryProbe(
+                id: log.id,
+                scheduleId: log.scheduleId,
+                medicineId: medicine.id,
+                scheduledAt: log.scheduledAt,
+                status: DoseLogStatus(rawValue: log.status) ?? .pending
+            )
+        }
     }
 
     func adherence() -> AdherenceSnapshot {
@@ -1532,6 +1680,7 @@ final class CheckMedStore {
                 treatmentCount: 0,
                 todayTaken: 0,
                 todayTotal: 0,
+                todayMissedCount: 0,
                 hasHistory: false,
                 weekTaken: 0,
                 weekPlanned: 0,
@@ -1542,16 +1691,10 @@ final class CheckMedStore {
             cachedAdherenceDay = today
             return empty
         }
-        let activeTreatmentIds = Set(activeTreatments().map(\.id))
-        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
-        let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
-        let dayLogs = todayLogs().filter { log in
-            guard let schedule = schedulesById[log.scheduleId],
-                  let medicine = medicinesById[schedule.medicineId] else { return false }
-            return activeTreatmentIds.contains(medicine.treatmentId)
-        }
-        let todayTaken = dayLogs.filter { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }.count
-        let todayTotal = dayLogs.count
+        let challenge = todayChallengeCounts(now: now)
+        let todayTaken = challenge.completedCount
+        let todayTotal = challenge.scheduledCount
+        let todayMissedCount = challenge.missedCount
         let history = logs()
         let activeHistory = logsOnActiveTreatments(history)
         let due = history.filter { $0.scheduledAt <= now }
@@ -1587,6 +1730,7 @@ final class CheckMedStore {
             treatmentCount: activeTreatments().count,
             todayTaken: todayTaken,
             todayTotal: todayTotal,
+            todayMissedCount: todayMissedCount,
             hasHistory: !due.isEmpty,
             weekTaken: weekTaken,
             weekPlanned: weekPlanned,
@@ -2080,9 +2224,18 @@ final class CheckMedStore {
             let existing = allLogs().filter {
                 $0.deletedAt == nil && $0.scheduledAt >= slotDay && $0.scheduledAt < end
             }
-            var existingKeys = Set(
-                existing.map { "\($0.scheduleId.uuidString)|\(calendar.startOfDay(for: $0.scheduledAt).timeIntervalSince1970)" }
-            )
+            let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+            var existingKeys = Set<String>()
+            for log in existing {
+                existingKeys.insert(
+                    "\(log.scheduleId.uuidString)|\(calendar.startOfDay(for: log.scheduledAt).timeIntervalSince1970)"
+                )
+                if let medicineId = schedulesById[log.scheduleId]?.medicineId {
+                    existingKeys.insert(
+                        DoseLoop.obligationKey(medicineId: medicineId, scheduledAt: log.scheduledAt, calendar: calendar)
+                    )
+                }
+            }
             for schedule in schedules() {
                 guard let medicine = medicinesById[schedule.medicineId],
                       medicine.deletedAt == nil,
@@ -2102,8 +2255,14 @@ final class CheckMedStore {
                     continue
                 }
                 let key = "\(schedule.id.uuidString)|\(calendar.startOfDay(for: scheduledAt).timeIntervalSince1970)"
-                guard !existingKeys.contains(key) else { continue }
+                let medicineSlot = DoseLoop.obligationKey(
+                    medicineId: medicine.id,
+                    scheduledAt: scheduledAt,
+                    calendar: calendar
+                )
+                guard !existingKeys.contains(key), !existingKeys.contains(medicineSlot) else { continue }
                 existingKeys.insert(key)
+                existingKeys.insert(medicineSlot)
                 let log = DoseLogRecord(
                     scheduleId: schedule.id,
                     ownerId: ownerId,
@@ -2122,6 +2281,13 @@ final class CheckMedStore {
                 context.insert(log)
                 FreezeDiag.log("SWIFTDATA WRITE END source=ensureUpcomingLogs")
                 inserted += 1
+                #if DEBUG
+                if offset == 0 {
+                    print(
+                        "[CHALLENGE-DIAG] CHALLENGE INSTANCE date=\(ScanPipeline.iso(slotDay, calendar: calendar)) reason=ensureUpcomingLogs.insertToday doseIDs=\(log.id.uuidString) medicine=\(medicine.name)"
+                    )
+                }
+                #endif
             }
         }
         logsEnsuredDay = day

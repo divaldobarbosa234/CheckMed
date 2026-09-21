@@ -59,6 +59,10 @@ struct RootView: View {
         .sheet(isPresented: $showMissedSummary) {
             NavigationStack {
                 MissedDoseSummarySheet {
+                    #if DEBUG
+                    let ids = treatments.unresolvedDosesForSummary().map(\.id.uuidString).joined(separator: ",")
+                    print("[MISSED-DIAG] SUMMARY DISMISSED ids=\(ids) reason=userDone")
+                    #endif
                     showMissedSummary = false
                 }
             }
@@ -79,6 +83,12 @@ struct RootView: View {
             } else {
                 showMissedSummary = false
             }
+        }
+        .onChange(of: treatments.revision) { _, _ in
+            // Close only when canonical unresolved is empty. Do not re-open the
+            // sheet on every later Challenge confirmation.
+            guard showMissedSummary else { return }
+            presentMissedSummaryIfNeeded()
         }
         .onChange(of: session.restorationComplete) { _, complete in
             if complete {
@@ -160,14 +170,13 @@ struct RootView: View {
 
     private func presentMissedSummaryIfNeeded() {
         guard session.rootDestination == .home else { return }
-        let counts = treatments.missedSummaryDiagnosticCounts()
-        LaunchLog.data(
-            "unresolvedDosesForSummary() count = \(counts.unresolved) acknowledged count = \(counts.acknowledged) eligible count = \(counts.eligible)"
+        let eligible = treatments.unresolvedDosesForSummary()
+        let shouldShow = !eligible.isEmpty
+        #if DEBUG
+        print(
+            "[MISSED-DIAG] SUMMARY PRESENTATION eligible=\(shouldShow) count=\(eligible.count) ids=\(eligible.map(\.id.uuidString).joined(separator: ","))"
         )
-        FreezeDiag.log(
-            "unresolvedDosesForSummary() count = \(counts.unresolved) acknowledged count = \(counts.acknowledged) eligible count = \(counts.eligible)"
-        )
-        let shouldShow = counts.eligible > 0
+        #endif
         if showMissedSummary != shouldShow {
             showMissedSummary = shouldShow
         }
@@ -204,6 +213,9 @@ private struct MissedDoseSummarySheet: View {
                 MissedDoseList(doses: doses) {
                     path.reload()
                     if treatments.unresolvedDosesForSummary().isEmpty {
+                        #if DEBUG
+                        print("[MISSED-DIAG] SUMMARY DISMISSED ids= reason=unresolvedEmptyAfterConfirm")
+                        #endif
                         onClose()
                     }
                 }

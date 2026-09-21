@@ -392,7 +392,10 @@ final class SessionStore {
         if needsReturningWelcomeGate {
             return .returningWelcome
         }
-        if needsIdentityProfile {
+        if DoseLoop.shouldPresentIdentitySetup(
+            needsIdentityProfile: needsIdentityProfile,
+            isReturningConfiguredUser: isReturningConfiguredUser
+        ) {
             return .accountProfile
         }
         if startFreshPrescription {
@@ -412,6 +415,7 @@ final class SessionStore {
     }
 
     private func logRootDestinationIfChanged(_ dest: RootDestination) {
+        let from = lastLoggedRootDestination
         guard dest != lastLoggedRootDestination else { return }
         lastLoggedRootDestination = dest
         LaunchLog.nav("Determining destination")
@@ -422,7 +426,33 @@ final class SessionStore {
                 + "onboarded=\(hasCompletedOnboarding) returning=\(showReturningWelcome) "
                 + "authEvents=\(authEventCount) restores=\(restoreCount) navDecisions=\(navigationDecisionCount)"
         )
+        #if DEBUG
+        printRestoreDiag(
+            reason: "DESTINATION CHANGE from=\(from.map(String.init(describing:)) ?? "nil") to=\(dest)"
+        )
+        #endif
     }
+
+    #if DEBUG
+    private func printRestoreDiag(reason: String) {
+        print(
+            "[RESTORE-DIAG] \(reason) sessionState=\(kind) sessionUserID=\(auth.userId?.uuidString ?? "nil") "
+                + "profileLoaded=\(userDataLoadState) profileExists=\(hasRawIdentityFields) "
+                + "preferredName=\(hasPreferredName) birthDate=\(localBirthDate != nil) "
+                + "treatmentsLoaded=\(userDataLoadState.isSettled) treatmentCount=\(hasMedicalData) "
+                + "rootDestination=\(computeRootDestination()) isFirstTime=\(computeRootDestination() == .firstTime) "
+                + "isResumeSetup=\(computeRootDestination() == .resumeSetup) isRestoring=\(auth.isRestoring) "
+                + "isResolving=\(isResolvingPostAuth) planReady=\(isPlanSurfaceReady) "
+                + "returningConfigured=\(isReturningConfiguredUser) needsIdentity=\(needsIdentityProfile)"
+        )
+        print(
+            "[RESTORE-DIAG] PROFILE loaded=\(userDataLoadState.isSettled) exists=\(hasRawIdentityFields || ProfileSetupKeychain.isComplete(for: auth.userId))"
+        )
+        print(
+            "[RESTORE-DIAG] DATA loaded=\(userDataLoadState.isSettled) medicineCount=\(hasMedicalData) treatmentCount=\(hasMedicalData)"
+        )
+    }
+    #endif
 
     /// True after treatments/profile restore finished (loaded or failed). Home must not start restore.
     var restorationComplete: Bool { userDataLoadState.isSettled }
@@ -1362,6 +1392,9 @@ final class SessionStore {
             }
             isResolvingPostAuth = false
             LaunchLog.restore("EXIT id=\(restoreId.uuidString) restoreCount=\(restoreCount)")
+            #if DEBUG
+            printRestoreDiag(reason: "handleAuthenticated EXIT")
+            #endif
         }
 
         onBindAuthenticatedIdentity?()

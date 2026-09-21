@@ -109,6 +109,12 @@ final class TodayPathStore {
             #endif
             return
         }
+        if node.status == .done {
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] path.take STOP already confirmed")
+            #endif
+            return
+        }
         #if DEBUG
         print("[PHASE4A-REGRESSION] confirmDoseTaken")
         #endif

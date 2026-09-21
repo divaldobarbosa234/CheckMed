@@ -185,7 +185,8 @@ struct HomeView: View {
             longestStreak: stats.longestStreakDays,
             hasActiveTreatment: hasActivePlan && !isPlanVisibilityPending,
             todayTaken: stats.todayTaken,
-            todayScheduled: stats.todayTotal
+            todayScheduled: stats.todayTotal,
+            todayMissed: stats.todayMissedCount
         )
     }
 
@@ -215,6 +216,7 @@ struct HomeView: View {
         let _ = FreezeDiag.watch("entitlements.isSuper") { _ = entitlements.isSuper }
         let _ = FreezeDiag.watch("family.isViewingExtra") { _ = family.isViewingExtra }
         NavigationStack(path: $navPath) {
+            ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 16) {
                     let stats = progressStats
@@ -225,12 +227,30 @@ struct HomeView: View {
                         longestStreak: stats.longestStreakDays,
                         hasActiveTreatment: hasActivePlan && !isPlanVisibilityPending,
                         todayTaken: stats.todayTaken,
-                        todayScheduled: stats.todayTotal
+                        todayScheduled: stats.todayTotal,
+                        todayMissed: stats.todayMissedCount
                     )
                     header
                     if isPlanVisibilityPending {
                         restoringPlanCard
                     } else if hasActivePlan {
+                        if let journey = DailyMedicationJourney.snapshot(
+                            from: game,
+                            nodes: nodes,
+                            planSurfaceReady: !isPlanVisibilityPending
+                        ) {
+                            DailyMedicationJourneyCard(
+                                journey: journey,
+                                streakDays: game.currentStreak
+                            ) {
+                                #if DEBUG
+                                print(
+                                    "[JOURNEY-DIAG] state=\(journey.state) action=\(String(describing: DailyMedicationJourney.action(for: journey.state))) challengeAnchorAvailable=true"
+                                )
+                                #endif
+                                proxy.scrollTo("todays-challenge", anchor: .top)
+                            }
+                        }
                         TodaysChallengeCard(snapshot: game) { doseId in
                             #if DEBUG
                             print("[PHASE4A-REGRESSION] dose tap challenge id=\(doseId)")
@@ -238,6 +258,7 @@ struct HomeView: View {
                             path.take(id: doseId)
                             handleGamificationProgress()
                         }
+                        .id("todays-challenge")
                         WeeklyAdherenceCard(
                             stats: stats,
                             snapshot: game,
@@ -245,14 +266,7 @@ struct HomeView: View {
                         ) {
                             navPath.append(AppRoute.treatmentOverview)
                         }
-                        GamificationStreakCard(
-                            snapshot: game,
-                            journey: DailyMedicationJourney.snapshot(
-                                from: game,
-                                nodes: nodes,
-                                planSurfaceReady: !isPlanVisibilityPending
-                            )
-                        )
+                        GamificationStreakCard(snapshot: game)
                         if moodPhase != .hidden {
                             moodCard
                                 .transition(.asymmetric(
@@ -370,6 +384,7 @@ struct HomeView: View {
                 session.markOnboardingPaywallOffered()
                 entitlements.presentPaywall()
             }
+            }
         }
         .sheet(item: feelingItem) { item in
             FeelingCheckInSheet(logId: item.logId, medicine: item.medicine)
@@ -384,9 +399,9 @@ struct HomeView: View {
                     .padding(.top, 8)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .allowsHitTesting(false)
-                        .zIndex(1000)
-                }
+                    .zIndex(1000)
             }
+        }
     }
 
     private var header: some View {
