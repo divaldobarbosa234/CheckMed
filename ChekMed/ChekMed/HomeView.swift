@@ -255,8 +255,7 @@ struct HomeView: View {
                             #if DEBUG
                             print("[PHASE4A-REGRESSION] dose tap challenge id=\(doseId)")
                             #endif
-                            path.take(id: doseId)
-                            handleGamificationProgress()
+                            confirmDoseAndCoach(id: doseId)
                         }
                         .id("todays-challenge")
                         WeeklyAdherenceCard(
@@ -353,20 +352,12 @@ struct HomeView: View {
             .onChange(of: session.planProfileId) { _, _ in
                 resetGamificationSession()
             }
-            .onChange(of: path.takenCount) { _, _ in
-                handleGamificationProgress()
-            }
-            .onChange(of: path.skippedCount) { _, _ in
-                handleGamificationProgress()
-            }
             .onChange(of: path.pendingFeeling?.logId) { _, id in
                 if id == nil {
                     if presentedFeeling != nil { presentedFeeling = nil }
                     return
                 }
-                Task { @MainActor in
-                    handleGamificationProgress()
-                }
+                presentFeelingCheckInIfNeeded()
             }
             .onDisappear {
                 hideMoodTask?.cancel()
@@ -688,7 +679,22 @@ struct HomeView: View {
         print("[PHIL-DIAG] primed already presented=true signature=\(snap.doneSignature) milestone=\(GamificationMemory.lastMilestone(ownerId: owner, profileId: profile))")
     }
 
-    private func handleGamificationProgress() {
+    private func confirmDoseAndCoach(id: String) {
+        let pathNodes = path.nodes
+        let storeNodes = pathNodes.contains(where: { $0.id == id }) ? [] : treatments.todayNodes()
+        let node = pathNodes.first(where: { $0.id == id })
+            ?? storeNodes.first(where: { $0.id == id })
+        if node?.status == .done { return }
+        let wasMissedLike = PhilCoach.wasMissedLikeBeforeConfirm(
+            id: id,
+            pathNodes: pathNodes,
+            storeNodes: storeNodes
+        )
+        path.take(id: id)
+        applyPhilEvent(.doseConfirmed(id: id, wasMissedLike: wasMissedLike))
+    }
+
+    private func applyPhilEvent(_ event: PhilEvent) {
         guard gamePrimed, session.restorationComplete, session.isPlanSurfaceReady else {
             #if DEBUG
             print("[PHASE4A-REGRESSION] Phil trigger skipped primed=\(gamePrimed) restore=\(session.restorationComplete) planReady=\(session.isPlanSurfaceReady)")
@@ -709,84 +715,40 @@ struct HomeView: View {
         let currentIds = GamificationMemory.doneIds(snap.doneSignature)
         if !recordedIds.isEmpty, currentIds.isDisjoint(with: recordedIds) {
             recorded = ""
-            lastGameTaken = min(lastGameTaken, snap.takenCount)
-            lastGameSkipped = min(lastGameSkipped, snap.skippedCount)
         }
-        let newlyTaken = snap.lines.filter { $0.isTaken && !GamificationMemory.doneIds(recorded).contains($0.id) }
-        let takenIncreased = !newlyTaken.isEmpty
-        let skippedIncreased = snap.skippedCount > lastGameSkipped && lastGameSkipped >= 0
-
-        if skippedIncreased, !takenIncreased {
-            lastGameTaken = snap.takenCount
-            lastGameSkipped = snap.skippedCount
-            presentGameCelebrate(.needsAttention)
-            return
-        }
-        guard takenIncreased else {
-            if snap.doneSignature == recorded {
-                lastGameTaken = snap.takenCount
-                lastGameSkipped = snap.skippedCount
-                print("[PHIL-DIAG] skip signature already presented dose IDs=\(recorded)")
-                #if DEBUG
-                print("[PHASE4A-REGRESSION] Phil trigger skipped signature already recorded")
-                #endif
-                presentFeelingCheckInIfNeeded()
-            } else {
-                #if DEBUG
-                print("[PHASE4A-REGRESSION] Phil trigger skipped no newlyTaken recorded=\(recorded) current=\(snap.doneSignature)")
-                #endif
-            }
-            return
-        }
+        let memory = PhilCoachMemoryState(
+            doneSignature: recorded,
+            lastMilestone: GamificationMemory.lastMilestone(ownerId: owner, profileId: profile),
+            completeDayStamp: GamificationMemory.didCelebrateComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp) ? todayStamp : "",
+            currentDayStamp: todayStamp
+        )
+        let reaction = PhilCoach.decision(snapshot: snap, event: event, memory: memory)
         lastGameTaken = snap.takenCount
         lastGameSkipped = snap.skippedCount
 
-        let added = snap.lines.filter { line in
-            line.isTaken && !recorded.split(separator: ",").map(String.init).contains(line.id)
+        #if DEBUG
+        if case .doseConfirmed(let doseID, let wasMissedLike) = event {
+            print("[PHIL-DIAG] medication confirmation event")
+            print("[PHIL-DIAG] dose ID=\(doseID) recovery=\(wasMissedLike)")
+            print("[PHIL-DIAG] gamification progress before=\(recorded) after=\(snap.doneSignature)")
+            print("[PHIL-DIAG] reaction=\(String(describing: reaction))")
         }
-        let doseID = added.first?.id ?? ""
-        print("[PHIL-DIAG] medication confirmation event")
-        print("[PHIL-DIAG] dose ID=\(doseID)")
-        print("[PHIL-DIAG] gamification progress before=\(recorded) after=\(snap.doneSignature)")
+        #endif
 
-        GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
-
-        let shownMilestone = GamificationMemory.lastMilestone(ownerId: owner, profileId: profile)
-        if Gamification.reactionMilestones.contains(snap.currentStreak),
-           snap.currentStreak > shownMilestone {
+        if case .doseConfirmed = event {
+            GamificationMemory.markDoneSignature(ownerId: owner, profileId: profile, signature: snap.doneSignature)
             if snap.isComplete {
                 GamificationMemory.markComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp)
             }
-            GamificationMemory.markMilestone(ownerId: owner, profileId: profile, day: snap.currentStreak)
-            print("[PHIL-DIAG] milestone=\(snap.currentStreak)")
-            print("[PHIL-DIAG] already presented=false")
-            presentGameCelebrate(.milestone(snap.currentStreak))
-            return
-        }
-
-        if snap.isComplete, !GamificationMemory.didCelebrateComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp) {
-            GamificationMemory.markComplete(ownerId: owner, profileId: profile, dayStamp: todayStamp)
-            print("[PHIL-DIAG] challenge completion event")
-            print("[PHIL-DIAG] already presented=false")
-            if snap.coach == .backOnTrack {
-                presentGameCelebrate(.backOnTrack)
-            } else {
-                presentGameCelebrate(.dayComplete)
+            if Gamification.reactionMilestones.contains(snap.currentStreak) {
+                GamificationMemory.markMilestone(ownerId: owner, profileId: profile, day: snap.currentStreak)
             }
-            return
         }
 
-        if snap.needsAttention {
-            presentGameCelebrate(.needsAttention)
-            return
-        }
-
-        if snap.coach == .backOnTrack {
-            presentGameCelebrate(.backOnTrack)
-        } else {
-            let reaction = Gamification.philDoseReaction(takenCount: snap.takenCount)
-            print("[PHIL-DIAG] reaction=\(reaction)")
+        if let reaction {
             presentGameCelebrate(reaction)
+        } else {
+            presentFeelingCheckInIfNeeded()
         }
     }
 
@@ -899,8 +861,7 @@ struct HomeView: View {
                                     #if DEBUG
                                     print("[PHASE4A-REGRESSION] dose tap medicines id=\(doseId)")
                                     #endif
-                                    path.take(id: doseId)
-                                    handleGamificationProgress()
+                                    confirmDoseAndCoach(id: doseId)
                                 } label: {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 12, weight: .bold))

@@ -744,7 +744,10 @@ struct GamificationCelebrateBanner: View {
 
     private var title: String {
         switch event {
-        case .tookFirst, .tookOnTrack, .tookKeepGoing: session.t(.philDoseTaken)
+        case .firstDay: session.t(.philFirstDay)
+        case .tookFirst: session.t(.philDoseFirst)
+        case .tookOnTrack: session.t(.philDoseOnTrack)
+        case .tookKeepGoing: session.t(.philDoseKeepGoing)
         case .dayComplete: session.t(.philDayDosesComplete)
         case .milestone(let day):
             switch day {
@@ -761,12 +764,15 @@ struct GamificationCelebrateBanner: View {
 
     private var subtitle: String {
         switch event {
-        case .tookFirst, .tookOnTrack, .tookKeepGoing: session.t(.streakKeepGoing)
+        case .firstDay: session.t(.philDoseFirst)
+        case .tookFirst: session.t(.streakKeepGoing)
+        case .tookOnTrack: session.t(.philDoseKeepGoing)
+        case .tookKeepGoing: session.t(.streakKeepGoing)
         case .dayComplete: session.t(.philChallengeComplete)
         case .milestone(1): session.t(.streakKeepGoing)
         case .milestone(3), .milestone(7): session.t(.challengeStayedOnTrack)
         case .milestone: session.t(.streakKeepGoing)
-        case .needsAttention: session.t(.philBackOnTrack)
+        case .needsAttention: session.t(.journeyGetBackOnTrack)
         case .backOnTrack: session.t(.streakKeepGoing)
         }
     }
@@ -774,7 +780,7 @@ struct GamificationCelebrateBanner: View {
     private var bannerMood: CompanionMood {
         switch event {
         case .needsAttention: .idle
-        case .tookFirst, .tookOnTrack, .tookKeepGoing: .complete
+        case .tookFirst, .tookOnTrack, .tookKeepGoing, .firstDay: .complete
         default: .complete
         }
     }

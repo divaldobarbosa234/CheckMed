@@ -18,12 +18,30 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let gamificationFailures = GamificationContractChecks.failures()
             let journeyFailures = DailyMedicationJourneyContractChecks.failures()
             let weeklyFailures = WeeklyMedicationProgressContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures
-            if !failures.isEmpty {
-                print("DoseLoop failures:", doseFailures)
-                print("Gamification failures:", gamificationFailures)
-                print("DailyJourney failures:", journeyFailures)
-                print("WeeklyProgress failures:", weeklyFailures)
+            let streakFailures = AdherenceStreakContractChecks.failures()
+            let philFailures = PhilCoachContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures
+            print("DoseLoop failures:", doseFailures)
+            print("Gamification failures:", gamificationFailures)
+            print("DailyJourney failures:", journeyFailures)
+            print("WeeklyProgress failures:", weeklyFailures)
+            print("Streak failures:", streakFailures)
+            print("PhilCoach failures:", philFailures)
+            let report = [
+                "DoseLoop failures: \(doseFailures)",
+                "Gamification failures: \(gamificationFailures)",
+                "DailyJourney failures: \(journeyFailures)",
+                "WeeklyProgress failures: \(weeklyFailures)",
+                "Streak failures: \(streakFailures)",
+                "PhilCoach failures: \(philFailures)",
+                "allEmpty: \(failures.isEmpty)",
+            ].joined(separator: "\n")
+            if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? report.write(
+                    to: docs.appendingPathComponent("checkmed-debug-contracts.txt"),
+                    atomically: true,
+                    encoding: .utf8
+                )
             }
             assert(
                 failures.isEmpty,
@@ -32,6 +50,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     gamificationFailures.isEmpty ? nil : "GAMIFICATION FAILURE: \(gamificationFailures.joined(separator: "; "))",
                     journeyFailures.isEmpty ? nil : "DAILY JOURNEY FAILURE: \(journeyFailures.joined(separator: "; "))",
                     weeklyFailures.isEmpty ? nil : "WEEKLY PROGRESS FAILURE: \(weeklyFailures.joined(separator: "; "))",
+                    streakFailures.isEmpty ? nil : "STREAK FAILURE: \(streakFailures.joined(separator: "; "))",
+                    philFailures.isEmpty ? nil : "PHIL COACH FAILURE: \(philFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }

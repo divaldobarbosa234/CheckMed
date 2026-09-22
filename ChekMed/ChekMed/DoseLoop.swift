@@ -366,23 +366,15 @@ enum DoseLoop {
                     calendar: calendar
                 )
             }
-            let status: WeeklyDayStatus
-            if !inTreatment {
-                status = .notApplicable
-            } else if isFuture {
-                status = .future
-            } else if counts.scheduledCount == 0 {
-                status = .noScheduledDoses
-            } else if counts.isComplete {
-                status = .complete
-            } else {
-                status = .incomplete
-            }
             days.append(
                 WeeklyDaySnapshot(
                     date: dayStart,
                     weekdayIndex: index,
-                    status: status,
+                    status: dayMedicationStatus(
+                        inTreatment: inTreatment,
+                        isFuture: isFuture,
+                        counts: counts
+                    ),
                     scheduledCount: counts.scheduledCount,
                     takenCount: counts.takenCount,
                     takenLateCount: counts.takenLateCount,
@@ -405,6 +397,99 @@ enum DoseLoop {
             applicableDays: applicableDays,
             adherencePercentage: percent
         )
+    }
+
+    /// Same completion rule as weekly progress and Today's Challenge.
+    static func dayMedicationStatus(
+        inTreatment: Bool,
+        isFuture: Bool,
+        counts: TodayChallengeCounts
+    ) -> WeeklyDayStatus {
+        if !inTreatment { return .notApplicable }
+        if isFuture { return .future }
+        if counts.scheduledCount == 0 { return .noScheduledDoses }
+        if counts.isComplete { return .complete }
+        return .incomplete
+    }
+
+    struct AdherenceStreakSnapshot: Equatable, Sendable {
+        var currentDays: Int
+        var longestDays: Int
+
+        static let zero = AdherenceStreakSnapshot(currentDays: 0, longestDays: 0)
+    }
+
+    /// Consecutive complete treatment days. Read-only. Today counts only when `todayCounts.isComplete`.
+    static func adherenceStreak(
+        logs: [DoseSummaryProbe],
+        treatmentWindows: [TreatmentWindow],
+        now: Date,
+        calendar: Calendar,
+        todayCounts: TodayChallengeCounts,
+        lookbackDays: Int = 400
+    ) -> AdherenceStreakSnapshot {
+        guard lookbackDays > 0, !treatmentWindows.isEmpty else { return .zero }
+        let today = calendar.startOfDay(for: now)
+        let floor = calendar.date(byAdding: .day, value: -(lookbackDays - 1), to: today) ?? today
+        var byDay: [TimeInterval: [DoseSummaryProbe]] = [:]
+        for log in logs {
+            let day = calendar.startOfDay(for: log.scheduledAt)
+            guard day >= floor, day <= today else { continue }
+            byDay[day.timeIntervalSince1970, default: []].append(log)
+        }
+
+        func status(on dayStart: Date) -> WeeklyDayStatus {
+            let isToday = calendar.isDate(dayStart, inSameDayAs: today)
+            let counts = isToday
+                ? todayCounts
+                : todayChallengeCounts(
+                    logs: byDay[dayStart.timeIntervalSince1970] ?? [],
+                    now: now,
+                    calendar: calendar
+                )
+            return dayMedicationStatus(
+                inTreatment: treatmentCovers(day: dayStart, windows: treatmentWindows, calendar: calendar),
+                isFuture: dayStart > today,
+                counts: counts
+            )
+        }
+
+        var current = 0
+        var cursor = today
+        for _ in 0..<lookbackDays {
+            let kind = status(on: cursor)
+            let isToday = calendar.isDate(cursor, inSameDayAs: today)
+            switch kind {
+            case .complete:
+                current += 1
+            case .incomplete:
+                if !isToday { break }
+            case .notApplicable, .noScheduledDoses, .future:
+                break
+            }
+            if kind == .incomplete, !isToday { break }
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
+            cursor = previous
+        }
+
+        var run = 0
+        var best = 0
+        var day = floor
+        while day <= today {
+            let kind = status(on: day)
+            switch kind {
+            case .complete:
+                run += 1
+                if run > best { best = run }
+            case .incomplete:
+                run = 0
+            case .notApplicable, .noScheduledDoses, .future:
+                break
+            }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
+        }
+        return AdherenceStreakSnapshot(currentDays: current, longestDays: max(current, best))
     }
 
     static func shouldPresentIdentitySetup(
@@ -859,6 +944,224 @@ enum WeeklyMedicationProgressContractChecks {
         let case10Missed = case8
         expect(case10Missed.days[2].isToday && case10Missed.days[2].status == .incomplete, "CASE 10: today matches 7/8 missed")
         expect(case9.days[2].isToday && case9.days[2].status == .complete, "CASE 10: after takenLate today is complete")
+        return failures
+    }
+}
+
+enum AdherenceStreakContractChecks {
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ ok: Bool, _ name: String) {
+            if !ok { failures.append(name) }
+        }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(secondsFromGMT: 0)!
+        cal.firstWeekday = 2
+        func day(_ offset: Int, hour: Int = 8) -> Date {
+            var comps = DateComponents()
+            comps.year = 2026
+            comps.month = 9
+            comps.day = 14 + offset
+            comps.hour = hour
+            return cal.date(from: comps) ?? Date()
+        }
+        let monday = day(0)
+        let nowSun = day(6, hour: 20)
+        let emptyCounts = DoseLoop.TodayChallengeCounts(
+            scheduledCount: 0,
+            takenCount: 0,
+            takenLateCount: 0,
+            completedCount: 0,
+            missedCount: 0,
+            remainingCount: 0,
+            unresolvedCount: 0,
+            isComplete: false
+        )
+        func probe(_ date: Date, medicine: UUID, status: DoseLogStatus, minuteOffset: Int = 0) -> DoseLoop.DoseSummaryProbe {
+            DoseLoop.DoseSummaryProbe(
+                id: UUID(),
+                scheduleId: UUID(),
+                medicineId: medicine,
+                scheduledAt: date.addingTimeInterval(TimeInterval(minuteOffset * 60)),
+                status: status
+            )
+        }
+        func counts(_ logs: [DoseLoop.DoseSummaryProbe], now: Date) -> DoseLoop.TodayChallengeCounts {
+            DoseLoop.todayChallengeCounts(logs: logs, now: now, calendar: cal)
+        }
+        let med = UUID()
+        let eightMeds = (0..<8).map { _ in UUID() }
+        func eight(_ statuses: [DoseLogStatus], at: Date) -> [DoseLoop.DoseSummaryProbe] {
+            zip(eightMeds, statuses).enumerated().map { index, pair in
+                probe(at, medicine: pair.0, status: pair.1, minuteOffset: index)
+            }
+        }
+        let startToday = [DoseLoop.TreatmentWindow(start: nowSun, end: nil)]
+        let fullWindow = [DoseLoop.TreatmentWindow(start: monday, end: day(6))]
+
+        let case1 = DoseLoop.adherenceStreak(
+            logs: [],
+            treatmentWindows: [],
+            now: nowSun,
+            calendar: cal,
+            todayCounts: emptyCounts
+        )
+        expect(case1.currentDays == 0 && case1.longestDays == 0, "CASE 1: no treatment is streak 0")
+
+        let oneTaken = eight(Array(repeating: DoseLogStatus.pending, count: 7) + [.taken], at: nowSun)
+        let case2 = DoseLoop.adherenceStreak(
+            logs: oneTaken,
+            treatmentWindows: startToday,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts(oneTaken, now: nowSun)
+        )
+        expect(case2.currentDays == 0, "CASE 2/12: 1/8 taken today does not increase streak")
+
+        let fourTaken = (0..<4).map { probe(nowSun, medicine: eightMeds[$0], status: .taken, minuteOffset: $0) }
+        let case3 = DoseLoop.adherenceStreak(
+            logs: fourTaken,
+            treatmentWindows: startToday,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts(fourTaken, now: nowSun)
+        )
+        expect(case3.currentDays == 1, "CASE 3/15: fully taken day is streak 1")
+
+        let sevenLate = Array(repeating: DoseLogStatus.taken, count: 7) + [.takenLate]
+        let lateLogs = eight(sevenLate, at: nowSun)
+        let case4 = DoseLoop.adherenceStreak(
+            logs: lateLogs,
+            treatmentWindows: startToday,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts(lateLogs, now: nowSun)
+        )
+        expect(case4.currentDays == 1, "CASE 4/9: 7 taken + 1 takenLate contributes")
+
+        let wed = day(2)
+        let threeDays = (0...2).map { probe(day($0), medicine: med, status: .taken) }
+        let case5 = DoseLoop.adherenceStreak(
+            logs: threeDays,
+            treatmentWindows: fullWindow,
+            now: day(2, hour: 20),
+            calendar: cal,
+            todayCounts: counts([threeDays[2]], now: day(2, hour: 20))
+        )
+        expect(case5.currentDays == 3 && case5.longestDays == 3, "CASE 5: three consecutive complete days")
+
+        let broken = [
+            probe(monday, medicine: med, status: .taken),
+            probe(day(1), medicine: med, status: .taken),
+            probe(day(2), medicine: med, status: .missed),
+            probe(day(3), medicine: med, status: .taken),
+        ]
+        let case6 = DoseLoop.adherenceStreak(
+            logs: broken,
+            treatmentWindows: fullWindow,
+            now: day(3, hour: 20),
+            calendar: cal,
+            todayCounts: counts([broken[3]], now: day(3, hour: 20))
+        )
+        expect(case6.currentDays == 1 && case6.longestDays == 2, "CASE 6: incomplete day resets current, preserves longest")
+
+        let thuWindow = [DoseLoop.TreatmentWindow(start: day(3), end: nil)]
+        let thuSun = (3...6).map { probe(day($0), medicine: med, status: .taken) }
+        let case7 = DoseLoop.adherenceStreak(
+            logs: thuSun,
+            treatmentWindows: thuWindow,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts([thuSun[3]], now: nowSun)
+        )
+        expect(case7.currentDays == 4, "CASE 7/12: mid-week start does not invent Mon–Wed misses")
+
+        let endFri = [DoseLoop.TreatmentWindow(start: monday, end: day(4))]
+        let monFri = (0...4).map { probe(day($0), medicine: med, status: .taken) }
+        let case8 = DoseLoop.adherenceStreak(
+            logs: monFri,
+            treatmentWindows: endFri,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: emptyCounts
+        )
+        expect(case8.currentDays == 5, "CASE 8: days after treatment end do not break the streak")
+
+        let restTuesday = [
+            probe(monday, medicine: med, status: .taken),
+            probe(wed, medicine: med, status: .taken),
+        ]
+        let case9 = DoseLoop.adherenceStreak(
+            logs: restTuesday,
+            treatmentWindows: fullWindow,
+            now: day(2, hour: 20),
+            calendar: cal,
+            todayCounts: counts([restTuesday[1]], now: day(2, hour: 20))
+        )
+        expect(case9.currentDays == 2, "CASE 9: no-scheduled day does not break streak")
+
+        let taken = probe(nowSun, medicine: med, status: .taken)
+        let duplicatePending = probe(nowSun, medicine: med, status: .pending)
+        let case10 = DoseLoop.adherenceStreak(
+            logs: [taken, duplicatePending],
+            treatmentWindows: startToday,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts([taken, duplicatePending], now: nowSun)
+        )
+        expect(case10.currentDays == 1, "CASE 10: duplicate pending sibling does not block completion")
+
+        let oldLog = probe(day(0), medicine: med, status: .missed)
+        let todayStartWindow = [DoseLoop.TreatmentWindow(start: nowSun, end: nil)]
+        let sunTaken = probe(nowSun, medicine: med, status: .taken)
+        let case11 = DoseLoop.adherenceStreak(
+            logs: [oldLog, sunTaken],
+            treatmentWindows: todayStartWindow,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts([sunTaken], now: nowSun)
+        )
+        expect(case11.currentDays == 1 && case11.longestDays == 1, "CASE 11: logs before treatment start do not count or break")
+
+        let remaining = probe(nowSun, medicine: med, status: .pending, minuteOffset: 60)
+        let satTaken = probe(day(5), medicine: med, status: .taken)
+        let case12 = DoseLoop.adherenceStreak(
+            logs: [satTaken, remaining],
+            treatmentWindows: fullWindow,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts([remaining], now: nowSun)
+        )
+        expect(case12.currentDays == 1, "CASE 12/14: unfinished today is not a streak day")
+
+        let recovered = eight(sevenLate, at: nowSun)
+        let case13 = DoseLoop.adherenceStreak(
+            logs: recovered,
+            treatmentWindows: startToday,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts(recovered, now: nowSun)
+        )
+        expect(case13.currentDays == 1, "CASE 13: late recovery makes the same day complete")
+
+        let futureLog = probe(day(7), medicine: med, status: .pending)
+        let case14 = DoseLoop.adherenceStreak(
+            logs: [sunTaken, futureLog],
+            treatmentWindows: [DoseLoop.TreatmentWindow(start: monday, end: nil)],
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts([sunTaken], now: nowSun)
+        )
+        expect(case14.currentDays == 1, "CASE 14: future day is ignored")
+
+        let again = DoseLoop.adherenceStreak(
+            logs: fourTaken,
+            treatmentWindows: startToday,
+            now: nowSun,
+            calendar: cal,
+            todayCounts: counts(fourTaken, now: nowSun)
+        )
+        expect(again == case3, "CASE 16: same persisted inputs yield the same streak")
         return failures
     }
 }

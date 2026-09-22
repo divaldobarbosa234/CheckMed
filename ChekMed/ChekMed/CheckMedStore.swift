@@ -1782,15 +1782,14 @@ final class CheckMedStore {
         let weekTaken = weekLogs.filter { DoseLogStatus(rawValue: $0.status)?.isConfirmedTaken == true }.count
         let weekPlanned = weekLogs.count
         let weekPercent: Int? = weekPlanned == 0 ? nil : Int((Double(weekTaken) / Double(weekPlanned) * 100).rounded())
-        let streak = streakDays(now: now, today: today, history: activeHistory)
-        let longest = longestStreakDays(now: now, today: today, history: activeHistory)
+        let streak = streakFromCanonical(now: now, todayCounts: challenge)
         FreezeDiag.context(
             String(format: "adherence END logs=%d revision=%d %.0fms", history.count, revision, Date().timeIntervalSince(t0) * 1000),
             hasChanges: context.hasChanges
         )
         let snap = AdherenceSnapshot(
-            streakDays: streak,
-            longestStreakDays: max(streak, longest),
+            streakDays: streak.currentDays,
+            longestStreakDays: max(streak.currentDays, streak.longestDays),
             takenCount: takenCount,
             takenLateCount: takenLateCount,
             missedCount: missedCount,
@@ -2374,8 +2373,45 @@ final class CheckMedStore {
         return logs().filter { $0.scheduledAt >= day && $0.scheduledAt < end }
     }
 
-    /// Same treatment boundary as weekly adherence: active treatments only.
-    /// Day-success rule is unchanged (`Gamification.dayContributesToStreak`).
+    /// Same treatment window as weekly progress: active and completed treatments.
+    private func treatmentWindowsForAdherence() -> [DoseLoop.TreatmentWindow] {
+        treatments().compactMap { treatment in
+            guard treatment.status == "active" || treatment.status == "completed" else { return nil }
+            return DoseLoop.TreatmentWindow(start: treatment.startDate, end: treatment.endDate)
+        }
+    }
+
+    private func doseSummaryProbes(from history: [DoseLogRecord]) -> [DoseLoop.DoseSummaryProbe] {
+        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
+        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+        return history.compactMap { log in
+            guard let schedule = schedulesById[log.scheduleId],
+                  let medicine = medicinesById[schedule.medicineId] else { return nil }
+            return DoseLoop.DoseSummaryProbe(
+                id: log.id,
+                scheduleId: log.scheduleId,
+                medicineId: medicine.id,
+                scheduledAt: log.scheduledAt,
+                status: DoseLogStatus(rawValue: log.status) ?? .pending
+            )
+        }
+    }
+
+    private func streakFromCanonical(now: Date, todayCounts: DoseLoop.TodayChallengeCounts) -> DoseLoop.AdherenceStreakSnapshot {
+        FreezeDiag.log("streakDays START")
+        let t0 = Date()
+        let snapshot = DoseLoop.adherenceStreak(
+            logs: doseSummaryProbes(from: logs()),
+            treatmentWindows: treatmentWindowsForAdherence(),
+            now: now,
+            calendar: calendar,
+            todayCounts: todayCounts
+        )
+        FreezeDiag.log(String(format: "streakDays END counted=%d %.0fms", snapshot.currentDays, Date().timeIntervalSince(t0) * 1000))
+        return snapshot
+    }
+
+    /// Active-treatment logs for weekly dose counts in `adherence()`. Streak uses treatment windows.
     private func logsOnActiveTreatments(_ history: [DoseLogRecord]) -> [DoseLogRecord] {
         let activeTreatmentIds = Set(activeTreatments().map(\.id))
         guard !activeTreatmentIds.isEmpty else { return [] }
@@ -2388,91 +2424,12 @@ final class CheckMedStore {
         }
     }
 
-    private func streakDays(now: Date, today: Date, history: [DoseLogRecord]) -> Int {
-        FreezeDiag.log("streakDays START")
-        let t0 = Date()
-        var byDay: [TimeInterval: [DoseLogStatus]] = [:]
-        byDay.reserveCapacity(min(history.count, 120))
-        for log in history {
-            let day = calendar.startOfDay(for: log.scheduledAt)
-            let status = DoseLogStatus(rawValue: log.status) ?? .pending
-            byDay[day.timeIntervalSince1970, default: []].append(status)
-        }
-        var cursor = today
-        var counted = 0
-        for _ in 0..<120 {
-            let statuses = byDay[cursor.timeIntervalSince1970] ?? []
-            let isToday = calendar.isDate(cursor, inSameDayAs: today)
-            if statuses.isEmpty {
-                if isToday {
-                    guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
-                    cursor = previous
-                    continue
-                }
-                break
-            }
-            if isToday {
-                if Gamification.dayContributesToStreak(statuses: statuses, isToday: true) {
-                    counted += 1
-                }
-                guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
-                cursor = previous
-                continue
-            }
-            if Gamification.dayContributesToStreak(statuses: statuses, isToday: false) {
-                counted += 1
-                guard let previous = calendar.date(byAdding: .day, value: -1, to: cursor) else { break }
-                cursor = previous
-                continue
-            }
-            break
-        }
-        _ = now
-        FreezeDiag.log(String(format: "streakDays END counted=%d %.0fms", counted, Date().timeIntervalSince(t0) * 1000))
-        return counted
-    }
-
-    /// Longest consecutive streak using the same day rule as `streakDays`. Read-only.
+    /// Longest consecutive streak using the same day-complete rule as current streak. Read-only.
     func longestAdherenceStreak() -> Int {
         _ = revision
         guard surfacesPlan else { return 0 }
         let now = Date()
-        let today = calendar.startOfDay(for: now)
-        let history = logsOnActiveTreatments(logs())
-        return max(streakDays(now: now, today: today, history: history), longestStreakDays(now: now, today: today, history: history))
-    }
-
-    private func longestStreakDays(now: Date, today: Date, history: [DoseLogRecord]) -> Int {
-        guard !history.isEmpty else { return 0 }
-        var byDay: [TimeInterval: [DoseLogStatus]] = [:]
-        byDay.reserveCapacity(min(history.count, 400))
-        let floor = calendar.date(byAdding: .day, value: -400, to: today) ?? today
-        for log in history {
-            guard log.scheduledAt >= floor else { continue }
-            let day = calendar.startOfDay(for: log.scheduledAt)
-            let status = DoseLogStatus(rawValue: log.status) ?? .pending
-            byDay[day.timeIntervalSince1970, default: []].append(status)
-        }
-        guard let earliest = byDay.keys.min() else { return 0 }
-        var cursor = Date(timeIntervalSince1970: earliest)
-        var run = 0
-        var best = 0
-        while cursor <= today {
-            let statuses = byDay[cursor.timeIntervalSince1970] ?? []
-            let isToday = calendar.isDate(cursor, inSameDayAs: today)
-            if statuses.isEmpty {
-                if !isToday { run = 0 }
-            } else if Gamification.dayContributesToStreak(statuses: statuses, isToday: isToday) {
-                run += 1
-                if run > best { best = run }
-            } else {
-                run = 0
-            }
-            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else { break }
-            cursor = next
-        }
-        _ = now
-        return best
+        return streakFromCanonical(now: now, todayCounts: todayChallengeCounts(now: now)).longestDays
     }
 
     private func activeTreatments() -> [TreatmentRecord] {
