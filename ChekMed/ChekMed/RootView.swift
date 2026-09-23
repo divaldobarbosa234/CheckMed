@@ -6,6 +6,8 @@ struct RootView: View {
     @Environment(CheckMedStore.self) private var treatments
     @Environment(\.scenePhase) private var scenePhase
     @State private var showMissedSummary = false
+    /// iOS resumes as background → inactive → active, so `oldPhase == .background` never matches `.active`.
+    @State private var resumeMissedCheckFromBackground = false
 
     var body: some View {
         Group {
@@ -102,17 +104,19 @@ struct RootView: View {
                 evaluateMissedSummaryAfterDoseDataReady(reason: "planSurfaceReady")
             }
         }
-        .onChange(of: scenePhase) { oldPhase, phase in
+        .onChange(of: scenePhase) { _, phase in
             if phase == .background {
+                resumeMissedCheckFromBackground = true
                 noteIncompleteLeaveIfNeeded()
             }
             if phase == .active {
                 Engagement.ping()
                 ReminderScheduler.shared.reschedule(force: false)
-                // inactive → active fires for sheets, Control Center, and some
-                // SwiftUI animations (Home mood). Only a real background resume
-                // should open the missed-dose dialogue.
-                if oldPhase == .background {
+                // inactive → active also fires for sheets, Control Center, and some
+                // SwiftUI animations. Only a real background stay should reopen
+                // the missed-dose dialogue.
+                if resumeMissedCheckFromBackground {
+                    resumeMissedCheckFromBackground = false
                     evaluateMissedSummaryAfterDoseDataReady(reason: "scenePhase.backgroundToActive")
                 }
             }

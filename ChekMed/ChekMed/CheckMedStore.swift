@@ -1095,10 +1095,10 @@ final class CheckMedStore {
                   let medicine,
                   activeTreatmentIds.contains(medicine.treatmentId) else { return nil }
             if let treatment = activeTreatments().first(where: { $0.id == medicine.treatmentId }),
-               calendar.isDate(treatment.startDate, inSameDayAs: now),
-               log.scheduledAt < now,
+               log.scheduledAt < treatment.startDate,
                status != .pendingConfirmation {
-                // Same-day import: backfilled morning slots are not a miss.
+                // Historical / pre-start slots are not a miss. A dose that
+                // became overdue after treatment start still qualifies today.
                 return nil
             }
             return UnresolvedDose(
