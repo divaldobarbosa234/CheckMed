@@ -85,6 +85,14 @@ final class TodayPathStore {
 
     var pendingFeeling: (logId: UUID, medicine: String)?
 
+    /// Incremented when Challenge/Home should reopen the missed-dose sheet for remaining events.
+    var missedSheetRequestNonce: UInt = 0
+
+    /// Missed Challenge/Home taps must not confirm Taken. Re-present the existing sheet instead.
+    func requestMissedSheetPresentation() {
+        missedSheetRequestNonce &+= 1
+    }
+
     func takeCurrent() {
         guard let current else { return }
         take(id: current.id)
@@ -113,6 +121,13 @@ final class TodayPathStore {
             #if DEBUG
             print("[PHASE4A-REGRESSION] path.take STOP already confirmed")
             #endif
+            return
+        }
+        if node.status == .skipped {
+            #if DEBUG
+            print("[PHASE4A-REGRESSION] path.take STOP missed — request sheet")
+            #endif
+            requestMissedSheetPresentation()
             return
         }
         #if DEBUG

@@ -2310,9 +2310,10 @@ final class CheckMedStore {
                       activeTreatmentIds.contains(medicine.treatmentId) else { continue }
                 guard let scheduledAt = date(on: slotDay, timeOfDay: schedule.timeOfDay) else { continue }
                 let treatment = treatmentsById[medicine.treatmentId]
-                let newImportToday = treatment.map { calendar.isDate($0.startDate, inSameDayAs: now) } ?? false
-                if scheduledAt < now, newImportToday {
-                    ScanLog.dose("skip past on new treatmentStartDate scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)")
+                if scheduledAt < now {
+                    ScanLog.dose(
+                        "skip past slot scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
+                    )
                     continue
                 }
                 if let treatment, scheduledAt < treatment.startDate {

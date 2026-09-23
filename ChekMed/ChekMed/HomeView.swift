@@ -255,6 +255,11 @@ struct HomeView: View {
                             #if DEBUG
                             print("[PHASE4A-REGRESSION] dose tap challenge id=\(doseId)")
                             #endif
+                            let node = nodes.first(where: { $0.id == doseId })
+                            if node?.status == .skipped {
+                                path.requestMissedSheetPresentation()
+                                return
+                            }
                             confirmDoseAndCoach(id: doseId)
                         }
                         .id("todays-challenge")

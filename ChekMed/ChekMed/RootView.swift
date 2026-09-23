@@ -4,10 +4,13 @@ struct RootView: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(CheckMedStore.self) private var treatments
+    @Environment(TodayPathStore.self) private var path
     @Environment(\.scenePhase) private var scenePhase
     @State private var showMissedSummary = false
     /// iOS resumes as background → inactive → active, so `oldPhase == .background` never matches `.active`.
     @State private var resumeMissedCheckFromBackground = false
+    /// Eligible IDs the user dismissed with Done. Not a global ack — resume / new misses can still present.
+    @State private var dismissedMissedIds: Set<UUID> = []
 
     var body: some View {
         Group {
@@ -65,6 +68,7 @@ struct RootView: View {
                     let ids = treatments.unresolvedDosesForSummary().map(\.id.uuidString).joined(separator: ",")
                     print("[MISSED-DIAG] SUMMARY DISMISSED ids=\(ids) reason=userDone")
                     #endif
+                    dismissedMissedIds.formUnion(treatments.unresolvedDosesForSummary().map(\.id))
                     showMissedSummary = false
                 }
             }
@@ -87,10 +91,11 @@ struct RootView: View {
             }
         }
         .onChange(of: treatments.revision) { _, _ in
-            // Close only when canonical unresolved is empty. Do not re-open the
-            // sheet on every later Challenge confirmation.
-            guard showMissedSummary else { return }
             presentMissedSummaryIfNeeded()
+        }
+        .onChange(of: path.missedSheetRequestNonce) { _, nonce in
+            guard nonce > 0 else { return }
+            presentMissedSummaryIfNeeded(allowDismissed: true)
         }
         .onChange(of: session.restorationComplete) { _, complete in
             if complete {
@@ -169,20 +174,39 @@ struct RootView: View {
         treatments.refreshDoseLogsForDisplay()
         LaunchLog.data("DATA RESTORATION COMPLETE reason=\(reason)")
         FreezeDiag.log("DATA RESTORATION COMPLETE reason=\(reason)")
-        presentMissedSummaryIfNeeded()
+        presentMissedSummaryIfNeeded(fromResume: true)
     }
 
-    private func presentMissedSummaryIfNeeded() {
+    private func presentMissedSummaryIfNeeded(fromResume: Bool = false, allowDismissed: Bool = false) {
         guard session.rootDestination == .home else { return }
+        if fromResume {
+            dismissedMissedIds = []
+        }
         let eligible = treatments.unresolvedDosesForSummary()
-        let shouldShow = !eligible.isEmpty
+        let ids = Set(eligible.map(\.id))
         #if DEBUG
         print(
-            "[MISSED-DIAG] SUMMARY PRESENTATION eligible=\(shouldShow) count=\(eligible.count) ids=\(eligible.map(\.id.uuidString).joined(separator: ","))"
+            "[MISSED-DIAG] SUMMARY PRESENTATION eligible=\(!eligible.isEmpty) count=\(eligible.count) ids=\(eligible.map(\.id.uuidString).joined(separator: ","))"
         )
         #endif
-        if showMissedSummary != shouldShow {
-            showMissedSummary = shouldShow
+        if eligible.isEmpty {
+            if showMissedSummary {
+                showMissedSummary = false
+            }
+            dismissedMissedIds = []
+            LaunchLog.data("showMissedSummary = \(showMissedSummary)")
+            FreezeDiag.log("showMissedSummary = \(showMissedSummary)")
+            return
+        }
+        if showMissedSummary {
+            LaunchLog.data("showMissedSummary = \(showMissedSummary)")
+            FreezeDiag.log("showMissedSummary = \(showMissedSummary)")
+            return
+        }
+        let unseen = ids.subtracting(dismissedMissedIds)
+        let shouldShow = fromResume || allowDismissed || !unseen.isEmpty
+        if shouldShow {
+            showMissedSummary = true
         }
         LaunchLog.data("showMissedSummary = \(showMissedSummary)")
         FreezeDiag.log("showMissedSummary = \(showMissedSummary)")
