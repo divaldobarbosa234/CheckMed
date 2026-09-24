@@ -20,13 +20,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let weeklyFailures = WeeklyMedicationProgressContractChecks.failures()
             let streakFailures = AdherenceStreakContractChecks.failures()
             let philFailures = PhilCoachContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures
+            let laterAddFailures = LaterAddPersistContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + laterAddFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
             print("WeeklyProgress failures:", weeklyFailures)
             print("Streak failures:", streakFailures)
             print("PhilCoach failures:", philFailures)
+            print("LaterAddPersist failures:", laterAddFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
                 "Gamification failures: \(gamificationFailures)",
@@ -34,6 +36,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "WeeklyProgress failures: \(weeklyFailures)",
                 "Streak failures: \(streakFailures)",
                 "PhilCoach failures: \(philFailures)",
+                "LaterAddPersist failures: \(laterAddFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -52,6 +55,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     weeklyFailures.isEmpty ? nil : "WEEKLY PROGRESS FAILURE: \(weeklyFailures.joined(separator: "; "))",
                     streakFailures.isEmpty ? nil : "STREAK FAILURE: \(streakFailures.joined(separator: "; "))",
                     philFailures.isEmpty ? nil : "PHIL COACH FAILURE: \(philFailures.joined(separator: "; "))",
+                    laterAddFailures.isEmpty ? nil : "LATER ADD PERSIST FAILURE: \(laterAddFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }

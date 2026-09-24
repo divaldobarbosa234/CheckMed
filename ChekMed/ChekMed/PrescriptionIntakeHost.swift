@@ -27,6 +27,7 @@ struct AddPrescriptionIntakeHost: View {
     @State private var selectedDetectionKeys: Set<String> = []
     @State private var didNeedSlotGate = false
     @State private var oldPrescriptionWarningDate: Date? = nil
+    @State private var laterAddIntent: LaterAddTreatmentIntent = .addToCurrent
 
     private enum Phase {
         case choose, camera, manual, analysing, slotLimit, confirm, planResume
@@ -52,7 +53,9 @@ struct AddPrescriptionIntakeHost: View {
                         } else {
                             dismiss()
                         }
-                    }
+                    },
+                    showsTreatmentIntent: asksLaterAddTreatmentIntent,
+                    treatmentIntent: $laterAddIntent
                 )
             case .camera:
                 OnboardingCameraView(
@@ -169,6 +172,10 @@ struct AddPrescriptionIntakeHost: View {
 
     private var liveExistingCount: Int { treatments.storedMedicineCount }
 
+    private var asksLaterAddTreatmentIntent: Bool {
+        treatments.storedMedicineCount > 0 && treatments.hasActivePlan
+    }
+
     private func start(_ next: OnboardingAddMethod, proceed: () -> Void) {
         let ownerId = session.planOwnerId
         guard entitlements.gatePrescriptionAdd(
@@ -255,7 +262,13 @@ struct AddPrescriptionIntakeHost: View {
     @discardableResult
     private func persistConfirmedDrafts() -> Bool {
         let liveCount = treatments.storedMedicineCount
-        let capBase = min(medicineCountAtStart, liveCount)
+        let persistTarget = LaterAddPersist.target(
+            intent: laterAddIntent,
+            activeMedicineCount: liveCount
+        )
+        let capBase = persistTarget == .completeThenSeed
+            ? 0
+            : min(medicineCountAtStart, liveCount)
         let capped = drafts.cappedForPlan(
             isSuper: entitlements.isSuper,
             existingCount: capBase
@@ -275,7 +288,28 @@ struct AddPrescriptionIntakeHost: View {
         if didPersistPlan {
             // Already wrote this intake once; avoid duplicate rows on confirm → back → confirm.
             ok = true
-        } else if liveCount == 0 {
+        } else if persistTarget == .completeThenSeed {
+            let previousId = treatments.existingActivePlanId()
+            treatments.completeAllActiveTreatments()
+            guard !treatments.hasActivePlan else {
+                #if DEBUG
+                print("[CheckMed] start-new blocked: active treatment still present after complete")
+                #endif
+                return false
+            }
+            ok = treatments.seedFromDrafts(
+                capped,
+                ownerId: session.planOwnerId,
+                profileId: session.planProfileId
+            )
+            #if DEBUG
+            let newId = treatments.existingActivePlanId()
+            print(
+                "[TREATMENT-ID] startNew previous=\(previousId?.uuidString ?? "nil") "
+                + "new=\(newId?.uuidString ?? "nil") differ=\(previousId != newId) active=\(treatments.hasActivePlan)"
+            )
+            #endif
+        } else if persistTarget == .seed {
             ok = treatments.seedFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,

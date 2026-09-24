@@ -143,6 +143,8 @@ enum L10n {
         case scanAddTitle, scanKicker, scanBubbleSync, scanBubbleGuest
         case scanTakePhoto, scanChoosePhotos, scanImportPDF, scanImportFile, scanLaterDigital
         case scanUploadPDF, scanSetManually, scanOrganizeHint
+        case laterAddToCurrentTreatment, laterStartNewTreatment
+        case laterAddToCurrentTreatmentHint, laterStartNewTreatmentHint
         case scanCameraTitle, scanCameraBubble, scanKeepFrame, scanViewfinder, scanCapture
         case scanScanningTitle, scanScanningBubble, scanScanningBody
         case scanAnalysingTitle, scanAnalysingBody, scanAnalysingShort
@@ -756,6 +758,10 @@ enum L10n {
         .scanUploadPDF: "Upload PDF",
         .scanSetManually: "Set manually",
         .scanOrganizeHint: "CheckMed uses this to help organize your medication plan.",
+        .laterAddToCurrentTreatment: "Add to current treatment",
+        .laterStartNewTreatment: "Start new treatment",
+        .laterAddToCurrentTreatmentHint: "These medicines will be added to your current active treatment.",
+        .laterStartNewTreatmentHint: "Your current treatment will be finished. These medicines will start a new treatment.",
         .scanAnalysingTitle: "We're analysing your data",
         .scanAnalysingBody: "to create a better plan for your health.",
         .scanAnalysingShort: "Just a moment…",
@@ -1525,6 +1531,10 @@ enum L10n {
         .scanUploadPDF: "Enviar PDF",
         .scanSetManually: "Definir manualmente",
         .scanOrganizeHint: "O CheckMed usa isto para ajudar a organizar seu plano de medicação.",
+        .laterAddToCurrentTreatment: "Adicionar ao tratamento atual",
+        .laterStartNewTreatment: "Começar um tratamento novo",
+        .laterAddToCurrentTreatmentHint: "Estes medicamentos serão adicionados ao tratamento ativo atual.",
+        .laterStartNewTreatmentHint: "O tratamento atual será concluído. Estes medicamentos começarão um tratamento novo.",
         .scanAnalysingTitle: "Estamos analisando seus dados",
         .scanAnalysingBody: "para criar um plano melhor para a sua saúde.",
         .scanAnalysingShort: "Só um momento…",
@@ -2294,6 +2304,10 @@ enum L10n {
         .scanUploadPDF: "Subir PDF",
         .scanSetManually: "Definir manualmente",
         .scanOrganizeHint: "CheckMed usa esto para ayudar a organizar tu plan de medicación.",
+        .laterAddToCurrentTreatment: "Añadir al tratamiento actual",
+        .laterStartNewTreatment: "Empezar un tratamiento nuevo",
+        .laterAddToCurrentTreatmentHint: "Estos medicamentos se añadirán al tratamiento activo actual.",
+        .laterStartNewTreatmentHint: "El tratamiento actual se dará por terminado. Estos medicamentos empezarán un tratamiento nuevo.",
         .scanAnalysingTitle: "Estamos analizando tus datos",
         .scanAnalysingBody: "para crear un mejor plan para tu salud.",
         .scanAnalysingShort: "Un momento…",
@@ -3063,6 +3077,10 @@ enum L10n {
         .scanUploadPDF: "Téléverser un PDF",
         .scanSetManually: "Saisir manuellement",
         .scanOrganizeHint: "CheckMed utilise ceci pour aider à organiser votre plan de médication.",
+        .laterAddToCurrentTreatment: "Ajouter au traitement actuel",
+        .laterStartNewTreatment: "Commencer un nouveau traitement",
+        .laterAddToCurrentTreatmentHint: "Ces médicaments seront ajoutés au traitement actif actuel.",
+        .laterStartNewTreatmentHint: "Le traitement actuel sera terminé. Ces médicaments commenceront un nouveau traitement.",
         .scanAnalysingTitle: "Nous analysons vos données",
         .scanAnalysingBody: "pour créer un meilleur plan pour votre santé.",
         .scanAnalysingShort: "Un instant…",

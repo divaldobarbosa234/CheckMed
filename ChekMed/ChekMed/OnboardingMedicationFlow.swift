@@ -6,6 +6,54 @@ enum OnboardingAddMethod {
     case photo, pdf, manual
 }
 
+/// Later-add intake only. First plan (`storedMedicineCount == 0`) always seeds a new treatment.
+enum LaterAddTreatmentIntent: Equatable {
+    /// Append this confirmation to `activeTreatments().first`.
+    case addToCurrent
+    /// Complete the active plan, then seed a new TreatmentRecord for this confirmation.
+    case startNewTreatment
+}
+
+enum LaterAddPersistTarget: Equatable {
+    case seed
+    case addToActive
+    case completeThenSeed
+}
+
+enum LaterAddPersist {
+    static func target(
+        intent: LaterAddTreatmentIntent,
+        activeMedicineCount: Int
+    ) -> LaterAddPersistTarget {
+        guard activeMedicineCount > 0 else { return .seed }
+        switch intent {
+        case .addToCurrent: return .addToActive
+        case .startNewTreatment: return .completeThenSeed
+        }
+    }
+}
+
+#if DEBUG
+enum LaterAddPersistContractChecks {
+    static func failures() -> [String] {
+        var failures: [String] = []
+        if LaterAddPersist.target(intent: .addToCurrent, activeMedicineCount: 0) != .seed {
+            failures.append("later-add: empty store must seed, not add")
+        }
+        if LaterAddPersist.target(intent: .startNewTreatment, activeMedicineCount: 0) != .seed {
+            failures.append("later-add: empty store must seed even if start-new is selected")
+        }
+        if LaterAddPersist.target(intent: .addToCurrent, activeMedicineCount: 1) != .addToActive {
+            failures.append("later-add: add-to-current must append onto the active treatment")
+        }
+        if LaterAddPersist.target(intent: .startNewTreatment, activeMedicineCount: 1) != .completeThenSeed {
+            failures.append("later-add: start-new must complete then seed")
+        }
+        return failures
+    }
+}
+#endif
+
 struct OnboardingPrescriptionDraft: Equatable, Sendable {
     var medicine: String
     var dose: String
@@ -144,6 +192,8 @@ struct OnboardingAddMedicationView: View {
     var onManual: () -> Void
     var onBack: () -> Void
     var showsChoosePhotos: Bool = true
+    var showsTreatmentIntent: Bool = false
+    var treatmentIntent: Binding<LaterAddTreatmentIntent> = .constant(.addToCurrent)
 
     private var medicineCount: Int { treatments.storedMedicineCount }
     private var remainingSlots: Int {
@@ -174,6 +224,9 @@ struct OnboardingAddMedicationView: View {
                     .background(CheckMedTheme.mintWash)
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
+                if showsTreatmentIntent {
+                    laterAddTreatmentIntentPicker
+                }
                 VStack(spacing: 12) {
                     CheckMedButton(title: session.t(.scanTakePhoto), action: onPhoto)
                     if showsChoosePhotos {
@@ -193,6 +246,60 @@ struct OnboardingAddMedicationView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
+    }
+
+    private var laterAddTreatmentIntentPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            intentRow(
+                title: session.t(.laterAddToCurrentTreatment),
+                hint: session.t(.laterAddToCurrentTreatmentHint),
+                selected: treatmentIntent.wrappedValue == .addToCurrent
+            ) {
+                treatmentIntent.wrappedValue = .addToCurrent
+            }
+            intentRow(
+                title: session.t(.laterStartNewTreatment),
+                hint: session.t(.laterStartNewTreatmentHint),
+                selected: treatmentIntent.wrappedValue == .startNewTreatment
+            ) {
+                treatmentIntent.wrappedValue = .startNewTreatment
+            }
+        }
+    }
+
+    private func intentRow(
+        title: String,
+        hint: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(selected ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+                    .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(.body, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.ink)
+                    Text(hint)
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(selected ? CheckMedTheme.primary.opacity(0.35) : CheckMedTheme.hairline, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 
