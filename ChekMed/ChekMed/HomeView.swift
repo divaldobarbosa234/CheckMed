@@ -151,7 +151,8 @@ struct HomeView: View {
                     time: display.time,
                     status: status,
                     takeDoseId: pending.first?.id,
-                    scheduledAt: display.scheduledAt
+                    scheduledAt: display.scheduledAt,
+                    isTakenLate: ordered.contains { $0.status == .done && $0.isTakenLate }
                 )
             }
             .sorted { lhs, rhs in
@@ -314,16 +315,23 @@ struct HomeView: View {
                 LaunchLog.home("onAppear tab=\(session.selectedMainTab)")
                 applyMoodVisibilityForToday(animated: false)
                 path.reload()
+                path.revealPendingFeeling()
                 primeGamificationIfNeeded()
+                refreshDashboardPhilFlag()
+                presentFeelingCheckInIfNeeded()
                 Task { @MainActor in
                     treatments.refreshDoseLogsForDisplay()
                     path.reload()
+                    path.revealPendingFeeling()
                     primeGamificationIfNeeded()
+                    refreshDashboardPhilFlag()
+                    presentFeelingCheckInIfNeeded()
                 }
                 FreezeDiag.log("Home onAppear END")
             }
             .onChange(of: session.selectedMainTab) { _, tab in
                 LaunchLog.home("tab→\(tab)")
+                refreshDashboardPhilFlag()
                 if tab == .home {
                     applyMoodVisibilityForToday(animated: false)
                     presentFeelingCheckInIfNeeded()
@@ -332,6 +340,7 @@ struct HomeView: View {
                 }
             }
             .onChange(of: navPath.count) { _, count in
+                refreshDashboardPhilFlag()
                 if count == 0, session.selectedMainTab == .home {
                     applyMoodVisibilityForToday(animated: false)
                     presentFeelingCheckInIfNeeded()
@@ -364,7 +373,12 @@ struct HomeView: View {
                 }
                 presentFeelingCheckInIfNeeded()
             }
+            .onChange(of: path.philPresentationNonce) { _, nonce in
+                guard nonce > 0, let pending = path.takePhilPresentation() else { return }
+                applyPhilEvent(.doseConfirmed(id: pending.id, wasMissedLike: pending.wasMissedLike))
+            }
             .onDisappear {
+                path.dashboardPresentsPhil = false
                 hideMoodTask?.cancel()
                 hideMoodTask = nil
                 dismissPhilReaction(animated: false)
@@ -684,6 +698,10 @@ struct HomeView: View {
         print("[PHIL-DIAG] primed already presented=true signature=\(snap.doneSignature) milestone=\(GamificationMemory.lastMilestone(ownerId: owner, profileId: profile))")
     }
 
+    private func refreshDashboardPhilFlag() {
+        path.dashboardPresentsPhil = session.selectedMainTab == .home && navPath.isEmpty
+    }
+
     private func confirmDoseAndCoach(id: String) {
         let pathNodes = path.nodes
         let storeNodes = pathNodes.contains(where: { $0.id == id }) ? [] : treatments.todayNodes()
@@ -805,6 +823,7 @@ struct HomeView: View {
 
     private func presentFeelingCheckInIfNeeded() {
         guard gameCelebrate == nil else { return }
+        guard !path.shouldDeferFeelingPresentation else { return }
         guard presentedFeeling == nil else { return }
         guard let pending = path.pendingFeeling else { return }
         #if DEBUG
@@ -965,6 +984,13 @@ struct HomeView: View {
                         .foregroundStyle(CheckMedTheme.muted)
                         .lineLimit(1)
                 }
+                if row.status == .done, row.isTakenLate {
+                    Text(session.t(.homeTakenLateHint))
+                        .font(.system(.caption2, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.flowDot)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 6)
             statusChip(row)
@@ -978,9 +1004,15 @@ struct HomeView: View {
         let tint: Color
         switch row.status {
         case .done:
-            label = session.t(.taken)
-            icon = "checkmark"
-            tint = Color(hex: 0x5FA86B)
+            if row.isTakenLate {
+                label = session.t(.homeTakenLate)
+                icon = "checkmark"
+                tint = Color(hex: 0x5FA86B)
+            } else {
+                label = session.t(.taken)
+                icon = "checkmark"
+                tint = Color(hex: 0x5FA86B)
+            }
         case .skipped:
             label = session.t(.missedDidNotTake)
             icon = "minus"
@@ -1178,6 +1210,7 @@ private struct HomeMedicineRow: Identifiable {
     /// Earliest pending dose log id — swipe Taken marks this dose.
     let takeDoseId: String?
     let scheduledAt: Date
+    let isTakenLate: Bool
 }
 
 private struct FeelingSheetItem: Identifiable {

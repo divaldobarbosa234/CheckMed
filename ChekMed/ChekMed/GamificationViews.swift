@@ -276,6 +276,12 @@ struct TodaysChallengeCard: View {
                 Text(session.t(.challengeStayedOnTrack))
                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
+                if snapshot.lines.contains(where: \.isTakenLate) {
+                    Text(session.t(.homeTakenLateHint))
+                        .font(.system(.caption, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.flowDot)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             } else {
                 progressBar
             }
@@ -301,11 +307,17 @@ struct TodaysChallengeCard: View {
                             Text("\(line.time) · \(line.detail)")
                                 .font(.system(.caption, design: .rounded).weight(.semibold))
                                 .foregroundStyle(CheckMedTheme.muted)
+                            if line.isTakenLate {
+                                Text(session.t(.homeTakenLateHint))
+                                    .font(.system(.caption2, design: .rounded).weight(.bold))
+                                    .foregroundStyle(CheckMedTheme.flowDot)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                         Spacer(minLength: 0)
                     }
                     .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(line.medicine), \(line.time), \(line.detail), \(line.isTaken ? session.t(.taken) : (line.isMissed ? session.t(.skipped) : session.t(.homeStatusPending)))")
+                    .accessibilityLabel("\(line.medicine), \(line.time), \(line.detail), \(line.isTakenLate ? session.t(.homeTakenLate) : (line.isTaken ? session.t(.taken) : (line.isMissed ? session.t(.skipped) : session.t(.homeStatusPending))))")
                 }
                 if snapshot.remainingCount > 0, !snapshot.needsAttention {
                     Text(snapshot.remainingCount == 1 ? session.t(.challengeOneToGo) : session.t(.challengeManyToGo, snapshot.remainingCount))

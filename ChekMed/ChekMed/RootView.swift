@@ -90,6 +90,11 @@ struct RootView: View {
                 showMissedSummary = false
             }
         }
+        .onChange(of: showMissedSummary) { wasShowing, showing in
+            if wasShowing, !showing {
+                path.noteMissedSheetClosed()
+            }
+        }
         .onChange(of: treatments.revision) { _, _ in
             presentMissedSummaryIfNeeded()
         }
@@ -246,6 +251,8 @@ private struct MissedDoseSummarySheet: View {
                         #endif
                         onClose()
                     }
+                } onConfirmedTaken: { id, wasMissedLike in
+                    path.holdPhilForMissedSheet(id: id.uuidString, wasMissedLike: wasMissedLike)
                 }
             }
             .padding(20)

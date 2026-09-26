@@ -817,16 +817,121 @@ struct HowToTakeScreen: View {
     private var medicine: CheckMedStore.MedicineSummary? { treatments.medicineSummaries().first }
 
     var body: some View {
-        ScreenScaffold(title: session.t(.howYouTakeIt), bubble: session.t(.planOnlyBubble)) {
+        ScreenScaffold(
+            title: session.t(.howYouTakeIt),
+            philSize: 72,
+            bubble: session.t(.planOnlyBubble)
+        ) {
             if let medicine {
-                Text("\(medicine.doseLabel) · \(medicine.frequency)")
+                Text(medicine.name)
                     .font(.system(.title3, design: .rounded).weight(.heavy))
-                Text(medicine.duration)
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(medicine.doseLabel) · \(medicine.frequency)")
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(session.t(.refillForm))
+                    .font(.system(.caption, design: .rounded).weight(.heavy))
+                    .textCase(.uppercase)
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .padding(.top, 4)
+                VStack(spacing: 8) {
+                    ForEach(MedicineForm.allCases) { form in
+                        formChoice(form, medicine: medicine)
+                    }
+                }
+            } else {
+                Text(session.t(.todayNothing))
                     .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
             }
             Text(session.t(.planOnlyDisclaimer))
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.safety)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 4)
+        }
+    }
+
+    private func formChoice(_ form: MedicineForm, medicine: CheckMedStore.MedicineSummary) -> some View {
+        let selected = medicine.form == form
+        return Button {
+            guard medicine.form != form else { return }
+            treatments.updateMedicineStock(id: medicine.id, form: form)
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: form.systemImage)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(selected ? CheckMedTheme.primaryShadow : CheckMedTheme.muted)
+                    .frame(width: 28)
+                    .padding(.top, 2)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(formTitle(form))
+                        .font(.system(.body, design: .rounded).weight(selected ? .heavy : .semibold))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if selected {
+                        Text(formHint(form))
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.primaryShadow)
+                        .padding(.top, 2)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(minHeight: 56)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? CheckMedTheme.mintWash : CheckMedTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(
+                        selected ? CheckMedTheme.primaryShadow : CheckMedTheme.hairline,
+                        lineWidth: selected ? 2.5 : 1.5
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.15), value: selected)
+        .accessibilityLabel(formTitle(form))
+        .accessibilityValue(selected ? formHint(form) : "")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func formHint(_ form: MedicineForm) -> String {
+        switch form {
+        case .tablet: session.t(.formTabletHint)
+        case .capsule: session.t(.formCapsuleHint)
+        case .syrup: session.t(.formSyrupHint)
+        case .drops: session.t(.formDropsHint)
+        case .powder: session.t(.formPowderHint)
+        case .other: session.t(.formOtherHint)
+        }
+    }
+
+    private func formTitle(_ form: MedicineForm) -> String {
+        switch form {
+        case .tablet: session.t(.formTablet)
+        case .capsule: session.t(.formCapsule)
+        case .syrup: session.t(.formSyrup)
+        case .drops: session.t(.formDrops)
+        case .powder: session.t(.formPowder)
+        case .other: session.t(.formOther)
         }
     }
 }
@@ -1079,8 +1184,10 @@ struct MissedDoseScreen: View {
 struct MissedDoseList: View {
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
+    @Environment(TodayPathStore.self) private var path
     var doses: [CheckMedStore.UnresolvedDose]
     var onChanged: () -> Void
+    var onConfirmedTaken: ((UUID, Bool) -> Void)? = nil
 
     var body: some View {
         if doses.isEmpty {
@@ -1096,10 +1203,17 @@ struct MissedDoseList: View {
                         .foregroundStyle(CheckMedTheme.muted)
                     HStack {
                         CheckMedButton(title: session.t(.missedTookItLater)) {
+                            let wasMissedLike = dose.status.isMissedLike
+                            let revisionBefore = treatments.revision
                             treatments.applyDoseAction(id: dose.id, action: .confirmTaken)
                             MissedDoseAcknowledgement.acknowledge(dose.id)
                             ReminderScheduler.shared.handleTakenSideEffects(logId: dose.id)
+                            let succeeded = treatments.revision != revisionBefore
                             onChanged()
+                            if succeeded {
+                                path.persistFeelingRequest(logId: dose.id, medicine: dose.medicine)
+                                onConfirmedTaken?(dose.id, wasMissedLike)
+                            }
                         }
                         CheckMedButton(title: session.t(.missedDidNotTake), style: .secondary) {
                             treatments.applyDoseAction(id: dose.id, action: .didNotTake)

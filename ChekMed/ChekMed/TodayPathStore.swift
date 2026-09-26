@@ -13,6 +13,8 @@ struct DoseNode: Identifiable {
     var detail: String = ""
     var status: PathStatus
     var scheduledAt: Date = Date()
+    /// Canonical DoseLog `.takenLate`. Presentation only — still a completed taken dose.
+    var isTakenLate: Bool = false
 }
 
 enum CompanionMood: Equatable, Hashable {
@@ -50,6 +52,7 @@ final class TodayPathStore {
     func bind(store: CheckMedStore) {
         self.store = store
         reload()
+        revealPendingFeeling()
     }
 
     /// Debounce observation churn from `notify()` so Home is not reloaded on every replica save.
@@ -85,12 +88,66 @@ final class TodayPathStore {
 
     var pendingFeeling: (logId: UUID, medicine: String)?
 
+    /// Home dashboard can show a Phil overlay now (tab + empty nav). Not medication state.
+    @ObservationIgnored
+    var dashboardPresentsPhil = false
+
+    var shouldDeferFeelingPresentation: Bool {
+        heldSheetPhil != nil || philPresentation != nil
+    }
+
+    @ObservationIgnored
+    private var heldSheetPhil: (id: String, wasMissedLike: Bool)?
+
     /// Incremented when Challenge/Home should reopen the missed-dose sheet for remaining events.
     var missedSheetRequestNonce: UInt = 0
+    /// Incremented when an external confirm should present Phil. Home consumes it once.
+    var philPresentationNonce: UInt = 0
+    @ObservationIgnored
+    private var philPresentation: (id: String, wasMissedLike: Bool)?
+
+    func preConfirmWasMissedLike(id: String) -> Bool {
+        PhilCoach.wasMissedLikeBeforeConfirm(
+            id: id,
+            pathNodes: nodes,
+            storeNodes: store?.todayNodes() ?? []
+        )
+    }
 
     /// Missed Challenge/Home taps must not confirm Taken. Re-present the existing sheet instead.
     func requestMissedSheetPresentation() {
         missedSheetRequestNonce &+= 1
+    }
+
+    /// Notification / AlarmKit Taken while Home can present. Discarded if Home is covered or away.
+    func offerImmediatePhil(id: String, wasMissedLike: Bool) {
+        guard dashboardPresentsPhil, heldSheetPhil == nil else { return }
+        publishPhil(id: id, wasMissedLike: wasMissedLike)
+    }
+
+    /// Missed sheet confirm: remember one event, present only after the sheet closes.
+    func holdPhilForMissedSheet(id: String, wasMissedLike: Bool) {
+        heldSheetPhil = (id, wasMissedLike)
+    }
+
+    func noteMissedSheetClosed() {
+        let held = heldSheetPhil
+        heldSheetPhil = nil
+        if let held, dashboardPresentsPhil {
+            publishPhil(id: held.id, wasMissedLike: held.wasMissedLike)
+        }
+        revealPendingFeeling()
+    }
+
+    func takePhilPresentation() -> (id: String, wasMissedLike: Bool)? {
+        let value = philPresentation
+        philPresentation = nil
+        return value
+    }
+
+    private func publishPhil(id: String, wasMissedLike: Bool) {
+        philPresentation = (id, wasMissedLike)
+        philPresentationNonce &+= 1
     }
 
     func takeCurrent() {
@@ -133,10 +190,13 @@ final class TodayPathStore {
         #if DEBUG
         print("[PHASE4A-REGRESSION] confirmDoseTaken")
         #endif
-        store?.confirmDoseTaken(id: uuid)
+        guard let store else { return }
+        let revisionBefore = store.revision
+        store.confirmDoseTaken(id: uuid)
+        if store.revision == revisionBefore { return }
         MissedDoseAcknowledgement.acknowledge(uuid)
         ReminderScheduler.shared.handleTakenSideEffects(logId: uuid)
-        pendingFeeling = (uuid, node.medicine)
+        queueFeelingAfterCompletion(logId: uuid, medicine: node.medicine)
         mood = .celebrate
         reload()
         #if DEBUG
@@ -145,7 +205,31 @@ final class TodayPathStore {
     }
 
     func clearPendingFeeling() {
+        FeelingCheckInQueue.clear()
         pendingFeeling = nil
+    }
+
+    /// Persist a feeling prompt without presenting (Take Late while the missed sheet is open).
+    func persistFeelingRequest(logId: UUID, medicine: String) {
+        FeelingCheckInQueue.enqueue(logId: logId, medicine: medicine)
+    }
+
+    /// Persist + restore into `pendingFeeling` for the existing Home sheet.
+    func queueFeelingAfterCompletion(logId: UUID, medicine: String) {
+        persistFeelingRequest(logId: logId, medicine: medicine)
+        revealPendingFeeling()
+    }
+
+    func revealPendingFeeling() {
+        guard let item = FeelingCheckInQueue.peek() else { return }
+        if store?.hasFeelingRecord(forLogId: item.logId) == true {
+            FeelingCheckInQueue.clearIfLogId(item.logId)
+            if pendingFeeling?.logId == item.logId {
+                pendingFeeling = nil
+            }
+            return
+        }
+        pendingFeeling = (item.logId, item.medicine)
     }
 
     func skipCurrent() {

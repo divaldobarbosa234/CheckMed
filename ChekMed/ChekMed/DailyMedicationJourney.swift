@@ -49,8 +49,15 @@ enum DailyMedicationJourney {
         let remaining = game.remainingCount
         let missed = game.skippedCount
         let nextOpen = nodes.first { $0.status == .current || $0.status == .locked }
-        let nextDose = nextOpen.flatMap { node in
-            game.lines.first { $0.id == node.id }
+        let nextDose: ChallengeDoseLine?
+        if game.isComplete || remaining == 0 {
+            nextDose = nil
+        } else {
+            nextDose = nextOpen.flatMap { node in
+                game.lines.first { line in
+                    line.id == node.id && !line.isTaken && !line.isMissed
+                }
+            }
         }
 
         let state: DailyMedicationJourneyState

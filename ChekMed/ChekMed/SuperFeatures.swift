@@ -52,6 +52,42 @@ enum MissedDoseAcknowledgement {
     }
 }
 
+/// One post-dose feeling prompt. Presentation still uses `TodayPathStore.pendingFeeling`.
+enum FeelingCheckInQueue {
+    private static let key = "checkmed.pendingFeelingRequest"
+
+    struct Item: Codable, Equatable {
+        var logId: UUID
+        var medicine: String
+    }
+
+    static func peek() -> Item? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(Item.self, from: data)
+    }
+
+    /// Returns whether this log is the stored pending item (already queued or newly stored).
+    @discardableResult
+    static func enqueue(logId: UUID, medicine: String) -> Bool {
+        if let existing = peek() {
+            return existing.logId == logId
+        }
+        let item = Item(logId: logId, medicine: medicine)
+        guard let data = try? JSONEncoder().encode(item) else { return false }
+        UserDefaults.standard.set(data, forKey: key)
+        return true
+    }
+
+    static func clear() {
+        UserDefaults.standard.removeObject(forKey: key)
+    }
+
+    static func clearIfLogId(_ id: UUID) {
+        guard peek()?.logId == id else { return }
+        clear()
+    }
+}
+
 enum Engagement {
     private static let lastActiveKey = "checkmed.lastActiveAt"
     static let winBackId = "checkmed.winback"

@@ -50,7 +50,8 @@ enum Gamification {
                 detail: node.detail,
                 time: node.time,
                 isTaken: node.status == .done,
-                isMissed: node.status == .skipped
+                isMissed: node.status == .skipped,
+                isTakenLate: node.isTakenLate
             )
         }
         let reached = milestoneDays.filter { currentStreak >= $0 }
@@ -125,6 +126,7 @@ struct ChallengeDoseLine: Equatable, Identifiable, Sendable {
     var time: String
     var isTaken: Bool
     var isMissed: Bool
+    var isTakenLate: Bool = false
 }
 
 enum PhilCoachContext: Equatable, Sendable {
