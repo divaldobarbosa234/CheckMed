@@ -45,7 +45,7 @@ enum AppLocale: String, CaseIterable, Identifiable, Sendable {
 enum L10n {
     enum Key: String {
         case splashTagline, splashOpen
-        case welcomeKicker, welcomeHi, welcomeHelp, getStarted, letsGetStarted, haveAccount, continueAsGuest
+        case welcomeKicker, welcomeHi, welcomeHelp, getStarted, letsGetStarted, haveAccount
         case safetyCaption
         case continueButton, back, cancel, done, createAccount, signIn, language, languageHeadline, languageSubhead
         case name, dateOfBirth, dateOfBirthPlaceholder, timeZone
@@ -88,7 +88,8 @@ enum L10n {
         case doseTimeFirst, doseTimeSecond, doseTimeThird, doseTimeFourth, doseTimeAlarmHint, doseTimesSpreadHint
         case planJourneyHeadline, planJourneySubhead, planReportNote, planAddMoreOrFamily
         case alarmSetupTitle, alarmSetupHeadline, alarmSetupBody, alarmSetupEnable
-        case durationStart, durationEnd, durationDaysFormat, durationPickDates, durationSelected
+        case durationStart, durationEnd, durationDaysFormat, durationDaysOne, durationPickDates, durationSelected, durationPastStartHint
+        case manualMissingMedicine, manualMissingDose, manualMissingTimesOrFrequency, manualMissingDates
         case homeDashboard, homeMorning, homeAfternoon, homeEvening, homeReady, homeStreak, homePhil, homeToday
         case homeBubbleEmpty, homeBubbleComplete, homeBubbleCelebrate, homeBubbleSkip, homeBubbleCurrent
         case homeGreetingFormat, homeFeelAsk, homeFeelTogether, homeFriendName
@@ -125,7 +126,6 @@ enum L10n {
         case profileDelete, profileDeleteTitle, profileDeleteBody, profileSignOutHere
         case profileSubhead, profileNotifsHint, profileSettingsHint, profileAppLanguage
         case profileFamilyManage, profileHelpTitle, profileHelpBody, profileTalkToUs, profileMore
-        case guestBannerTitle, guestBannerBody
         case taken, skip, skipped, logged, locked, takenStaysFree
         case paywallOnBubble, paywallOffBubble, paywallTitle, paywallBody
         case paywallFree, paywallSuper
@@ -180,6 +180,7 @@ enum L10n {
         case progressDosesTaken, progressNextSoon, progressQuickActions
         case progressTreatmentsHeader, progressTreatmentStarted
         case progressCalendarHint, progressHistoryHint, progressJourneyHint, progressBackHint
+        case currentTreatmentHeadline, treatmentHistorySection, treatmentStatusActive, treatmentStatusCompleted
         case familyYou, familyYouActive, familyEmptySeat, familyAddProfile, familyAddLockedSubtitle
         case familyNamePlaceholder, familySaveMember, familyRemove, familyNeverMixOn, familyNeverMixOff
         case familySwitchTo, familyLookingAt, familyBackProfile
@@ -217,6 +218,8 @@ enum L10n {
         case refillTipTitle, refillTipBody, refillTipBodyGeneric, refillTipOpen, refillAddPhoto, refillPhotoHint
         case refillHowFull, refillFull, refillAlmostFull, refillHalf, refillLow, refillEmptyPreset
         case refillPackageAmount, refillPackageUnit, refillDoseAmount, refillDoseUnit, refillForm, refillDropsNote
+        case formTablet, formCapsule, formSyrup, formDrops, formPowder, formOther
+        case formTabletHint, formCapsuleHint, formSyrupHint, formDropsHint, formPowderHint, formOtherHint
         case reportHeadline, reportSubhead, reportChooseTheme, reportThemeCream, reportThemeMint, reportThemeNavy, reportThemeSand
         case reportTapToEdit, reportFillDetails, reportExportPDF, reportExportLockedHint, reportProgressHint
         case reportPDFTitle, reportPDFPatient, reportPDFGenerated, reportDoctor, reportDoctorId, reportHospital
@@ -234,10 +237,12 @@ enum L10n {
         case alarmDoseTitle, alarmDoseBody
         case notificationActionTookIt, notificationActionSnooze, notificationActionRemindLater
         case notificationConfirmTitle
+        case notificationNudge5Title, notificationNudge5Body
+        case notificationNudge30Title, notificationNudge30Body
         case missedDoseDisclaimer, missedYouMissedOne, missedYouMissedSeveral
         case missedTookItLater, missedDidNotTake
         case refillIncomplete, refillRunningLow, refillApproxRemaining
-        case homeStatusPending, homeStatusUpcoming
+        case homeStatusPending, homeStatusUpcoming, homeTakenLate, homeTakenLateHint
         case prefsGraceMinutes, prefsSnoozeMinutes
         case adherenceRecordNote, adherenceTakenLate, adherenceMissedCount
     }
@@ -340,7 +345,6 @@ enum L10n {
         .getStarted: "Get Started",
         .letsGetStarted: "Let's get started",
         .haveAccount: "I already have an account",
-        .continueAsGuest: "Continue as guest",
         .safetyCaption: "OCR is a reading aid. CheckMed never recommends medicines, dosages, or diagnoses.",
         .continueButton: "Continue",
         .back: "Back",
@@ -378,7 +382,7 @@ enum L10n {
         .customPronounsPlaceholder: "Your pronouns",
         .customGenderPlaceholder: "How you describe it",
         .signInHeadline: "Sign in to CheckMed",
-        .signInBody: "Google, email, or guest — I’ll keep your path with you.",
+        .signInBody: "Google, Apple, or email — I’ll keep your path with you.",
         .signInBodyOnboarding: "Email, create an account, Google, or Apple — I’ll keep your path with you.",
         .signInBubbleLogin: "Save your streak. I follow the account, not this phone.",
         .signInBubbleSignUp: "Create an account and I’ll keep your path with you.",
@@ -421,7 +425,7 @@ enum L10n {
         .enterYourPassword: "Enter your password.",
         .passwordTooShort: "Password needs at least 6 characters.",
         .passwordsMustMatch: "Passwords need to match.",
-        .supabaseKeysMissing: "Supabase keys are not in this iOS target yet. Guest still works.",
+        .supabaseKeysMissing: "Supabase keys are not in this iOS target yet. Sign in with Apple, Google, or email after they are added.",
         .googleNeedsClientID: "Google needs the iOS Client ID from Google Cloud Console, pasted into GOOGLE_IOS_CLIENT_ID.",
         .facebookUnavailable: "Facebook sign-in is not enabled yet.",
         .ok: "OK",
@@ -513,8 +517,14 @@ enum L10n {
         .durationStart: "Starts",
         .durationEnd: "Ends",
         .durationDaysFormat: "%d days",
+        .durationDaysOne: "%d day",
         .durationPickDates: "Pick dates",
         .durationSelected: "Selected dates",
+        .durationPastStartHint: "Start can be today or earlier.",
+        .manualMissingMedicine: "Add the medicine name.",
+        .manualMissingDose: "Enter the dose.",
+        .manualMissingTimesOrFrequency: "Choose how many times per day or enter a frequency.",
+        .manualMissingDates: "Select the treatment dates.",
         .homeDashboard: "Home dashboard",
         .homeMorning: "Good morning",
         .homeAfternoon: "Good afternoon",
@@ -688,8 +698,6 @@ enum L10n {
         .profileHelpBody: "We’re here to support you at every step.",
         .profileTalkToUs: "Talk to us",
         .profileMore: "More",
-        .guestBannerTitle: "Browsing as a guest",
-        .guestBannerBody: "Create an account before a prescription photo or PDF can sync to the cloud.",
         .taken: "Taken",
         .skip: "Skip",
         .skipped: "Skipped",
@@ -878,6 +886,10 @@ enum L10n {
         .progressCalendarHint: "See when to take each medicine.",
         .progressHistoryHint: "Check your doses and how they’ve gone.",
         .progressJourneyHint: "See your progress and wins.",
+        .currentTreatmentHeadline: "Current treatment",
+        .treatmentHistorySection: "Treatment history",
+        .treatmentStatusActive: "Active",
+        .treatmentStatusCompleted: "Completed",
         .progressBackHint: "Keep taking care of your health!",
         .familyYou: "You",
         .familyYouActive: "You · active",
@@ -1024,6 +1036,18 @@ enum L10n {
         .refillDoseAmount: "Amount per dose",
         .refillDoseUnit: "Dose unit",
         .refillForm: "Form",
+        .formTablet: "Tablet",
+        .formCapsule: "Capsule",
+        .formSyrup: "Syrup",
+        .formDrops: "Drops",
+        .formPowder: "Powder",
+        .formOther: "Other",
+        .formTabletHint: "A solid dose in tablet form.",
+        .formCapsuleHint: "A dose inside a capsule shell.",
+        .formSyrupHint: "A liquid medicine taken by mouth.",
+        .formDropsHint: "A liquid measured as drops.",
+        .formPowderHint: "A medicine supplied as a powder.",
+        .formOtherHint: "A form not listed above.",
         .refillDropsNote: "Drop estimate: 1 mL ≈ 20 drops. Droppers vary — confirm with your pharmacist.",
         .reportHeadline: "My Medical Report",
         .reportSubhead: "Your medical information, organized in one place.",
@@ -1087,6 +1111,10 @@ enum L10n {
         .notificationActionSnooze: "Snooze",
         .notificationActionRemindLater: "Remind me later",
         .notificationConfirmTitle: "Did you take your %@?",
+        .notificationNudge5Title: "💊 You still have time — %@",
+        .notificationNudge5Body: "%@ · %@ is waiting. Take it when you can.",
+        .notificationNudge30Title: "💊 Still time to take it — %@",
+        .notificationNudge30Body: "Take %@ · %@ when you can and keep your routine going.",
         .missedDoseDisclaimer: "This dose wasn't confirmed. Check your prescription or doctor's instructions if you're unsure what to do.",
         .missedYouMissedOne: "You missed a medicine",
         .missedYouMissedSeveral: "You have missed doses",
@@ -1097,6 +1125,8 @@ enum L10n {
         .refillApproxRemaining: "Approximately %@ remaining",
         .homeStatusPending: "Pending",
         .homeStatusUpcoming: "Upcoming",
+        .homeTakenLate: "Taken late",
+        .homeTakenLateHint: "Overdue, then taken late",
         .prefsGraceMinutes: "Confirmation reminder (minutes)",
         .prefsSnoozeMinutes: "Snooze (minutes)",
         .adherenceRecordNote: "This percentage is a record of confirmations, not a medical judgment.",
@@ -1113,7 +1143,6 @@ enum L10n {
         .getStarted: "Começar",
         .letsGetStarted: "Vamos começar",
         .haveAccount: "Já tenho uma conta",
-        .continueAsGuest: "Continuar como convidado",
         .safetyCaption: "O OCR é um auxílio de leitura. O CheckMed nunca recomenda medicamentos, doses ou diagnósticos.",
         .continueButton: "Continuar",
         .back: "Voltar",
@@ -1151,7 +1180,7 @@ enum L10n {
         .customPronounsPlaceholder: "Seus pronomes",
         .customGenderPlaceholder: "Como você descreve",
         .signInHeadline: "Entre no CheckMed",
-        .signInBody: "Google, e-mail ou convidado — eu sigo o caminho com você.",
+        .signInBody: "Google, Apple ou e-mail — eu sigo o caminho com você.",
         .signInBodyOnboarding: "E-mail, criar conta, Google ou Apple — eu sigo o caminho com você.",
         .signInBubbleLogin: "Guardo sua sequência. Eu sigo a conta, não este telefone.",
         .signInBubbleSignUp: "Crie uma conta e eu sigo o caminho com você.",
@@ -1194,7 +1223,7 @@ enum L10n {
         .enterYourPassword: "Digite sua senha.",
         .passwordTooShort: "A senha precisa de pelo menos 6 caracteres.",
         .passwordsMustMatch: "As senhas precisam ser iguais.",
-        .supabaseKeysMissing: "As chaves do Supabase ainda não estão neste alvo iOS. O modo convidado continua funcionando.",
+        .supabaseKeysMissing: "As chaves do Supabase ainda não estão neste alvo iOS. Entre com Apple, Google ou e-mail depois de adicioná-las.",
         .googleNeedsClientID: "O Google precisa do iOS Client ID do Google Cloud Console, colado em GOOGLE_IOS_CLIENT_ID.",
         .facebookUnavailable: "O login com Facebook ainda não está ativado.",
         .ok: "OK",
@@ -1286,8 +1315,14 @@ enum L10n {
         .durationStart: "Começa",
         .durationEnd: "Termina",
         .durationDaysFormat: "%d dias",
+        .durationDaysOne: "%d dia",
         .durationPickDates: "Escolher datas",
         .durationSelected: "Datas escolhidas",
+        .durationPastStartHint: "O início pode ser hoje ou uma data anterior.",
+        .manualMissingMedicine: "Adicione o nome do medicamento.",
+        .manualMissingDose: "Informe a dose.",
+        .manualMissingTimesOrFrequency: "Escolha quantas vezes ao dia ou informe a frequência.",
+        .manualMissingDates: "Selecione as datas do tratamento.",
         .homeDashboard: "Painel inicial",
         .homeMorning: "Bom dia",
         .homeAfternoon: "Boa tarde",
@@ -1461,8 +1496,6 @@ enum L10n {
         .profileHelpBody: "Estamos aqui para te apoiar em cada passo.",
         .profileTalkToUs: "Fale conosco",
         .profileMore: "Mais",
-        .guestBannerTitle: "Navegando como convidado",
-        .guestBannerBody: "Crie uma conta antes que uma foto ou PDF de receita possa sincronizar na nuvem.",
         .taken: "Tomei",
         .skip: "Pular",
         .skipped: "Pulado",
@@ -1651,6 +1684,10 @@ enum L10n {
         .progressCalendarHint: "Veja quando tomar cada medicamento.",
         .progressHistoryHint: "Confira suas doses e evolução.",
         .progressJourneyHint: "Veja seu progresso e conquistas.",
+        .currentTreatmentHeadline: "Tratamento atual",
+        .treatmentHistorySection: "Histórico de tratamento",
+        .treatmentStatusActive: "Ativo",
+        .treatmentStatusCompleted: "Concluído",
         .progressBackHint: "Continue cuidando da sua saúde!",
         .familyYou: "Você",
         .familyYouActive: "Você · ativo",
@@ -1797,6 +1834,18 @@ enum L10n {
         .refillDoseAmount: "Quantidade por dose",
         .refillDoseUnit: "Unidade da dose",
         .refillForm: "Forma",
+        .formTablet: "Comprimido",
+        .formCapsule: "Cápsula",
+        .formSyrup: "Xarope",
+        .formDrops: "Gotas",
+        .formPowder: "Pó",
+        .formOther: "Outro",
+        .formTabletHint: "Uma dose sólida em forma de comprimido.",
+        .formCapsuleHint: "Uma dose dentro de uma cápsula.",
+        .formSyrupHint: "Um medicamento líquido tomado por via oral.",
+        .formDropsHint: "Um líquido medido em gotas.",
+        .formPowderHint: "Um medicamento apresentado em pó.",
+        .formOtherHint: "Uma forma que não está na lista acima.",
         .refillDropsNote: "Estimativa de gotas: 1 mL ≈ 20 gotas. Conta-gotas variam — confirme com o farmacêutico.",
         .reportHeadline: "Meu Relatório Médico",
         .reportSubhead: "Suas informações médicas, organizadas em um só lugar.",
@@ -1860,6 +1909,10 @@ enum L10n {
         .notificationActionSnooze: "Adiar",
         .notificationActionRemindLater: "Lembrar mais tarde",
         .notificationConfirmTitle: "Você tomou seu %@?",
+        .notificationNudge5Title: "💊 Ainda tens tempo — %@",
+        .notificationNudge5Body: "%@ · %@ está à tua espera. Toma-o quando puderes.",
+        .notificationNudge30Title: "💊 Ainda vais a tempo — %@",
+        .notificationNudge30Body: "Toma %@ · %@ quando puderes e mantém a tua rotina.",
         .missedDoseDisclaimer: "Esta dose não foi confirmada. Consulte a receita ou as instruções do médico se não souber o que fazer.",
         .missedYouMissedOne: "Você esqueceu um medicamento",
         .missedYouMissedSeveral: "Você tem doses não confirmadas",
@@ -1870,6 +1923,8 @@ enum L10n {
         .refillApproxRemaining: "Aproximadamente %@ restantes",
         .homeStatusPending: "Pendente",
         .homeStatusUpcoming: "Em breve",
+        .homeTakenLate: "Tomada tarde",
+        .homeTakenLateHint: "Em atraso, tomada depois",
         .prefsGraceMinutes: "Lembrete de confirmação (minutos)",
         .prefsSnoozeMinutes: "Adiar (minutos)",
         .adherenceRecordNote: "Esta percentagem é um registro de confirmações, não um julgamento médico.",
@@ -1886,7 +1941,6 @@ enum L10n {
         .getStarted: "Empezar",
         .letsGetStarted: "Empecemos",
         .haveAccount: "Ya tengo una cuenta",
-        .continueAsGuest: "Continuar como invitado",
         .safetyCaption: "El OCR es una ayuda de lectura. CheckMed nunca recomienda medicamentos, dosis ni diagnósticos.",
         .continueButton: "Continuar",
         .back: "Atrás",
@@ -1924,7 +1978,7 @@ enum L10n {
         .customPronounsPlaceholder: "Tus pronombres",
         .customGenderPlaceholder: "Cómo lo describes",
         .signInHeadline: "Entra en CheckMed",
-        .signInBody: "Google, correo o invitado — sigo el camino contigo.",
+        .signInBody: "Google, Apple o correo — sigo el camino contigo.",
         .signInBodyOnboarding: "Correo, crear cuenta, Google o Apple — sigo el camino contigo.",
         .signInBubbleLogin: "Guardo tu racha. Sigo la cuenta, no este teléfono.",
         .signInBubbleSignUp: "Crea una cuenta y sigo el camino contigo.",
@@ -1967,7 +2021,7 @@ enum L10n {
         .enterYourPassword: "Introduce tu contraseña.",
         .passwordTooShort: "La contraseña necesita al menos 6 caracteres.",
         .passwordsMustMatch: "Las contraseñas deben coincidir.",
-        .supabaseKeysMissing: "Las claves de Supabase aún no están en este destino iOS. El modo invitado sigue funcionando.",
+        .supabaseKeysMissing: "Las claves de Supabase aún no están en este destino iOS. Entra con Apple, Google o correo después de añadirlas.",
         .googleNeedsClientID: "Google necesita el iOS Client ID de Google Cloud Console, pegado en GOOGLE_IOS_CLIENT_ID.",
         .facebookUnavailable: "El inicio de sesión con Facebook aún no está activado.",
         .ok: "OK",
@@ -2059,8 +2113,14 @@ enum L10n {
         .durationStart: "Empieza",
         .durationEnd: "Termina",
         .durationDaysFormat: "%d días",
+        .durationDaysOne: "%d día",
         .durationPickDates: "Elegir fechas",
         .durationSelected: "Fechas elegidas",
+        .durationPastStartHint: "El inicio puede ser hoy o una fecha anterior.",
+        .manualMissingMedicine: "Añade el nombre del medicamento.",
+        .manualMissingDose: "Introduce la dosis.",
+        .manualMissingTimesOrFrequency: "Elige cuántas veces al día o introduce la frecuencia.",
+        .manualMissingDates: "Selecciona las fechas del tratamiento.",
         .homeDashboard: "Panel de inicio",
         .homeMorning: "Buenos días",
         .homeAfternoon: "Buenas tardes",
@@ -2234,8 +2294,6 @@ enum L10n {
         .profileHelpBody: "Estamos aquí para apoyarte en cada paso.",
         .profileTalkToUs: "Habla con nosotros",
         .profileMore: "Más",
-        .guestBannerTitle: "Navegando como invitado",
-        .guestBannerBody: "Crea una cuenta antes de que una foto o PDF de receta pueda sincronizarse en la nube.",
         .taken: "Tomado",
         .skip: "Omitir",
         .skipped: "Omitido",
@@ -2424,6 +2482,10 @@ enum L10n {
         .progressCalendarHint: "Mira cuándo tomar cada medicamento.",
         .progressHistoryHint: "Consulta tus dosis y cómo vas.",
         .progressJourneyHint: "Mira tu progreso y logros.",
+        .currentTreatmentHeadline: "Tratamiento actual",
+        .treatmentHistorySection: "Historial de tratamiento",
+        .treatmentStatusActive: "Activo",
+        .treatmentStatusCompleted: "Completado",
         .progressBackHint: "¡Sigue cuidando tu salud!",
         .familyYou: "Tú",
         .familyYouActive: "Tú · activo",
@@ -2570,6 +2632,18 @@ enum L10n {
         .refillDoseAmount: "Cantidad por dosis",
         .refillDoseUnit: "Unidad de dosis",
         .refillForm: "Forma",
+        .formTablet: "Comprimido",
+        .formCapsule: "Cápsula",
+        .formSyrup: "Jarabe",
+        .formDrops: "Gotas",
+        .formPowder: "Polvo",
+        .formOther: "Otro",
+        .formTabletHint: "Una dosis sólida en forma de comprimido.",
+        .formCapsuleHint: "Una dosis dentro de una cápsula.",
+        .formSyrupHint: "Un medicamento líquido que se toma por vía oral.",
+        .formDropsHint: "Un líquido medido en gotas.",
+        .formPowderHint: "Un medicamento presentado en polvo.",
+        .formOtherHint: "Una forma que no está en la lista anterior.",
         .refillDropsNote: "Estimación de gotas: 1 mL ≈ 20 gotas. Los goteros varían — confirma con tu farmacéutico.",
         .reportHeadline: "Mi Informe Médico",
         .reportSubhead: "Tu información médica, organizada en un solo lugar.",
@@ -2633,6 +2707,10 @@ enum L10n {
         .notificationActionSnooze: "Posponer",
         .notificationActionRemindLater: "Recordármelo luego",
         .notificationConfirmTitle: "¿Tomaste tu %@?",
+        .notificationNudge5Title: "💊 Todavía tienes tiempo — %@",
+        .notificationNudge5Body: "%@ · %@ está esperando. Tómalo cuando puedas.",
+        .notificationNudge30Title: "💊 Todavía estás a tiempo — %@",
+        .notificationNudge30Body: "Toma %@ · %@ cuando puedas y mantén tu rutina.",
         .missedDoseDisclaimer: "Esta dosis no se confirmó. Consulta la receta o las indicaciones de tu médico si no sabes qué hacer.",
         .missedYouMissedOne: "Te faltó un medicamento",
         .missedYouMissedSeveral: "Tienes dosis no confirmadas",
@@ -2643,6 +2721,8 @@ enum L10n {
         .refillApproxRemaining: "Quedan aproximadamente %@",
         .homeStatusPending: "Pendiente",
         .homeStatusUpcoming: "Próxima",
+        .homeTakenLate: "Tomada tarde",
+        .homeTakenLateHint: "Con retraso, tomada después",
         .prefsGraceMinutes: "Recordatorio de confirmación (minutos)",
         .prefsSnoozeMinutes: "Posponer (minutos)",
         .adherenceRecordNote: "Este porcentaje es un registro de confirmaciones, no un juicio médico.",
@@ -2659,7 +2739,6 @@ enum L10n {
         .getStarted: "Commencer",
         .letsGetStarted: "C’est parti",
         .haveAccount: "J'ai déjà un compte",
-        .continueAsGuest: "Continuer en invité",
         .safetyCaption: "L'OCR est une aide à la lecture. CheckMed ne recommande jamais de médicaments, de posologies ou de diagnostics.",
         .continueButton: "Continuer",
         .back: "Retour",
@@ -2697,7 +2776,7 @@ enum L10n {
         .customPronounsPlaceholder: "Vos pronoms",
         .customGenderPlaceholder: "Comment vous le décrivez",
         .signInHeadline: "Connexion à CheckMed",
-        .signInBody: "Google, e-mail ou invité — je garde le parcours avec vous.",
+        .signInBody: "Google, Apple ou e-mail — je garde le parcours avec vous.",
         .signInBodyOnboarding: "E-mail, créer un compte, Google ou Apple — je garde le parcours avec vous.",
         .signInBubbleLogin: "Je garde votre série. Je suis le compte, pas ce téléphone.",
         .signInBubbleSignUp: "Créez un compte et je garde le parcours avec vous.",
@@ -2740,7 +2819,7 @@ enum L10n {
         .enterYourPassword: "Entrez votre mot de passe.",
         .passwordTooShort: "Le mot de passe doit avoir au moins 6 caractères.",
         .passwordsMustMatch: "Les mots de passe doivent correspondre.",
-        .supabaseKeysMissing: "Les clés Supabase ne sont pas encore dans cette cible iOS. Le mode invité fonctionne encore.",
+        .supabaseKeysMissing: "Les clés Supabase ne sont pas encore dans cette cible iOS. Connectez-vous avec Apple, Google ou e-mail après les avoir ajoutées.",
         .googleNeedsClientID: "Google a besoin de l’iOS Client ID de Google Cloud Console, collé dans GOOGLE_IOS_CLIENT_ID.",
         .facebookUnavailable: "La connexion Facebook n’est pas encore activée.",
         .ok: "OK",
@@ -2832,8 +2911,14 @@ enum L10n {
         .durationStart: "Début",
         .durationEnd: "Fin",
         .durationDaysFormat: "%d jours",
+        .durationDaysOne: "%d jour",
         .durationPickDates: "Choisir les dates",
         .durationSelected: "Dates choisies",
+        .durationPastStartHint: "Le début peut être aujourd’hui ou une date antérieure.",
+        .manualMissingMedicine: "Ajoutez le nom du médicament.",
+        .manualMissingDose: "Saisissez la dose.",
+        .manualMissingTimesOrFrequency: "Choisissez le nombre de prises par jour ou saisissez une fréquence.",
+        .manualMissingDates: "Sélectionnez les dates du traitement.",
         .homeDashboard: "Tableau de bord",
         .homeMorning: "Bonjour",
         .homeAfternoon: "Bon après-midi",
@@ -3007,8 +3092,6 @@ enum L10n {
         .profileHelpBody: "Nous sommes là pour vous accompagner à chaque pas.",
         .profileTalkToUs: "Nous contacter",
         .profileMore: "Plus",
-        .guestBannerTitle: "Navigation en invité",
-        .guestBannerBody: "Créez un compte avant qu'une photo ou un PDF d'ordonnance puisse se synchroniser dans le cloud.",
         .taken: "Pris",
         .skip: "Passer",
         .skipped: "Passé",
@@ -3197,6 +3280,10 @@ enum L10n {
         .progressCalendarHint: "Voyez quand prendre chaque médicament.",
         .progressHistoryHint: "Consultez vos doses et votre évolution.",
         .progressJourneyHint: "Voyez vos progrès et vos réussites.",
+        .currentTreatmentHeadline: "Traitement actuel",
+        .treatmentHistorySection: "Historique du traitement",
+        .treatmentStatusActive: "Actif",
+        .treatmentStatusCompleted: "Terminé",
         .progressBackHint: "Continuez à prendre soin de votre santé !",
         .familyYou: "Vous",
         .familyYouActive: "Vous · actif",
@@ -3343,6 +3430,18 @@ enum L10n {
         .refillDoseAmount: "Quantité par dose",
         .refillDoseUnit: "Unité de dose",
         .refillForm: "Forme",
+        .formTablet: "Comprimé",
+        .formCapsule: "Gélule",
+        .formSyrup: "Sirop",
+        .formDrops: "Gouttes",
+        .formPowder: "Poudre",
+        .formOther: "Autre",
+        .formTabletHint: "Une dose solide sous forme de comprimé.",
+        .formCapsuleHint: "Une dose dans une gélule.",
+        .formSyrupHint: "Un médicament liquide pris par voie orale.",
+        .formDropsHint: "Un liquide mesuré en gouttes.",
+        .formPowderHint: "Un médicament présenté en poudre.",
+        .formOtherHint: "Une forme qui n’est pas dans la liste ci-dessus.",
         .refillDropsNote: "Estimation des gouttes : 1 mL ≈ 20 gouttes. Les compte-gouttes varient — confirmez avec votre pharmacien.",
         .reportHeadline: "Mon Rapport médical",
         .reportSubhead: "Vos informations médicales, organisées au même endroit.",
@@ -3406,6 +3505,10 @@ enum L10n {
         .notificationActionSnooze: "Reporter",
         .notificationActionRemindLater: "Me le rappeler plus tard",
         .notificationConfirmTitle: "Avez-vous pris votre %@ ?",
+        .notificationNudge5Title: "💊 Vous avez encore le temps — %@",
+        .notificationNudge5Body: "%@ · %@ vous attend. Prenez-le quand vous le pourrez.",
+        .notificationNudge30Title: "💊 Vous avez encore le temps — %@",
+        .notificationNudge30Body: "Prenez %@ · %@ quand vous le pourrez et gardez votre routine.",
         .missedDoseDisclaimer: "Cette prise n’a pas été confirmée. Consultez l’ordonnance ou les consignes de votre médecin si vous ne savez pas quoi faire.",
         .missedYouMissedOne: "Vous avez manqué un médicament",
         .missedYouMissedSeveral: "Vous avez des prises non confirmées",
@@ -3416,6 +3519,8 @@ enum L10n {
         .refillApproxRemaining: "Il reste environ %@",
         .homeStatusPending: "En attente",
         .homeStatusUpcoming: "À venir",
+        .homeTakenLate: "Prise en retard",
+        .homeTakenLateHint: "En retard, puis prise",
         .prefsGraceMinutes: "Rappel de confirmation (minutes)",
         .prefsSnoozeMinutes: "Reporter (minutes)",
         .adherenceRecordNote: "Ce pourcentage est un registre des confirmations, pas un jugement médical.",

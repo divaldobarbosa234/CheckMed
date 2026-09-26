@@ -45,9 +45,9 @@ nonisolated enum DoseAlarmKit {
         var blue: Double
     }
 
-    static func syncDoseAlarms(drafts: [ReminderDraft], copy: Copy) async -> Set<UUID> {
+    static func syncDoseAlarms(drafts: [ReminderDraft], asOf now: Date = Date(), copy: Copy) async -> Set<UUID> {
         await withTimeout(seconds: 2.8) {
-            await syncDoseAlarmsUnbound(drafts: drafts, copy: copy)
+            await syncDoseAlarmsUnbound(drafts: drafts, asOf: now, copy: copy)
         } ?? []
     }
 
@@ -71,12 +71,13 @@ nonisolated enum DoseAlarmKit {
 
     private static func syncDoseAlarmsUnbound(
         drafts: [ReminderDraft],
+        asOf now: Date,
         copy: Copy
     ) async -> Set<UUID> {
         guard #available(iOS 26.0, *) else { return [] }
         #if canImport(AlarmKit)
         let upcoming = Array(
-            drafts.filter { $0.kind == .dose && $0.fireDate > Date().addingTimeInterval(8) }.prefix(16)
+            drafts.filter { $0.kind == .dose && $0.fireDate > now.addingTimeInterval(8) }.prefix(16)
         )
         let manager = AlarmManager.shared
         if let existing = try? manager.alarms {
@@ -97,7 +98,8 @@ nonisolated enum DoseAlarmKit {
                 continue
             }
         }
-        return scheduled
+        let liveIds = Set(((try? manager.alarms) ?? []).map(\.id))
+        return scheduled.intersection(liveIds)
         #else
         return []
         #endif

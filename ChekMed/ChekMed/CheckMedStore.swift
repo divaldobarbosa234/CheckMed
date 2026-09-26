@@ -25,6 +25,8 @@ struct ReminderDraft: Identifiable, Sendable {
         case dose
         case confirm
         case missed
+        case nudge5
+        case nudge30
         case advance
         case refill
         case stockRefill
@@ -43,6 +45,8 @@ struct ReminderDraft: Identifiable, Sendable {
         case .dose: "checkmed.dose.\(id.uuidString)"
         case .confirm: "checkmed.confirm.\(id.uuidString)"
         case .missed: "checkmed.missed.\(id.uuidString)"
+        case .nudge5: "checkmed.nudge5.\(id.uuidString)"
+        case .nudge30: "checkmed.nudge30.\(id.uuidString)"
         case .advance: "checkmed.advance.\(id.uuidString)"
         case .refill: "checkmed.refill.\(id.uuidString)"
         case .stockRefill: "checkmed.stockRefill.\(id.uuidString)"
@@ -56,6 +60,8 @@ struct JourneyReport: Equatable, Sendable {
     var title: String
     var startDate: Date
     var endDate: Date?
+    /// `TreatmentRecord.status` (`active` / `completed`). Display-only; not end-date inference.
+    var treatmentStatus: String
     var takenCount: Int
     var skippedCount: Int
     var plannedCount: Int
@@ -92,6 +98,7 @@ final class CheckMedStore {
     @ObservationIgnored private var cachedWeeklyDay: Date?
     @ObservationIgnored private var lastChallengeDiag: String?
     @ObservationIgnored private var lastWeeklyDiag: String?
+    @ObservationIgnored private var lastStreakWindowDiag: String?
     @ObservationIgnored private var logsEnsuredDay: Date?
     @ObservationIgnored private var logsEnsuredSignature: Int?
     @ObservationIgnored private var suppressNotify = false
@@ -521,7 +528,7 @@ final class CheckMedStore {
         persistDrafts(drafts, ownerId: ownerId, profileId: profileId, replacePlan: false)
     }
 
-    /// Move guest / local-device rows onto the signed-in account so Home still shows the plan.
+    /// Move leftover on-device rows onto the signed-in account so Home still shows the plan.
     func adoptOwner(from previousOwnerId: UUID, to newOwnerId: UUID, profileId: UUID?) {
         guard previousOwnerId != newOwnerId else { return }
         let now = Date()
@@ -560,7 +567,7 @@ final class CheckMedStore {
         #endif
     }
 
-    /// Guest / pre-profile SwiftData used a device profile UUID. After the real
+    /// Pre-profile SwiftData used a device profile UUID. After the real
     /// `profiles.id` arrives, rewrite so Home scope and Supabase FK both match.
     func adoptProfile(from previousProfileId: UUID, to newProfileId: UUID) {
         guard previousProfileId != newProfileId else { return }
@@ -648,6 +655,9 @@ final class CheckMedStore {
         #if DEBUG
         print("[CheckMed] persistDrafts ok replace=\(replacePlan) seeded=\(named.count) stored=\(saved) surfacesPlan=\(surfacesPlan)")
         #endif
+        if saved > 0 {
+            ReminderScheduler.shared.reschedule(force: true)
+        }
         return saved > 0
     }
 
@@ -742,8 +752,8 @@ final class CheckMedStore {
 
         replaceSchedules(for: medicine, times: draft.doseTimes, frequency: draft.scheduleFrequency, now: now)
         logsEnsuredDay = nil
-        ensureUpcomingLogs()
         save()
+        ensureUpcomingLogs()
         notify()
         requestSync()
     }
@@ -1450,6 +1460,46 @@ final class CheckMedStore {
         return schedule.medicineId
     }
 
+    func medicineName(forLogId id: UUID) -> String? {
+        guard let medicineId = medicineId(forLogId: id) else { return nil }
+        return medicines().first(where: { $0.id == medicineId })?.name
+    }
+
+    #if DEBUG
+    /// One-shot 5B-4H: nearest `.pendingConfirmation` log to `now` (read-only).
+    func debugMostRecentPendingConfirmation(now: Date) -> (
+        id: UUID,
+        medicine: String,
+        scheduledAt: Date,
+        loggedAt: Date?,
+        status: String,
+        treatmentId: UUID?,
+        medicineId: UUID?
+    )? {
+        let rows = logs().compactMap { log -> DoseLogRecord? in
+            (DoseLogStatus(rawValue: log.status) ?? .pending) == .pendingConfirmation ? log : nil
+        }
+        guard let log = rows.min(by: {
+            abs($0.scheduledAt.timeIntervalSince(now)) < abs($1.scheduledAt.timeIntervalSince(now))
+        }) else { return nil }
+        let schedule = schedules().first(where: { $0.id == log.scheduleId })
+        let medicine = schedule.flatMap { slot in medicines().first(where: { $0.id == slot.medicineId }) }
+        return (
+            log.id,
+            medicine?.name ?? "?",
+            log.scheduledAt,
+            log.loggedAt,
+            log.status,
+            medicine?.treatmentId,
+            medicine?.id
+        )
+    }
+    #endif
+
+    func hasFeelingRecord(forLogId id: UUID) -> Bool {
+        feelings().contains { $0.logId == id }
+    }
+
     func stockDaysLeftDraft(for medicineId: UUID, now: Date = Date()) -> ReminderDraft? {
         guard let summary = medicineSummaries().first(where: { $0.id == medicineId }),
               summary.refillRemindEnabled,
@@ -1541,6 +1591,23 @@ final class CheckMedStore {
         }
         try? context.save()
         FreezeDiag.log("SWIFTDATA WRITE END source=persistDoseAction")
+        if next.isConfirmedTaken, !previous.isConfirmedTaken {
+            let scheduleId = log.scheduleId
+            let scheduleDesc = FetchDescriptor<DoseScheduleRecord>(
+                predicate: #Predicate { row in row.id == scheduleId && row.deletedAt == nil }
+            )
+            let medicineName: String
+            if let schedule = try? context.fetch(scheduleDesc).first {
+                let medicineId = schedule.medicineId
+                let medDesc = FetchDescriptor<MedicineRecord>(
+                    predicate: #Predicate { row in row.id == medicineId && row.deletedAt == nil }
+                )
+                medicineName = (try? context.fetch(medDesc).first)?.name ?? ""
+            } else {
+                medicineName = ""
+            }
+            FeelingCheckInQueue.enqueue(logId: id, medicine: medicineName)
+        }
     }
 
     static func persistDoseStatus(id: UUID, status: DoseLogStatus) {
@@ -1574,7 +1641,8 @@ final class CheckMedStore {
                 medicineId: medicine.id,
                 detail: medicine.doseLabel,
                 status: pathStatus(for: log.status),
-                scheduledAt: log.scheduledAt
+                scheduledAt: log.scheduledAt,
+                isTakenLate: DoseLogStatus(rawValue: log.status) == .takenLate
             )
         }
         nodes = collapseDuplicateSlotNodes(nodes)
@@ -1657,24 +1725,10 @@ final class CheckMedStore {
             cachedWeeklyDay = today
             return empty
         }
-        let windows = treatments().compactMap { treatment -> DoseLoop.TreatmentWindow? in
-            guard treatment.status == "active" || treatment.status == "completed" else { return nil }
-            return DoseLoop.TreatmentWindow(start: treatment.startDate, end: treatment.endDate)
-        }
-        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
-        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+        let windows = treatmentWindowsForAdherence()
         let bounds = DoseLoop.mondayWeekInterval(containing: now, calendar: calendar)
-        let weekLogs: [DoseLoop.DoseSummaryProbe] = logs().compactMap { log in
-            guard log.scheduledAt >= bounds.start, log.scheduledAt < bounds.end else { return nil }
-            guard let schedule = schedulesById[log.scheduleId],
-                  let medicine = medicinesById[schedule.medicineId] else { return nil }
-            return DoseLoop.DoseSummaryProbe(
-                id: log.id,
-                scheduleId: log.scheduleId,
-                medicineId: medicine.id,
-                scheduledAt: log.scheduledAt,
-                status: DoseLogStatus(rawValue: log.status) ?? .pending
-            )
+        let weekLogs: [DoseLoop.DoseSummaryProbe] = doseSummaryProbes(from: logsOnActiveTreatments(logs())).filter {
+            $0.scheduledAt >= bounds.start && $0.scheduledAt < bounds.end
         }
         let snapshot = DoseLoop.weeklyMedicationProgress(
             logs: weekLogs,
@@ -1766,7 +1820,7 @@ final class CheckMedStore {
         let todayMissedCount = challenge.missedCount
         let history = logs()
         let activeHistory = logsOnActiveTreatments(history)
-        let due = history.filter { $0.scheduledAt <= now }
+        let due = activeHistory.filter { $0.scheduledAt <= now }
         let takenLateCount = due.filter { $0.status == DoseLogStatus.takenLate.rawValue }.count
         let takenOnTime = due.filter { $0.status == DoseLogStatus.taken.rawValue }.count
         let missedCount = due.filter { DoseLogStatus(rawValue: $0.status)?.isMissedLike == true }.count
@@ -1843,6 +1897,9 @@ final class CheckMedStore {
             switch status {
             case .pending:
                 append(log.scheduledAt, kind: .dose)
+                append(log.scheduledAt.addingTimeInterval(5 * 60), kind: .nudge5)
+                append(log.scheduledAt.addingTimeInterval(30 * 60), kind: .nudge30)
+                append(log.scheduledAt.addingTimeInterval(grace), kind: .missed)
                 let advanceAt = log.scheduledAt.addingTimeInterval(-3600)
                 if log.scheduledAt > now.addingTimeInterval(8) {
                     append(advanceAt, kind: .advance)
@@ -1850,6 +1907,8 @@ final class CheckMedStore {
             case .snoozed:
                 append(DoseLoop.snoozeFireDate(loggedAt: log.loggedAt ?? now, snooze: snooze, now: now), kind: .dose)
             case .pendingConfirmation:
+                append(log.scheduledAt.addingTimeInterval(5 * 60), kind: .nudge5)
+                append(log.scheduledAt.addingTimeInterval(30 * 60), kind: .nudge30)
                 let followUp = (log.loggedAt ?? now).addingTimeInterval(grace)
                 append(followUp, kind: .confirm)
             case .taken, .takenLate, .missed, .skipped:
@@ -1893,6 +1952,10 @@ final class CheckMedStore {
     }
 
     func addFeeling(logId: UUID?, medicineName: String, mood: FeelingMood, note: String) {
+        if let logId, hasFeelingRecord(forLogId: logId) {
+            FeelingCheckInQueue.clearIfLogId(logId)
+            return
+        }
         let row = FeelingRecord(
             ownerId: ownerId,
             profileId: writeProfileId,
@@ -1904,6 +1967,9 @@ final class CheckMedStore {
         context.insert(row)
         save()
         notify()
+        if let logId {
+            FeelingCheckInQueue.clearIfLogId(logId)
+        }
     }
 
     func recentFeelings(limit: Int = 14) -> [FeelingRecord] {
@@ -1962,15 +2028,19 @@ final class CheckMedStore {
         let skipped = related.filter { DoseLogStatus(rawValue: $0.status)?.isMissedLike == true }.count
         let planned = related.count
         let percent = planned == 0 ? 0 : Int((Double(taken) / Double(planned) * 100).rounded())
-        let names = Set(meds.map(\.name))
+        let treatmentLogIds = Set(
+            logs().filter { scheduleIds.contains($0.scheduleId) }.map(\.id)
+        )
         let relatedFeelings = feelings().filter { feeling in
-            names.contains { $0.caseInsensitiveCompare(feeling.medicineName) == .orderedSame }
+            guard let logId = feeling.logId else { return false }
+            return treatmentLogIds.contains(logId)
         }
         return JourneyReport(
             treatmentId: treatment.id,
             title: treatment.title,
             startDate: treatment.startDate,
             endDate: treatment.endDate,
+            treatmentStatus: treatment.status,
             takenCount: taken,
             skippedCount: skipped,
             plannedCount: planned,
@@ -2264,6 +2334,20 @@ final class CheckMedStore {
         }
     }
 
+    /// Effective DoseLog calendar window. A medicine with a decoded PlanDuration
+    /// uses its own start/end; otherwise the parent TreatmentRecord dates apply.
+    /// Does not rewrite stored treatment or medicine dates.
+    private func doseLogWindow(
+        for medicine: MedicineRecord,
+        treatment: TreatmentRecord?
+    ) -> (start: Date?, end: Date?, source: String) {
+        if let bounds = PlanDuration.bounds(from: medicine.duration, calendar: calendar),
+           calendar.startOfDay(for: bounds.start) <= calendar.startOfDay(for: bounds.end) {
+            return (bounds.start, bounds.end, "medicine")
+        }
+        return (treatment?.startDate, treatment?.endDate, "treatment")
+    }
+
     private func ensureUpcomingLogs() {
         FreezeDiag.context("ensureUpcomingLogs START", hasChanges: context.hasChanges)
         guard surfacesPlan else {
@@ -2310,15 +2394,36 @@ final class CheckMedStore {
                       activeTreatmentIds.contains(medicine.treatmentId) else { continue }
                 guard let scheduledAt = date(on: slotDay, timeOfDay: schedule.timeOfDay) else { continue }
                 let treatment = treatmentsById[medicine.treatmentId]
-                if scheduledAt < now {
+                let window = doseLogWindow(for: medicine, treatment: treatment)
+                if calendar.startOfDay(for: scheduledAt) < day {
                     ScanLog.dose(
-                        "skip past slot scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
+                        "skip historical day scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
                     )
                     continue
                 }
-                if let treatment, scheduledAt < treatment.startDate {
+                if let start = window.start,
+                   calendar.startOfDay(for: scheduledAt) < calendar.startOfDay(for: start) {
                     ScanLog.dose(
-                        "skip before treatmentStartDate=\(ScanPipeline.iso(treatment.startDate, calendar: calendar)) "
+                        "skip before \(window.source)StartDate=\(ScanPipeline.iso(start, calendar: calendar)) "
+                        + "scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
+                    )
+                    continue
+                }
+                if let end = window.end,
+                   calendar.startOfDay(for: scheduledAt) > calendar.startOfDay(for: end) {
+                    ScanLog.dose(
+                        "skip after \(window.source)EndDate=\(ScanPipeline.iso(end, calendar: calendar)) "
+                        + "scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
+                    )
+                    continue
+                }
+                // Start-today only: do not invent obligations earlier than activation.
+                // Past-start medicines still seed today's already-passed clocks.
+                if let start = window.start,
+                   calendar.isDate(start, inSameDayAs: day),
+                   scheduledAt < now {
+                    ScanLog.dose(
+                        "skip start-today past clock \(window.source)StartDate=\(ScanPipeline.iso(start, calendar: calendar)) "
                         + "scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
                     )
                     continue
@@ -2374,12 +2479,51 @@ final class CheckMedStore {
         return logs().filter { $0.scheduledAt >= day && $0.scheduledAt < end }
     }
 
-    /// Same treatment window as weekly progress: active and completed treatments.
+    /// Current Dashboard streak / weekly coverage for **active** treatments.
+    /// Same effective window as DoseLog seeding: medicine PlanDuration when valid,
+    /// otherwise that medicine's TreatmentRecord dates. Does not rewrite stored dates.
     private func treatmentWindowsForAdherence() -> [DoseLoop.TreatmentWindow] {
-        treatments().compactMap { treatment in
-            guard treatment.status == "active" || treatment.status == "completed" else { return nil }
-            return DoseLoop.TreatmentWindow(start: treatment.startDate, end: treatment.endDate)
+        let treatmentsById = Dictionary(uniqueKeysWithValues: activeTreatments().map { ($0.id, $0) })
+        var windows: [DoseLoop.TreatmentWindow] = []
+        var seen = Set<String>()
+        #if DEBUG
+        var diagLines: [String] = []
+        #endif
+        for medicine in medicines() {
+            guard let treatment = treatmentsById[medicine.treatmentId] else { continue }
+            let resolved = doseLogWindow(for: medicine, treatment: treatment)
+            #if DEBUG
+            diagLines.append(
+                "medicine=\(medicine.name) PlanDuration=\(medicine.duration.isEmpty ? "none" : medicine.duration) "
+                    + "TreatmentRecord=\(ScanPipeline.iso(treatment.startDate, calendar: calendar))"
+                    + "→\(treatment.endDate.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil") "
+                    + "effective=\(resolved.start.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil")"
+                    + "→\(resolved.end.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil") "
+                    + "source=\(resolved.source)"
+            )
+            #endif
+            guard let start = resolved.start else { continue }
+            let startDay = calendar.startOfDay(for: start)
+            let endDay = resolved.end.map { calendar.startOfDay(for: $0) }
+            let key = "\(startDay.timeIntervalSince1970)|\(endDay?.timeIntervalSince1970 ?? -1)"
+            guard seen.insert(key).inserted else { continue }
+            windows.append(DoseLoop.TreatmentWindow(start: startDay, end: endDay))
         }
+        if windows.isEmpty {
+            windows = treatmentsById.values.map {
+                DoseLoop.TreatmentWindow(start: $0.startDate, end: $0.endDate)
+            }
+        }
+        #if DEBUG
+        let signature = diagLines.joined(separator: ";") + "|windows=\(windows.count)"
+        if lastStreakWindowDiag != signature {
+            lastStreakWindowDiag = signature
+            for line in diagLines {
+                print("[STREAK-WINDOW] \(line)")
+            }
+        }
+        #endif
+        return windows
     }
 
     private func doseSummaryProbes(from history: [DoseLogRecord]) -> [DoseLoop.DoseSummaryProbe] {
@@ -2402,7 +2546,7 @@ final class CheckMedStore {
         FreezeDiag.log("streakDays START")
         let t0 = Date()
         let snapshot = DoseLoop.adherenceStreak(
-            logs: doseSummaryProbes(from: logs()),
+            logs: doseSummaryProbes(from: logsOnActiveTreatments(logs())),
             treatmentWindows: treatmentWindowsForAdherence(),
             now: now,
             calendar: calendar,
@@ -2458,7 +2602,7 @@ final class CheckMedStore {
         ownedExact(rows)
     }
 
-    /// Strict owner match only. Nil `ownerId` on the store → nothing (no guest ghost plan).
+    /// Strict owner match only. Nil `ownerId` on the store → nothing.
     private func ownedExact<T>(_ rows: [T]) -> [T] {
         guard let ownerId else { return [] }
         return rows.filter { row in
@@ -2701,10 +2845,25 @@ final class CheckMedStore {
         Self.date(on: day, timeOfDay: timeOfDay, calendar: calendar)
     }
 
-    static func date(on day: Date, timeOfDay: String, calendar: Calendar = .current) -> Date? {
+    nonisolated static func date(on day: Date, timeOfDay: String, calendar: Calendar = clockCalendar()) -> Date? {
         let parts = timeOfDay.split(separator: ":")
         guard parts.count >= 2, let hour = Int(parts[0]), let minute = Int(parts[1]) else { return nil }
         return calendar.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+    }
+
+    /// Gregorian + current time zone — same convention as store DoseLog `scheduledAt`.
+    nonisolated static func clockCalendar() -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
+    }
+
+    nonisolated static func clockTime(from date: Date, calendar: Calendar = clockCalendar()) -> String {
+        String(
+            format: "%02d:%02d",
+            calendar.component(.hour, from: date),
+            calendar.component(.minute, from: date)
+        )
     }
 }
 
