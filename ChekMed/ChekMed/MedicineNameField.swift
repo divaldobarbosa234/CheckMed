@@ -7,6 +7,8 @@ struct MedicineNameField: View {
     var showsChrome: Bool = true
     /// When true, label + field sit flush for grouping inside a parent card.
     var embedded: Bool = false
+    var highlightIncomplete: Bool = false
+    var reportsFocus: Binding<Bool>? = nil
 
     @FocusState private var focused: Bool
 
@@ -19,7 +21,7 @@ struct MedicineNameField: View {
             Text(title)
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .textCase(.uppercase)
-                .foregroundStyle(CheckMedTheme.muted)
+                .foregroundStyle(highlightIncomplete ? CheckMedTheme.beak : CheckMedTheme.muted)
             TextField(title, text: $text)
                 .textInputAutocapitalization(.words)
                 .autocorrectionDisabled()
@@ -29,12 +31,18 @@ struct MedicineNameField: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(embedded ? Color.clear : CheckMedTheme.hairline, lineWidth: 1.5)
+                        .stroke(
+                            highlightIncomplete ? CheckMedTheme.beak.opacity(0.7) : (embedded ? Color.clear : CheckMedTheme.hairline),
+                            lineWidth: highlightIncomplete ? 2 : 1.5
+                        )
                 )
                 .accessibilityHint(session.t(.medicineSuggestHint))
             if focused, showsChrome {
                 suggestionChrome
             }
+        }
+        .onChange(of: focused) { _, isFocused in
+            reportsFocus?.wrappedValue = isFocused
         }
     }
 
@@ -75,7 +83,8 @@ struct MedicineNameField: View {
                                 .foregroundStyle(CheckMedTheme.primaryShadow)
                         }
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, 12)
+                        .frame(minHeight: 44)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)

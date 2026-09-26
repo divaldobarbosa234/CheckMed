@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CheckMedButton: View {
     @Environment(\.locale) private var locale
+    @Environment(\.isEnabled) private var isEnabled
     let title: String
     var style: Style = .primary
     let action: () -> Void
@@ -13,36 +14,55 @@ struct CheckMedButton: View {
             Text(title.uppercased(with: locale))
                 .font(.system(.body, design: .rounded).weight(.heavy))
                 .tracking(0.5)
-                .foregroundStyle(style == .primary ? CheckMedTheme.onPrimary : CheckMedTheme.ink)
+                .foregroundStyle(titleColor)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(background, in: Capsule())
                 .overlay(
                     Capsule()
-                        .stroke(CheckMedTheme.ink, lineWidth: style == .secondary ? 2 : 0)
+                        .stroke(borderColor, lineWidth: borderWidth)
                 )
         }
         .buttonStyle(.plain)
         .background(alignment: .bottom) {
-            if style == .primary {
+            if style == .primary, isEnabled {
                 Capsule()
                     .fill(CheckMedTheme.primaryShadow)
                     .offset(y: 4)
                     .accessibilityHidden(true)
             }
         }
-        .padding(.bottom, style == .primary ? 4 : 0)
+        .padding(.bottom, style == .primary && isEnabled ? 4 : 0)
         .contentShape(Capsule())
         .accessibilityLabel(title)
-        .modifier(PrimaryReturnKey(enabled: style == .primary))
+        .modifier(PrimaryReturnKey(enabled: style == .primary && isEnabled))
+    }
+
+    private var titleColor: Color {
+        if style == .primary {
+            return isEnabled ? CheckMedTheme.onPrimary : CheckMedTheme.muted
+        }
+        return CheckMedTheme.ink.opacity(isEnabled ? 1 : 0.45)
     }
 
     private var background: Color {
         switch style {
-        case .primary: CheckMedTheme.primary
+        case .primary: isEnabled ? CheckMedTheme.primary : CheckMedTheme.locked
         case .secondary: CheckMedTheme.surface
         case .ghost: Color.clear
         }
+    }
+
+    private var borderColor: Color {
+        if style == .secondary { return CheckMedTheme.ink }
+        if style == .primary, !isEnabled { return CheckMedTheme.hairline }
+        return Color.clear
+    }
+
+    private var borderWidth: CGFloat {
+        if style == .secondary { return 2 }
+        if style == .primary, !isEnabled { return 1.5 }
+        return 0
     }
 }
 
@@ -895,36 +915,5 @@ private struct IdentityWheelSheet: View {
                 }
             }
         }
-    }
-}
-
-struct GuestBanner: View {
-    @Environment(SessionStore.self) private var session
-    let onCreateAccount: () -> Void
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(session.t(.guestBannerTitle))
-                    .font(.system(.subheadline, design: .rounded).weight(.bold))
-                Text(session.t(.guestBannerBody))
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-            }
-            .foregroundStyle(CheckMedTheme.ink)
-            Spacer(minLength: 8)
-            Button(session.t(.signIn), action: onCreateAccount)
-                .font(.system(.caption, design: .rounded).weight(.heavy))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(CheckMedTheme.ink, in: Capsule())
-        }
-        .padding(12)
-        .background(CheckMedTheme.guestBg)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(CheckMedTheme.guestBorder, lineWidth: 2)
-        )
     }
 }
