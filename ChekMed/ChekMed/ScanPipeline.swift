@@ -66,7 +66,9 @@ enum ScanPipeline {
 
         let prescriptionDate = PrescriptionParser.findPrescriptionDate(in: extraction.rawText)
         if let prescriptionDate {
-            ScanLog.document("prescriptionDate=\(iso(prescriptionDate)) (metadata only)")
+            ScanLog.document("prescriptionDate=\(iso(prescriptionDate)) (printed Rx date)")
+        } else {
+            ScanLog.document("prescriptionDate=nil (printed date missing or unreliable)")
         }
 
         var raw = extraction.drafts.isEmpty ? [extraction.draft] : extraction.drafts
@@ -161,3 +163,94 @@ enum ScanPipeline {
         return formatter.string(from: date)
     }
 }
+
+#if DEBUG
+enum PrescriptionDateContractChecks {
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func day(_ date: Date?, calendar: Calendar = .current) -> String? {
+            guard let date else { return nil }
+            let parts = calendar.dateComponents([.year, .month, .day], from: date)
+            guard let y = parts.year, let m = parts.month, let d = parts.day else { return nil }
+            return String(format: "%04d-%02d-%02d", y, m, d)
+        }
+
+        let withBirth = """
+        Paciente: Ana Teste
+        Data de nascimento: 10/05/1980
+        Data: 15/03/2025
+        1) Amoxicilina 500 mg
+        """
+        expect(
+            day(PrescriptionParser.findPrescriptionDate(in: withBirth)) == "2025-03-15",
+            "birth date must not discard the printed Rx date"
+        )
+        expect(
+            day(PrescriptionParser.findPrescriptionDate(in: """
+            Nascimento: 10/05/1990
+            Data da receita: 06/09/2025
+            """)) == "2025-09-06",
+            "Portuguese Rx date must win over birth date"
+        )
+        expect(
+            PrescriptionParser.findPrescriptionDate(in: "Nascimento: 10/05/1990") == nil,
+            "birth date only must stay unknown"
+        )
+
+        expect(
+            day(PrescriptionParser.findPrescriptionDate(in: "Data da receita: 12/11/2025\nAmoxicilina 500 mg")) == "2025-11-12",
+            "Portuguese data da receita must parse"
+        )
+
+        expect(
+            day(PrescriptionParser.findPrescriptionDate(in: "Fecha: 2025-09-06\nLosartana 50 mg")) == "2025-09-06",
+            "ISO printed date must parse"
+        )
+
+        expect(
+            day(PrescriptionParser.findPrescriptionDate(in: "Fecha: 15 de septiembre de 2025\nMetformina 850 mg")) == "2025-09-15",
+            "written-month printed date must parse"
+        )
+
+        expect(
+            PrescriptionParser.findPrescriptionDate(in: "Amoxicilina 500 mg\n3x ao dia\n7 dias") == nil,
+            "undated prescription must stay unknown"
+        )
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = calendar.date(from: DateComponents(year: 2026, month: 9, day: 22))!
+
+        func draft(on isoDay: String) -> OnboardingPrescriptionDraft {
+            var item = OnboardingPrescriptionDraft.empty
+            item.medicine = "Amoxicilina"
+            item.prescriptionDate = dayDate(isoDay, calendar: calendar)
+            return item
+        }
+
+        expect(
+            ScanPipeline.oldPrescriptionDateToWarn(in: [draft(on: "2025-09-06")], now: now, calendar: calendar) != nil,
+            "last-year printed date must warn"
+        )
+        expect(
+            ScanPipeline.oldPrescriptionDateToWarn(in: [draft(on: "2026-09-06")], now: now, calendar: calendar) == nil,
+            "current-year printed date must not warn"
+        )
+        expect(
+            ScanPipeline.oldPrescriptionDateToWarn(in: [OnboardingPrescriptionDraft.empty], now: now, calendar: calendar) == nil,
+            "unknown date must not warn"
+        )
+        return failures
+    }
+
+    private static func dayDate(_ iso: String, calendar: Calendar) -> Date? {
+        let parts = iso.split(separator: "-").compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+}
+#endif
+

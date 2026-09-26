@@ -598,31 +598,163 @@ enum PrescriptionParser {
         return stops.contains(where: { folded.contains($0) })
     }
 
+    /// Printed Rx date only. Never PDF metadata, file dates, scan time, or today.
+    /// Returns `nil` when the date is missing or not reliable.
     static func findPrescriptionDate(in raw: String) -> Date? {
-        let folded = raw.lowercased()
-        let pattern = #"(?i)(?:fecha|date|data)\s*(?:de\s+(?:la\s+)?(?:receta|receita|prescription))?\s*[:\-]?\s*(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4})"#
-        guard let text = firstGroup(pattern, in: raw) else { return nil }
-        if folded.contains("nacimiento") || folded.contains("birth") || folded.contains("nascimento") {
-            let birth = folded.range(of: "nacimiento") ?? folded.range(of: "nascimento") ?? folded.range(of: "birth")
-            if let birth, let hit = folded.range(of: text.lowercased()), hit.lowerBound > birth.lowerBound {
-                return nil
+        let calendar = Calendar.current
+        for capture in allGroup1Matches(labeledNumericDatePattern, in: raw) {
+            if isBirthDateContext(raw, around: capture.range) { continue }
+            if let date = parsePrintedDate(capture.text), isPlausiblePrescriptionDate(date, calendar: calendar) {
+                return date
             }
         }
-        return parsePrintedDate(text)
+        for capture in allGroup1Matches(labeledMonthNameDatePattern, in: raw) {
+            if isBirthDateContext(raw, around: capture.range) { continue }
+            if let date = parseMonthNameDate(capture.text), isPlausiblePrescriptionDate(date, calendar: calendar) {
+                return date
+            }
+        }
+        let headerLimit = raw.index(raw.startIndex, offsetBy: min(raw.count, 900), limitedBy: raw.endIndex) ?? raw.endIndex
+        for capture in allGroup1Matches(numericDateTokenPattern, in: raw) {
+            if capture.range.lowerBound >= headerLimit { break }
+            if isBirthDateContext(raw, around: capture.range) { continue }
+            if let date = parsePrintedDate(capture.text), isPlausiblePrescriptionDate(date, calendar: calendar) {
+                return date
+            }
+        }
+        return nil
+    }
+
+    private static let labeledNumericDatePattern =
+        #"(?i)(?:fecha|date|data|rx|issued|emitida|emiss[aã]o|expedici[oó]n|ordonnance)(?:\s+(?:de|da|do|of|the|la|le|du))?(?:\s+(?:la|the|le|l['’]))?(?:\s+(?:receta|receita|prescription|prescripci[oó]n|prescri[cç][aã]o|ordonnance|issue|emiss[aã]o|expedici[oó]n))?(?:\s+m[eé]dica)?\s*[:\-]?\s*(\d{1,2}\s*[/\-.]\s*\d{1,2}\s*[/\-.]\s*\d{2,4}|\d{4}\s*[/\-.]\s*\d{1,2}\s*[/\-.]\s*\d{1,2})"#
+
+    private static let labeledMonthNameDatePattern =
+        #"(?i)(?:fecha|date|data|rx|issued|emitida|emiss[aã]o|expedici[oó]n|ordonnance)(?:\s+(?:de|da|do|of|the|la|le|du))?(?:\s+(?:la|the|le))?(?:\s+(?:receta|receita|prescription|prescripci[oó]n|prescri[cç][aã]o|ordonnance))?(?:\s+m[eé]dica)?\s*[:\-]?\s*((?:\d{1,2}\s+de\s+)?[A-Za-zÀ-ÿ.]{3,12}\s+\d{1,2},?\s*(?:de\s+)?\d{2,4}|\d{1,2}\s+de\s+[A-Za-zÀ-ÿ.]{3,12}\s+(?:de\s+)?\d{2,4})"#
+
+    private static let numericDateTokenPattern =
+        #"(\d{1,2}\s*[/\-.]\s*\d{1,2}\s*[/\-.]\s*\d{2,4}|\d{4}\s*[/\-.]\s*\d{1,2}\s*[/\-.]\s*\d{1,2})"#
+
+    /// Birth labels apply only to the date on the same line. A DOB above must not discard a later Rx date.
+    private static func isBirthDateContext(_ raw: String, around range: Range<String.Index>) -> Bool {
+        let lineStart = raw[..<range.lowerBound].lastIndex(of: "\n").map { raw.index(after: $0) } ?? raw.startIndex
+        let lineEnd = raw[range.upperBound...].firstIndex(of: "\n") ?? raw.endIndex
+        let window = raw[lineStart..<lineEnd].folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        let markers = [
+            "nacimiento", "nascimento", "birth", "nasc.", "dob",
+            "date of birth", "data de nascimento", "fecha de nacimiento",
+            "data de nasc", "fecha de nac",
+        ]
+        return markers.contains(where: { window.contains($0) })
+    }
+
+    private static func isPlausiblePrescriptionDate(_ date: Date, calendar: Calendar) -> Bool {
+        let year = calendar.component(.year, from: date)
+        let currentYear = calendar.component(.year, from: Date())
+        return year >= 1970 && year <= currentYear + 1
     }
 
     private static func parsePrintedDate(_ text: String) -> Date? {
-        let cleaned = text.replacingOccurrences(of: "-", with: "/").replacingOccurrences(of: ".", with: "/")
+        let cleaned = text
+            .replacingOccurrences(of: " ", with: "")
+            .replacingOccurrences(of: "-", with: "/")
+            .replacingOccurrences(of: ".", with: "/")
         let parts = cleaned.split(separator: "/").map(String.init)
         guard parts.count == 3,
-              let day = Int(parts[0]), let month = Int(parts[1]), var year = Int(parts[2])
+              let first = Int(parts[0]), let second = Int(parts[1]), let third = Int(parts[2])
         else { return nil }
-        if year < 100 { year += 2000 }
+        let day: Int
+        let month: Int
+        var year: Int
+        if parts[0].count == 4 {
+            year = first
+            month = second
+            day = third
+        } else {
+            day = first
+            month = second
+            year = third
+            if year < 100 { year += 2000 }
+        }
+        guard (1...12).contains(month), (1...31).contains(day) else { return nil }
         var components = DateComponents()
         components.day = day
         components.month = month
         components.year = year
         return Calendar.current.date(from: components)
+    }
+
+    private static func parseMonthNameDate(_ text: String) -> Date? {
+        let folded = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+        let tokens = folded
+            .replacingOccurrences(of: ",", with: " ")
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+        guard tokens.count >= 3 else { return nil }
+        var day: Int?
+        var month: Int?
+        var year: Int?
+        for token in tokens where token != "de" && token != "of" && token != "del" {
+            if month == nil, let parsedMonth = monthNumber(from: token) {
+                month = parsedMonth
+                continue
+            }
+            if let value = Int(token) {
+                if token.count == 4 || value > 31 {
+                    year = value < 100 ? value + 2000 : value
+                } else if day == nil {
+                    day = value
+                }
+            }
+        }
+        guard let day, let month, var year else { return nil }
+        if year < 100 { year += 2000 }
+        guard (1...12).contains(month), (1...31).contains(day) else { return nil }
+        var components = DateComponents()
+        components.day = day
+        components.month = month
+        components.year = year
+        return Calendar.current.date(from: components)
+    }
+
+    private static func monthNumber(from token: String) -> Int? {
+        let key = token.trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        let names: [[String]] = [
+            ["january", "jan", "enero", "ene", "janeiro", "janvier"],
+            ["february", "feb", "febrero", "fevereiro", "fev", "fevrier"],
+            ["march", "mar", "marzo", "marco", "mars"],
+            ["april", "apr", "abril", "abr", "avril"],
+            ["may", "mayo", "maio", "mai"],
+            ["june", "jun", "junio", "junho", "juin"],
+            ["july", "jul", "julio", "julho", "juillet"],
+            ["august", "aug", "agosto", "ago", "aout"],
+            ["september", "sep", "sept", "septiembre", "setembro", "set", "septembre"],
+            ["october", "oct", "octubre", "outubro", "out", "octobre"],
+            ["november", "nov", "noviembre", "novembro", "novembre"],
+            ["december", "dec", "diciembre", "dezembro", "dez", "decembre"],
+        ]
+        for (index, aliases) in names.enumerated() where aliases.contains(key) {
+            return index + 1
+        }
+        return nil
+    }
+
+    private struct RegexCapture {
+        var text: String
+        var range: Range<String.Index>
+    }
+
+    private static func allGroup1Matches(_ pattern: String, in raw: String) -> [RegexCapture] {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let nsRange = NSRange(raw.startIndex..., in: raw)
+        return regex.matches(in: raw, range: nsRange).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let capture = Range(match.range(at: 1), in: raw),
+                  let full = Range(match.range(at: 0), in: raw)
+            else { return nil }
+            let text = String(raw[capture]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return RegexCapture(text: text, range: full)
+        }
     }
 
     /// Normalized name + strength + form. Does not fuzzy-merge brands.

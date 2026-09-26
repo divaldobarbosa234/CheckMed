@@ -20,14 +20,16 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let weeklyFailures = WeeklyMedicationProgressContractChecks.failures()
             let streakFailures = AdherenceStreakContractChecks.failures()
             let philFailures = PhilCoachContractChecks.failures()
+            let prescriptionDateFailures = PrescriptionDateContractChecks.failures()
             let laterAddFailures = LaterAddPersistContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + laterAddFailures
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
             print("WeeklyProgress failures:", weeklyFailures)
             print("Streak failures:", streakFailures)
             print("PhilCoach failures:", philFailures)
+            print("PrescriptionDate failures:", prescriptionDateFailures)
             print("LaterAddPersist failures:", laterAddFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
@@ -36,6 +38,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "WeeklyProgress failures: \(weeklyFailures)",
                 "Streak failures: \(streakFailures)",
                 "PhilCoach failures: \(philFailures)",
+                "PrescriptionDate failures: \(prescriptionDateFailures)",
                 "LaterAddPersist failures: \(laterAddFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
@@ -55,6 +58,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     weeklyFailures.isEmpty ? nil : "WEEKLY PROGRESS FAILURE: \(weeklyFailures.joined(separator: "; "))",
                     streakFailures.isEmpty ? nil : "STREAK FAILURE: \(streakFailures.joined(separator: "; "))",
                     philFailures.isEmpty ? nil : "PHIL COACH FAILURE: \(philFailures.joined(separator: "; "))",
+                    prescriptionDateFailures.isEmpty ? nil : "PRESCRIPTION DATE FAILURE: \(prescriptionDateFailures.joined(separator: "; "))",
                     laterAddFailures.isEmpty ? nil : "LATER ADD PERSIST FAILURE: \(laterAddFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
@@ -138,7 +142,8 @@ struct ChekMedApp: App {
             store: treatments,
             session: session,
             entitlements: entitlements,
-            voice: voice
+            voice: voice,
+            path: path
         )
         session.onLocalTreatmentsCheck = { [treatments] in
             treatments.hasExistingTreatments
