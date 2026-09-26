@@ -74,14 +74,16 @@ struct JourneyReportScreen: View {
     @Environment(CheckMedStore.self) private var treatments
     @Environment(EntitlementStore.self) private var entitlements
 
-    private var finishedReports: [JourneyReport] {
-        treatments.finishedJourneyReports()
+    private var reports: [JourneyReport] {
+        treatments.journeyReports()
     }
 
-    private var reports: [JourneyReport] {
-        // Prefer finished plans (e.g. after "See the report") so completing never looks like a wipe.
-        if !finishedReports.isEmpty { return finishedReports }
-        return treatments.journeyReports()
+    private var currentReports: [JourneyReport] {
+        reports.filter { treatments.isCurrentOnJourneyHistory(status: $0.treatmentStatus, endDate: $0.endDate) }
+    }
+
+    private var historyReports: [JourneyReport] {
+        reports.filter { !treatments.isCurrentOnJourneyHistory(status: $0.treatmentStatus, endDate: $0.endDate) }
     }
 
     private var journeyGame: GamificationSnapshot {
@@ -114,31 +116,17 @@ struct JourneyReportScreen: View {
                     .font(.system(.body, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.muted)
             } else {
-                ForEach(reports, id: \.treatmentId) { report in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(report.title)
-                            .font(.system(.title3, design: .rounded).weight(.heavy))
-                        Text(session.t(.journeyStats, report.takenCount, report.plannedCount, report.percent))
-                            .font(.system(.body, design: .rounded).weight(.bold))
-                        Text(session.t(.journeySkipped, report.skippedCount))
-                            .font(.system(.caption, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                        Text(session.t(
-                            .journeyFeelings,
-                            report.feelingGreat,
-                            report.feelingOkay,
-                            report.feelingLow,
-                            report.feelingSideEffect
-                        ))
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        Text(report.medicines.joined(separator: " · "))
-                            .font(.system(.caption, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.muted)
+                if !currentReports.isEmpty {
+                    sectionLabel(session.t(.currentTreatmentHeadline))
+                    ForEach(currentReports, id: \.treatmentId) { report in
+                        reportCard(report)
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(CheckMedTheme.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                }
+                if !historyReports.isEmpty {
+                    sectionLabel(session.t(.treatmentHistorySection))
+                    ForEach(historyReports, id: \.treatmentId) { report in
+                        reportCard(report)
+                    }
                 }
             }
             Text(session.t(.journeyNotAdvice))
@@ -163,6 +151,48 @@ struct JourneyReportScreen: View {
             }
             CheckMedButton(title: session.t(.progressTitle), style: .ghost) { go(.progressDashboard) }
         }
+    }
+
+    private func sectionLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.system(.caption, design: .rounded).weight(.heavy))
+            .foregroundStyle(CheckMedTheme.muted)
+            .textCase(.uppercase)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func reportCard(_ report: JourneyReport) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(report.title)
+                .font(.system(.title3, design: .rounded).weight(.heavy))
+            Text(
+                treatments.isCurrentOnJourneyHistory(status: report.treatmentStatus, endDate: report.endDate)
+                    ? session.t(.treatmentStatusActive)
+                    : session.t(.treatmentStatusCompleted)
+            )
+            .font(.system(.caption, design: .rounded).weight(.heavy))
+            .foregroundStyle(CheckMedTheme.muted)
+            Text(session.t(.journeyStats, report.takenCount, report.plannedCount, report.percent))
+                .font(.system(.body, design: .rounded).weight(.bold))
+            Text(session.t(.journeySkipped, report.skippedCount))
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
+            Text(session.t(
+                .journeyFeelings,
+                report.feelingGreat,
+                report.feelingOkay,
+                report.feelingLow,
+                report.feelingSideEffect
+            ))
+            .font(.system(.caption, design: .rounded).weight(.bold))
+            Text(report.medicines.joined(separator: " · "))
+                .font(.system(.caption, design: .rounded).weight(.bold))
+                .foregroundStyle(CheckMedTheme.muted)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     private static func shareText(reports: [JourneyReport], session: SessionStore) -> String {

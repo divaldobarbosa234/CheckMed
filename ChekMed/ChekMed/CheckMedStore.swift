@@ -2053,6 +2053,20 @@ final class CheckMedStore {
         )
     }
 
+    /// Journey / Treatment History only. Home, reminders, and DoseLog seeding still use `status == "active"`.
+    /// `endDate` on today stays current: same `end < startOfDay(now)` rule as `finishedTreatments()`.
+    func isCurrentOnJourneyHistory(status: String, endDate: Date?, now: Date = Date()) -> Bool {
+        guard status == "active" else { return false }
+        if let end = endDate, end < calendar.startOfDay(for: now) { return false }
+        return true
+    }
+
+    func isCurrentOnJourneyHistory(treatmentId: UUID, now: Date = Date()) -> Bool {
+        _ = revision
+        guard let treatment = treatments().first(where: { $0.id == treatmentId }) else { return false }
+        return isCurrentOnJourneyHistory(status: treatment.status, endDate: treatment.endDate, now: now)
+    }
+
     private func finishedTreatments() -> [TreatmentRecord] {
         let now = Date()
         return visible(allTreatments()).filter { treatment in
