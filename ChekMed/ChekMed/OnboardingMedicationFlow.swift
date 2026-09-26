@@ -702,6 +702,7 @@ struct OnboardingConfirmView: View {
     @Binding var drafts: [OnboardingPrescriptionDraft]
     var isManual: Bool
     var existingMedicineCount: Int = 0
+    var source: PendingPrescriptionImport = .none
     var onConfirm: () -> Void
     var onBack: () -> Void
 
@@ -763,6 +764,9 @@ struct OnboardingConfirmView: View {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 16) {
+                        if source.showsOriginalPreview {
+                            ConfirmOriginalPrescriptionCard(source: source)
+                        }
                         if !isManual, drafts.allSatisfy({ !$0.hasMedicineName }) {
                             Text(session.t(.scanOCREmptyHint))
                                 .font(.system(.caption, design: .rounded).weight(.semibold))

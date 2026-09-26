@@ -128,6 +128,28 @@ enum ScanPipeline {
         return today
     }
 
+    /// DoseLog windows follow treatment activation, not the printed Rx date.
+    /// If the encoded range still starts before `treatmentStart`, move the start
+    /// forward and keep the original end (or today when that end is already past).
+    static func durationAlignedToTreatmentStart(
+        _ duration: String,
+        treatmentStart: Date,
+        calendar: Calendar = .current
+    ) -> String {
+        guard let bounds = PlanDuration.bounds(from: duration, calendar: calendar) else {
+            return duration
+        }
+        let start = calendar.startOfDay(for: treatmentStart)
+        let oldStart = calendar.startOfDay(for: bounds.start)
+        guard oldStart < start else { return duration }
+        let end = calendar.startOfDay(for: max(bounds.end, start))
+        ScanLog.med(
+            "aligned duration start \(iso(oldStart, calendar: calendar)) → \(iso(start, calendar: calendar)) "
+            + "end=\(iso(end, calendar: calendar))"
+        )
+        return PlanDuration.encode(start: start, end: end, calendar: calendar)
+    }
+
     static func iso(_ date: Date, calendar: Calendar = .current) -> String {
         let formatter = DateFormatter()
         formatter.calendar = calendar
@@ -242,6 +264,44 @@ enum PrescriptionDateContractChecks {
         expect(
             ScanPipeline.oldPrescriptionDateToWarn(in: [OnboardingPrescriptionDraft.empty], now: now, calendar: calendar) == nil,
             "unknown date must not warn"
+        )
+
+        var rxDraft = OnboardingPrescriptionDraft.empty
+        rxDraft.medicine = "Amoxicilina"
+        rxDraft.prescriptionDate = dayDate("2025-09-06", calendar: calendar)
+        rxDraft.duration = PlanDuration.encode(
+            start: dayDate("2025-09-06", calendar: calendar)!,
+            end: dayDate("2026-09-30", calendar: calendar)!,
+            calendar: calendar
+        )
+        let resolved = ScanPipeline.resolvedTreatmentStart(draft: rxDraft, now: now, calendar: calendar)
+        expect(day(resolved, calendar: calendar) == "2026-09-22", "printed Rx date must not become treatment start")
+        let aligned = ScanPipeline.durationAlignedToTreatmentStart(
+            rxDraft.duration,
+            treatmentStart: resolved,
+            calendar: calendar
+        )
+        expect(
+            day(PlanDuration.bounds(from: aligned, calendar: calendar)?.start, calendar: calendar) == "2026-09-22",
+            "encoded duration must start on treatment activation, not the printed Rx date"
+        )
+        expect(
+            day(PlanDuration.bounds(from: aligned, calendar: calendar)?.end, calendar: calendar) == "2026-09-30",
+            "aligning duration must keep the original end when it is still ahead"
+        )
+
+        let pastStart = PlanDuration.encode(
+            start: dayDate("2026-09-01", calendar: calendar)!,
+            end: dayDate("2026-09-30", calendar: calendar)!,
+            calendar: calendar
+        )
+        var manualPast = OnboardingPrescriptionDraft.empty
+        manualPast.duration = pastStart
+        let manualResolved = ScanPipeline.resolvedTreatmentStart(draft: manualPast, now: now, calendar: calendar)
+        expect(day(manualResolved, calendar: calendar) == "2026-09-01", "manual past start without Rx date must stay")
+        expect(
+            ScanPipeline.durationAlignedToTreatmentStart(pastStart, treatmentStart: manualResolved, calendar: calendar) == pastStart,
+            "manual past-start duration must not be rewritten"
         )
         return failures
     }

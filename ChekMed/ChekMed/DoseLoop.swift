@@ -135,6 +135,21 @@ enum DoseLoop {
         return "\(medicineId.uuidString)|\(minute.timeIntervalSince1970)"
     }
 
+    /// First calendar day CheckMed is tracking this medicine: do not insert
+    /// already-passed clocks. Logs from a previous day mean the treatment was
+    /// already active — today's overdue slots must still be created (real misses).
+    static func shouldSkipAlreadyPassedClockOnFirstTrackingDay(
+        scheduledAt: Date,
+        now: Date,
+        dayStart: Date,
+        hasLogsBeforeDay: Bool,
+        calendar: Calendar
+    ) -> Bool {
+        guard calendar.isDate(scheduledAt, inSameDayAs: dayStart) else { return false }
+        guard scheduledAt < now else { return false }
+        return !hasLogsBeforeDay
+    }
+
     /// Canonical unresolved states for the missed-dose dialogue. Confirmed
     /// taken / takenLate never qualify, even if the row was missed earlier.
     static func qualifiesForMissedSummary(
@@ -585,6 +600,38 @@ enum DoseLoopContractChecks {
                 snooze: snooze
             ),
             "Snooze must not miss before snooze+grace"
+        )
+
+        var gmtCalendar = Calendar(identifier: .gregorian)
+        gmtCalendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let day = gmtCalendar.date(from: DateComponents(year: 2026, month: 9, day: 26))!
+        let now1630 = gmtCalendar.date(byAdding: .minute, value: 16 * 60 + 30, to: day)!
+        let clock0800 = gmtCalendar.date(byAdding: .hour, value: 8, to: day)!
+        let clock1400 = gmtCalendar.date(byAdding: .hour, value: 14, to: day)!
+        let clock2000 = gmtCalendar.date(byAdding: .hour, value: 20, to: day)!
+        expect(
+            DoseLoop.shouldSkipAlreadyPassedClockOnFirstTrackingDay(
+                scheduledAt: clock0800, now: now1630, dayStart: day, hasLogsBeforeDay: false, calendar: gmtCalendar
+            ),
+            "new medicine at 16:30 must not create 08:00"
+        )
+        expect(
+            DoseLoop.shouldSkipAlreadyPassedClockOnFirstTrackingDay(
+                scheduledAt: clock1400, now: now1630, dayStart: day, hasLogsBeforeDay: false, calendar: gmtCalendar
+            ),
+            "new medicine at 16:30 must not create 14:00"
+        )
+        expect(
+            !DoseLoop.shouldSkipAlreadyPassedClockOnFirstTrackingDay(
+                scheduledAt: clock2000, now: now1630, dayStart: day, hasLogsBeforeDay: false, calendar: gmtCalendar
+            ),
+            "new medicine at 16:30 must still create 20:00"
+        )
+        expect(
+            !DoseLoop.shouldSkipAlreadyPassedClockOnFirstTrackingDay(
+                scheduledAt: clock0800, now: now1630, dayStart: day, hasLogsBeforeDay: true, calendar: gmtCalendar
+            ),
+            "existing medicine must still seed today's overdue 08:00"
         )
 
         let tabletStock = DoseLoop.stockPercentAfterEvent(

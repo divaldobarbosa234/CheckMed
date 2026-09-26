@@ -71,6 +71,7 @@ struct ResumePlanSetupFlow: View {
 
     @State private var phase: Phase?
     @State private var drafts: [OnboardingPrescriptionDraft]
+    @State private var didCommitPlan = false
 
     private enum Phase: Equatable {
         case confirm, planResume, notifications, alarmSetup, trial, ready
@@ -104,30 +105,6 @@ struct ResumePlanSetupFlow: View {
                             #endif
                             return
                         }
-                        let ok: Bool
-                        if treatments.existingActivePlanId() != nil {
-                            ok = treatments.addFromDrafts(
-                                capped,
-                                ownerId: session.planOwnerId,
-                                profileId: session.planProfileId
-                            )
-                        } else {
-                            ok = treatments.seedFromDrafts(
-                                capped,
-                                ownerId: session.planOwnerId,
-                                profileId: session.planProfileId
-                            )
-                        }
-                        guard ok else {
-                            #if DEBUG
-                            print("[CheckMed] resume seedFromDrafts failed")
-                            #endif
-                            return
-                        }
-                        session.markMedicationPlanConfirmed()
-                        session.markPendingPostJourneySetup()
-                        treatments.setSurfacesPlan(true)
-                        path.reload()
                         phase = .planResume
                     },
                     onBack: { session.showResumeSetup = false }
@@ -199,14 +176,61 @@ struct ResumePlanSetupFlow: View {
     }
 
     private func journeyDrafts() -> [OnboardingPrescriptionDraft] {
-        let stored = treatments.draftsFromActivePlan().filter(\.hasMedicineName)
-        if !stored.isEmpty { return stored }
-        return drafts.filter(\.hasMedicineName)
+        let live = drafts.filter(\.hasMedicineName)
+        if !live.isEmpty { return live }
+        return treatments.draftsFromActivePlan().filter(\.hasMedicineName)
     }
 
     private func advanceAfterJourney() {
+        guard commitResumePlanIfNeeded() else { return }
         session.startPostJourneyQueue()
         phase = .alarmSetup
+    }
+
+    @discardableResult
+    private func commitResumePlanIfNeeded() -> Bool {
+        if didCommitPlan { return true }
+        if session.hasConfirmedMedicationPlan || treatments.hasActivePlan {
+            didCommitPlan = true
+            return true
+        }
+        for index in drafts.indices { drafts[index].syncDoseTimes() }
+        let capped = drafts.cappedForPlan(
+            isSuper: entitlements.isSuper,
+            existingCount: 0
+        ).filter(\.hasMedicineName)
+        guard !capped.isEmpty else {
+            #if DEBUG
+            print("[CheckMed] resume plan-resume commit blocked: empty after cap")
+            #endif
+            return false
+        }
+        let ok: Bool
+        if treatments.existingActivePlanId() != nil {
+            ok = treatments.addFromDrafts(
+                capped,
+                ownerId: session.planOwnerId,
+                profileId: session.planProfileId
+            ) != nil
+        } else {
+            ok = treatments.seedFromDrafts(
+                capped,
+                ownerId: session.planOwnerId,
+                profileId: session.planProfileId
+            ) != nil
+        }
+        guard ok else {
+            #if DEBUG
+            print("[CheckMed] resume seedFromDrafts failed")
+            #endif
+            return false
+        }
+        session.markMedicationPlanConfirmed()
+        session.markPendingPostJourneySetup()
+        treatments.setSurfacesPlan(true)
+        path.reload()
+        didCommitPlan = true
+        return true
     }
 
     private func advancePostJourneyFrom(_ step: SessionStore.PostJourneyStep) {

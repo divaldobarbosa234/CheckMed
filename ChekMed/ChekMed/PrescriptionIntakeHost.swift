@@ -60,7 +60,7 @@ struct AddPrescriptionIntakeHost: View {
             case .camera:
                 OnboardingCameraView(
                     onCaptured: { data in
-                        pending = .image(data)
+                        pending = .image(Data(data))
                         draft = .empty
                         drafts = [.empty]
                         goAnalysing()
@@ -101,9 +101,10 @@ struct AddPrescriptionIntakeHost: View {
                     drafts: $drafts,
                     isManual: method == .manual,
                     existingMedicineCount: liveExistingCount,
+                    source: pending,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
-                        guard persistConfirmedDrafts() else { return }
+                        guard canAdvanceToPlanResume() else { return }
                         phase = .planResume
                     },
                     onBack: {
@@ -128,7 +129,7 @@ struct AddPrescriptionIntakeHost: View {
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self) {
                     let compact = PrescriptionReader.downsampledJPEG(from: data)
-                    pending = .image(compact)
+                    pending = .image(Data(compact))
                     draft = .empty
                     drafts = [.empty]
                     photoItem = nil
@@ -165,9 +166,9 @@ struct AddPrescriptionIntakeHost: View {
     }
 
     private func journeyDrafts() -> [OnboardingPrescriptionDraft] {
-        let stored = treatments.draftsFromActivePlan().filter(\.hasMedicineName)
-        if !stored.isEmpty { return stored }
-        return drafts.filter(\.hasMedicineName)
+        let live = drafts.filter(\.hasMedicineName)
+        if !live.isEmpty { return live }
+        return treatments.draftsFromActivePlan().filter(\.hasMedicineName)
     }
 
     private var liveExistingCount: Int { treatments.storedMedicineCount }
@@ -258,7 +259,34 @@ struct AddPrescriptionIntakeHost: View {
         phase = .confirm
     }
 
-    /// Persist on confirm (before journey) so Home never depends on PlanResume continue.
+    /// In-memory drafts only. Persist happens on Plan Resume Continue.
+    private func canAdvanceToPlanResume() -> Bool {
+        let liveCount = treatments.storedMedicineCount
+        let persistTarget = LaterAddPersist.target(
+            intent: laterAddIntent,
+            activeMedicineCount: liveCount
+        )
+        let capBase = persistTarget == .completeThenSeed
+            ? 0
+            : min(medicineCountAtStart, liveCount)
+        let capped = drafts.cappedForPlan(
+            isSuper: entitlements.isSuper,
+            existingCount: capBase
+        ).filter(\.hasMedicineName)
+        guard !capped.isEmpty else {
+            #if DEBUG
+            print("[CheckMed] add-intake plan-resume blocked: empty after cap")
+            #endif
+            if !entitlements.isSuper,
+               liveCount >= SuperLimits.freePrescriptions {
+                entitlements.presentPaywall()
+            }
+            return false
+        }
+        return true
+    }
+
+    /// Commit on Plan Resume Continue. Confirm only advances in memory.
     @discardableResult
     private func persistConfirmedDrafts() -> Bool {
         let liveCount = treatments.storedMedicineCount
@@ -285,6 +313,7 @@ struct AddPrescriptionIntakeHost: View {
             return false
         }
         let ok: Bool
+        var persistedTreatmentId: UUID?
         if didPersistPlan {
             // Already wrote this intake once; avoid duplicate rows on confirm → back → confirm.
             ok = true
@@ -297,30 +326,34 @@ struct AddPrescriptionIntakeHost: View {
                 #endif
                 return false
             }
-            ok = treatments.seedFromDrafts(
+            persistedTreatmentId = treatments.seedFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
                 profileId: session.planProfileId
             )
+            ok = persistedTreatmentId != nil
             #if DEBUG
             let newId = treatments.existingActivePlanId()
             print(
                 "[TREATMENT-ID] startNew previous=\(previousId?.uuidString ?? "nil") "
-                + "new=\(newId?.uuidString ?? "nil") differ=\(previousId != newId) active=\(treatments.hasActivePlan)"
+                + "new=\(newId?.uuidString ?? "nil") persist=\(persistedTreatmentId?.uuidString ?? "nil") "
+                + "differ=\(previousId != newId) active=\(treatments.hasActivePlan)"
             )
             #endif
         } else if persistTarget == .seed {
-            ok = treatments.seedFromDrafts(
+            persistedTreatmentId = treatments.seedFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
                 profileId: session.planProfileId
             )
+            ok = persistedTreatmentId != nil
         } else {
-            ok = treatments.addFromDrafts(
+            persistedTreatmentId = treatments.addFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
                 profileId: session.planProfileId
             )
+            ok = persistedTreatmentId != nil
         }
         guard ok else {
             #if DEBUG
@@ -334,8 +367,8 @@ struct AddPrescriptionIntakeHost: View {
         // Always arm post-journey chain after any successful confirm (seed or add).
         session.markPendingPostJourneySetup()
         treatments.setSurfacesPlan(true)
-        if firstPersist {
-            treatments.archiveImportedSource(pending)
+        if firstPersist, let persistedTreatmentId {
+            treatments.archiveImportedSource(pending, treatmentId: persistedTreatmentId)
         }
         if firstPersist, method == .photo || method == .pdf {
             ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
@@ -345,9 +378,7 @@ struct AddPrescriptionIntakeHost: View {
     }
 
     private func finishIntake() {
-        if !didPersistPlan {
-            guard persistConfirmedDrafts() else { return }
-        }
+        guard persistConfirmedDrafts() else { return }
         // After journey: always alarms → notifications → Super → Phil before Home.
         session.startPostJourneyQueue()
         if let onFinished {

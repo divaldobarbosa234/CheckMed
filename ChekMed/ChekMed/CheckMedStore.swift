@@ -431,9 +431,8 @@ final class CheckMedStore {
         }
     }
 
-    func archiveImportedSource(_ pending: PendingPrescriptionImport) {
-        guard let treatment = activeTreatments().first else { return }
-        PrescriptionSourceArchive.saveIfAbsent(pending, treatmentId: treatment.id)
+    func archiveImportedSource(_ pending: PendingPrescriptionImport, treatmentId: UUID) {
+        PrescriptionSourceArchive.save(pending, treatmentId: treatmentId)
     }
 
     private func summaries(
@@ -545,23 +544,23 @@ final class CheckMedStore {
 
     /// First-treatment onboarding: create or replace the single active plan.
     @discardableResult
-    func seedFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) -> Bool {
+    func seedFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) -> UUID? {
         seedFromDrafts([draft], ownerId: ownerId, profileId: profileId)
     }
 
     @discardableResult
-    func seedFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) -> Bool {
+    func seedFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) -> UUID? {
         persistDrafts(drafts, ownerId: ownerId, profileId: profileId, replacePlan: true)
     }
 
-    /// Later adds from Home: always insert a new treatment.
+    /// Later adds from Home: append onto the active treatment when one exists.
     @discardableResult
-    func addFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) -> Bool {
+    func addFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) -> UUID? {
         addFromDrafts([draft], ownerId: ownerId, profileId: profileId)
     }
 
     @discardableResult
-    func addFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) -> Bool {
+    func addFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) -> UUID? {
         persistDrafts(drafts, ownerId: ownerId, profileId: profileId, replacePlan: false)
     }
 
@@ -653,33 +652,35 @@ final class CheckMedStore {
         ownerId: UUID?,
         profileId: UUID?,
         replacePlan: Bool
-    ) -> Bool {
+    ) -> UUID? {
         let named = drafts.filter(\.hasMedicineName)
         ScanLog.confirmed(named)
         guard let ownerId else {
             #if DEBUG
             print("[CheckMed] persistDrafts aborted: missing ownerId (named=\(named.count))")
             #endif
-            return false
+            return nil
         }
         guard let first = named.first else {
             #if DEBUG
             print("[CheckMed] persistDrafts aborted: no named medicines")
             #endif
-            return false
+            return nil
         }
         // Confirmed prescriptions must surface immediately (Home + logs + alarms).
         setSurfacesPlan(true)
-        saveDraft(
+        guard let treatmentId = saveDraft(
             first,
             ownerId: ownerId,
             profileId: profileId,
             replacingFirst: replacePlan,
             ontoTreatment: replacePlan ? nil : activeTreatments().first
-        )
-        let plan = activeTreatments().first
+        ) else {
+            return nil
+        }
+        let plan = allTreatments().first(where: { $0.id == treatmentId && $0.deletedAt == nil })
         for draft in named.dropFirst() {
-            saveDraft(
+            _ = saveDraft(
                 draft,
                 ownerId: ownerId,
                 profileId: profileId,
@@ -690,21 +691,22 @@ final class CheckMedStore {
         let saved = medicines().count
         ScanLog.saved(named)
         #if DEBUG
-        print("[CheckMed] persistDrafts ok replace=\(replacePlan) seeded=\(named.count) stored=\(saved) surfacesPlan=\(surfacesPlan)")
+        print("[CheckMed] persistDrafts ok replace=\(replacePlan) seeded=\(named.count) stored=\(saved) surfacesPlan=\(surfacesPlan) treatmentId=\(treatmentId.uuidString)")
         #endif
         if saved > 0 {
             ReminderScheduler.shared.reschedule(force: true)
         }
-        return saved > 0
+        return saved > 0 ? treatmentId : nil
     }
 
+    @discardableResult
     private func saveDraft(
         _ draft: OnboardingPrescriptionDraft,
         ownerId: UUID?,
         profileId: UUID?,
         replacingFirst: Bool,
         ontoTreatment: TreatmentRecord? = nil
-    ) {
+    ) -> UUID? {
         if let ownerId {
             self.ownerId = ownerId
         }
@@ -716,15 +718,20 @@ final class CheckMedStore {
         draft.syncDoseTimes()
         let now = Date()
         let medicineName = draft.medicine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !medicineName.isEmpty else { return }
+        guard !medicineName.isEmpty else { return nil }
         guard self.ownerId != nil else {
             #if DEBUG
             print("[CheckMed] saveDraft aborted: store ownerId still nil for \(medicineName)")
             #endif
-            return
+            return nil
         }
 
         let start = ScanPipeline.resolvedTreatmentStart(draft: draft, now: now, calendar: calendar)
+        draft.duration = ScanPipeline.durationAlignedToTreatmentStart(
+            draft.duration,
+            treatmentStart: start,
+            calendar: calendar
+        )
         let end = Self.endDate(fromDuration: draft.duration, start: start, calendar: calendar)
         ScanLog.med(
             "name=\(medicineName) prescriptionDate=\(draft.prescriptionDate.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil") "
@@ -793,6 +800,7 @@ final class CheckMedStore {
         ensureUpcomingLogs()
         notify()
         requestSync()
+        return treatment.id
     }
 
     private func applyReportFields(from draft: OnboardingPrescriptionDraft, to medicine: MedicineRecord) {
@@ -1011,9 +1019,17 @@ final class CheckMedStore {
 
     func reconcileExpiredDoseLogs(now: Date = Date()) {
         FreezeDiag.context("reconcileExpiredDoseLogs START", hasChanges: context.hasChanges)
+        #if DEBUG
+        print("[NEW-DOSE-DIAG] reconcile START now=\(ScanPipeline.iso(now, calendar: calendar))")
+        #endif
         let grace = ReminderPreferences.confirmationGraceInterval
         let snooze = ReminderPreferences.snoozeInterval
         let window = now.addingTimeInterval(-36 * 60 * 60)
+        #if DEBUG
+        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+        let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
+        let treatmentsById = Dictionary(uniqueKeysWithValues: treatments().map { ($0.id, $0) })
+        #endif
         var changed = 0
         for log in allLogs() where log.deletedAt == nil {
             guard changed < 24 else { break }
@@ -1031,6 +1047,20 @@ final class CheckMedStore {
             FreezeDiag.log(
                 "SWIFTDATA WRITE object=\(log.id) kind=update medicine=- oldStatus=\(status.rawValue) newStatus=missed scheduledAt=\(log.scheduledAt)"
             )
+            #if DEBUG
+            if status == .pending {
+                let schedule = schedulesById[log.scheduleId]
+                let medicine = schedule.flatMap { medicinesById[$0.medicineId] }
+                let treatmentStart = medicine.flatMap { treatmentsById[$0.treatmentId]?.startDate }
+                print(
+                    "[NEW-DOSE-DIAG] PENDING -> MISSED treatmentID=\(medicine?.treatmentId.uuidString ?? "nil") "
+                    + "medicineID=\(medicine?.id.uuidString ?? "nil") scheduledAt=\(ScanPipeline.iso(log.scheduledAt, calendar: calendar)) "
+                    + "now=\(ScanPipeline.iso(now, calendar: calendar)) "
+                    + "treatmentStart=\(treatmentStart.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil") "
+                    + "createdAt=\(ScanPipeline.iso(log.updatedAt, calendar: calendar))"
+                )
+            }
+            #endif
             log.status = DoseLogStatus.missed.rawValue
             log.loggedAt = log.loggedAt ?? now
             log.updatedAt = now
@@ -1040,6 +1070,9 @@ final class CheckMedStore {
         }
         if changed == 0 {
             FreezeDiag.context("reconcileExpiredDoseLogs END no writes", hasChanges: context.hasChanges)
+            #if DEBUG
+            print("[NEW-DOSE-DIAG] reconcile END changed=0")
+            #endif
             return
         }
         save()
@@ -1048,6 +1081,9 @@ final class CheckMedStore {
             requestSync()
         }
         FreezeDiag.context("reconcileExpiredDoseLogs END changed=\(changed)", hasChanges: context.hasChanges)
+        #if DEBUG
+        print("[NEW-DOSE-DIAG] reconcile END changed=\(changed)")
+        #endif
     }
 
     struct UnresolvedDose: Identifiable, Equatable {
@@ -2394,7 +2430,17 @@ final class CheckMedStore {
     ) -> (start: Date?, end: Date?, source: String) {
         if let bounds = PlanDuration.bounds(from: medicine.duration, calendar: calendar),
            calendar.startOfDay(for: bounds.start) <= calendar.startOfDay(for: bounds.end) {
-            return (bounds.start, bounds.end, "medicine")
+            var start = calendar.startOfDay(for: bounds.start)
+            let end = calendar.startOfDay(for: bounds.end)
+            if let treatmentStart = treatment?.startDate {
+                let activation = calendar.startOfDay(for: treatmentStart)
+                if start < activation {
+                    start = activation
+                }
+            }
+            if start <= end {
+                return (start, end, "medicine")
+            }
         }
         return (treatment?.startDate, treatment?.endDate, "treatment")
     }
@@ -2420,6 +2466,14 @@ final class CheckMedStore {
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let treatmentsById = Dictionary(uniqueKeysWithValues: activeTreatments().map { ($0.id, $0) })
         let activeTreatmentIds = Set(treatmentsById.keys)
+        let scheduleMedicineId = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0.medicineId) })
+        var medicinesWithLogsBeforeToday = Set<UUID>()
+        for log in allLogs() where log.deletedAt == nil {
+            guard calendar.startOfDay(for: log.scheduledAt) < day else { continue }
+            if let medicineId = scheduleMedicineId[log.scheduleId] {
+                medicinesWithLogsBeforeToday.insert(medicineId)
+            }
+        }
         var inserted = 0
         for offset in 0..<7 {
             guard let slotDay = calendar.date(byAdding: .day, value: offset, to: day),
@@ -2468,13 +2522,17 @@ final class CheckMedStore {
                     )
                     continue
                 }
-                // Start-today only: do not invent obligations earlier than activation.
-                // Past-start medicines still seed today's already-passed clocks.
-                if let start = window.start,
-                   calendar.isDate(start, inSameDayAs: day),
-                   scheduledAt < now {
+                // First tracking day: do not invent clocks that already passed.
+                // Medicines with logs before today still seed today's overdue slots.
+                if DoseLoop.shouldSkipAlreadyPassedClockOnFirstTrackingDay(
+                    scheduledAt: scheduledAt,
+                    now: now,
+                    dayStart: day,
+                    hasLogsBeforeDay: medicinesWithLogsBeforeToday.contains(medicine.id),
+                    calendar: calendar
+                ) {
                     ScanLog.dose(
-                        "skip start-today past clock \(window.source)StartDate=\(ScanPipeline.iso(start, calendar: calendar)) "
+                        "skip first-tracking-day past clock \(window.source)StartDate=\(window.start.map { ScanPipeline.iso($0, calendar: calendar) } ?? "nil") "
                         + "scheduled=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) medicine=\(medicine.name)"
                     )
                     continue
@@ -2506,6 +2564,17 @@ final class CheckMedStore {
                 context.insert(log)
                 FreezeDiag.log("SWIFTDATA WRITE END source=ensureUpcomingLogs")
                 inserted += 1
+                #if DEBUG
+                let durationBounds = PlanDuration.bounds(from: medicine.duration, calendar: calendar)
+                print(
+                    "[NEW-DOSE-DIAG] treatmentID=\(medicine.treatmentId.uuidString) medicineID=\(medicine.id.uuidString) "
+                    + "scheduledAt=\(ScanPipeline.iso(scheduledAt, calendar: calendar)) now=\(ScanPipeline.iso(now, calendar: calendar)) "
+                    + "treatmentStart=\(treatment.map { ScanPipeline.iso($0.startDate, calendar: calendar) } ?? "nil") "
+                    + "durationStart=\(durationBounds.map { ScanPipeline.iso($0.start, calendar: calendar) } ?? "nil") "
+                    + "durationEnd=\(durationBounds.map { ScanPipeline.iso($0.end, calendar: calendar) } ?? "nil") "
+                    + "statusBefore=pending source=ensureUpcomingLogs"
+                )
+                #endif
                 #if DEBUG
                 if offset == 0 {
                     print(

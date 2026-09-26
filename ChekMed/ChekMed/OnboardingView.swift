@@ -57,6 +57,7 @@ struct FirstTimeOnboardingView: View {
     @State private var selectedDetectionKeys: Set<String> = []
     @State private var didNeedSlotGate = false
     @State private var oldPrescriptionWarningDate: Date? = nil
+    @State private var didCommitPlan = false
 
     var body: some View {
         ZStack {
@@ -142,7 +143,7 @@ struct FirstTimeOnboardingView: View {
             case .camera:
                 OnboardingCameraView(
                     onCaptured: { data in
-                        pendingImport = .image(data)
+                        pendingImport = .image(Data(data))
                         draft = .empty
                         drafts = [.empty]
                         advance(to: .analysing)
@@ -187,6 +188,7 @@ struct FirstTimeOnboardingView: View {
                     drafts: $drafts,
                     isManual: addMethod == .manual,
                     existingMedicineCount: treatments.storedMedicineCount,
+                    source: pendingImport,
                     onConfirm: {
                         for index in drafts.indices { drafts[index].syncDoseTimes() }
                         let capped = drafts.cappedForPlan(isSuper: entitlements.isSuper, existingCount: 0).filter(\.hasMedicineName)
@@ -197,25 +199,6 @@ struct FirstTimeOnboardingView: View {
                             #endif
                             return
                         }
-                        let ok = treatments.seedFromDrafts(
-                            capped,
-                            ownerId: session.planOwnerId,
-                            profileId: session.planProfileId
-                        )
-                        guard ok else {
-                            #if DEBUG
-                            print("[CheckMed] onboarding seedFromDrafts failed")
-                            #endif
-                            return
-                        }
-                        session.markMedicationPlanConfirmed()
-                        session.markPendingPostJourneySetup()
-                        treatments.setSurfacesPlan(true)
-                        treatments.archiveImportedSource(pendingImport)
-                        if addMethod == .photo || addMethod == .pdf {
-                            ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
-                        }
-                        path.reload()
                         advance(to: .planResume)
                     },
                     onBack: {
@@ -284,7 +267,7 @@ struct FirstTimeOnboardingView: View {
             guard let item else { return }
             Task {
                 if let data = try? await item.loadTransferable(type: Data.self) {
-                    pendingImport = .image(PrescriptionReader.downsampledJPEG(from: data))
+                    pendingImport = .image(Data(PrescriptionReader.downsampledJPEG(from: data)))
                     draft = .empty
                     drafts = [.empty]
                     photoItem = nil
@@ -451,14 +434,49 @@ struct FirstTimeOnboardingView: View {
 
     /// Alarms → notifications → trial → Phil. Never jump to Home from journey.
     private func advanceAfterJourney() {
+        guard commitOnboardingPlan() else { return }
         session.startPostJourneyQueue()
         advance(to: .alarmSetup)
     }
 
+    @discardableResult
+    private func commitOnboardingPlan() -> Bool {
+        if didCommitPlan { return true }
+        for index in drafts.indices { drafts[index].syncDoseTimes() }
+        let capped = drafts.cappedForPlan(isSuper: entitlements.isSuper, existingCount: 0).filter(\.hasMedicineName)
+        ScanLog.confirmed(capped)
+        guard !capped.isEmpty else {
+            #if DEBUG
+            print("[CheckMed] onboarding plan-resume commit blocked: empty after cap")
+            #endif
+            return false
+        }
+        guard let treatmentId = treatments.seedFromDrafts(
+            capped,
+            ownerId: session.planOwnerId,
+            profileId: session.planProfileId
+        ) else {
+            #if DEBUG
+            print("[CheckMed] onboarding seedFromDrafts failed")
+            #endif
+            return false
+        }
+        session.markMedicationPlanConfirmed()
+        session.markPendingPostJourneySetup()
+        treatments.setSurfacesPlan(true)
+        treatments.archiveImportedSource(pendingImport, treatmentId: treatmentId)
+        if addMethod == .photo || addMethod == .pdf {
+            ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
+        }
+        path.reload()
+        didCommitPlan = true
+        return true
+    }
+
     private func journeyDraftsForResume() -> [OnboardingPrescriptionDraft] {
-        let stored = treatments.draftsFromActivePlan().filter(\.hasMedicineName)
-        if !stored.isEmpty { return stored }
-        return drafts.filter(\.hasMedicineName)
+        let live = drafts.filter(\.hasMedicineName)
+        if !live.isEmpty { return live }
+        return treatments.draftsFromActivePlan().filter(\.hasMedicineName)
     }
 
     private func advancePostJourneyFrom(_ step: SessionStore.PostJourneyStep) {

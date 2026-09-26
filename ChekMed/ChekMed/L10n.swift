@@ -78,6 +78,7 @@ enum L10n {
         case organizeHeadline, organizeBody
         case philReadyHeadline, philReadyBody, philReadyButton
         case confirmEditHeadline, confirmManualHeadline, confirmLooksGood, confirmMultipleHint, confirmMedicineOf, confirmRemoveMedicine
+        case confirmOriginalPrescription, confirmViewOriginal, confirmCheckDetected
         case confirmAddMedicine, confirmFreePlanLimit, confirmRemainingSlots, confirmFreePlanFull
         case scanLimitDetected, scanLimitDetectedOne, scanLimitFreeCap, scanLimitRemaining, scanLimitSuperPitch
         case scanLimitContinue, scanLimitContinueOne, scanLimitStartTrial, scanLimitSelectTitle, scanLimitSelectHint
@@ -475,6 +476,9 @@ enum L10n {
         .confirmMultipleHint: "Phil found several medicines. Tap a number or swipe to check each one.",
         .confirmMedicineOf: "Medicine %d of %d",
         .confirmRemoveMedicine: "Remove this medicine",
+        .confirmOriginalPrescription: "Original prescription",
+        .confirmViewOriginal: "View original",
+        .confirmCheckDetected: "Check the information we detected. You can edit anything that does not match the paper.",
         .confirmAddMedicine: "Add another medicine",
         .confirmFreePlanLimit: "On the free plan you can add up to 3 medicines. Super unlocks more at once.",
         .confirmRemainingSlots: "You already have %d medicine(s). On the free plan you can add %d more. Try Super to add more.",
@@ -1273,6 +1277,9 @@ enum L10n {
         .confirmMultipleHint: "O Phil encontrou vários medicamentos. Toque num número ou deslize para conferir cada um.",
         .confirmMedicineOf: "Medicamento %d de %d",
         .confirmRemoveMedicine: "Remover este medicamento",
+        .confirmOriginalPrescription: "Receita original",
+        .confirmViewOriginal: "Ver original",
+        .confirmCheckDetected: "Confira as informações que detetámos. Pode editar o que não coincidir com o papel.",
         .confirmAddMedicine: "Adicionar outro medicamento",
         .confirmFreePlanLimit: "No plano grátis você pode adicionar até 3 medicamentos. O Super libera mais ao mesmo tempo.",
         .confirmRemainingSlots: "Você já tem %d medicamento(s). No plano grátis pode adicionar mais %d. Experimente o Super para adicionar mais.",
@@ -2071,6 +2078,9 @@ enum L10n {
         .confirmMultipleHint: "Phil encontró varios medicamentos. Toca un número o desliza para revisar cada uno.",
         .confirmMedicineOf: "Medicamento %d de %d",
         .confirmRemoveMedicine: "Quitar este medicamento",
+        .confirmOriginalPrescription: "Receta original",
+        .confirmViewOriginal: "Ver original",
+        .confirmCheckDetected: "Revisa la información que detectamos. Puedes editar lo que no coincida con el papel.",
         .confirmAddMedicine: "Añadir otro medicamento",
         .confirmFreePlanLimit: "En el plan gratis puedes añadir hasta 3 medicamentos. Super desbloquea más a la vez.",
         .confirmRemainingSlots: "Ya tienes %d medicamento(s). En el plan gratis puedes añadir %d más. Prueba Super para añadir más.",
@@ -2869,6 +2879,9 @@ enum L10n {
         .confirmMultipleHint: "Phil a trouvé plusieurs médicaments. Touchez un numéro ou glissez pour vérifier chacun.",
         .confirmMedicineOf: "Médicament %d sur %d",
         .confirmRemoveMedicine: "Retirer ce médicament",
+        .confirmOriginalPrescription: "Ordonnance originale",
+        .confirmViewOriginal: "Voir l’original",
+        .confirmCheckDetected: "Vérifiez les informations détectées. Vous pouvez modifier ce qui ne correspond pas au papier.",
         .confirmAddMedicine: "Ajouter un autre médicament",
         .confirmFreePlanLimit: "Avec l’offre gratuite, vous pouvez ajouter jusqu’à 3 médicaments. Super en débloque davantage à la fois.",
         .confirmRemainingSlots: "Vous avez déjà %d médicament(s). Avec l’offre gratuite, vous pouvez en ajouter %d. Essayez Super pour en ajouter plus.",
