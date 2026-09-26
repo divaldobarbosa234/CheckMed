@@ -110,7 +110,7 @@ export async function signInWithOAuthProvider(provider: OAuthProvider): Promise<
     return { cancelled: true };
   }
   if (result.type !== 'success' || !('url' in result) || !result.url) {
-    throw new Error('Sign-in did not finish. You can try again or continue as a guest.');
+    throw new Error('Sign-in did not finish. You can try again.');
   }
 
   await createSessionFromUrl(result.url);

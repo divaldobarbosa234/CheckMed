@@ -5,7 +5,6 @@ import UserNotifications
 final class SessionStore {
     enum Kind {
         case welcome
-        case guest
         case authenticated
     }
 
@@ -91,7 +90,6 @@ final class SessionStore {
     }
 
     let auth = AuthManager()
-    private var guestUnlocked = false
     private var localDisplayName = "there"
     private var localCompanionName = "Phil"
     private var localLanguage = AppLocale.english.rawValue
@@ -103,7 +101,7 @@ final class SessionStore {
     private var localPrivacyAcknowledged = false
     private var localLanguageChosen = false
     private var localHowItWorksSeen = false
-    /// User finished the Sign-in screen (provider, email, or guest) in this install.
+    /// User finished the Sign-in screen (Apple, Google, or email) in this install.
     private var localSignInScreenSeen = false
     private var localOptionalAnalytics = false
     private var localOptionalMarketing = false
@@ -144,7 +142,7 @@ final class SessionStore {
         static let medicationPlanConfirmed = "checkmed.medicationPlanConfirmed"
         /// One-time wipe of unconfirmed / leftover plans after ownership hardening.
         static let purgedUnconfirmedPlansV1 = "checkmed.purgedUnconfirmedPlans.v1"
-        /// Stable on-device owner for guest / pre-auth local plans (SwiftData requires non-nil owner).
+        /// Stable on-device owner for leftover pre-auth SwiftData (adopted onto `auth.userId` at sign-in).
         static let localOwnerId = "checkmed.localOwnerId"
         static let localProfileId = "checkmed.localProfileId"
     }
@@ -472,26 +470,25 @@ final class SessionStore {
 
     var kind: Kind {
         if auth.isAuthenticated { return .authenticated }
-        if guestUnlocked { return .guest }
         return .welcome
     }
 
-    /// Signed in or guest — may continue past sign-in into profile / home.
+    /// Signed in with Apple, Google, or email — may continue past sign-in into profile / home.
     var isSessionUnlocked: Bool {
-        kind == .authenticated || kind == .guest
+        kind == .authenticated
     }
 
-    /// Auth user id when signed in; otherwise a persisted on-device id so guest seeds are owned + visible.
+    /// Auth user id when signed in; otherwise the leftover on-device owner used only to adopt old rows.
     var planOwnerId: UUID {
         auth.userId ?? Self.persistedLocalOwnerId()
     }
 
-    /// Remote profile when synced; otherwise a persisted local profile for guest SwiftData stamps.
+    /// Remote profile when synced; otherwise a persisted local profile stamp for leftover SwiftData.
     var planProfileId: UUID {
         profileId ?? Self.persistedLocalProfileId()
     }
 
-    /// Local owner used before sign-in (for adopting guest rows onto the auth account).
+    /// Local owner used before sign-in (for adopting leftover device rows onto the auth account).
     var localPlanOwnerId: UUID { Self.persistedLocalOwnerId() }
     /// Device profile stamp used before `profiles.id` exists.
     var localPlanProfileId: UUID { Self.persistedLocalProfileId() }
@@ -660,7 +657,7 @@ final class SessionStore {
     func markProfileSetupComplete() {
         let name = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         ProfileSetupKeychain.markComplete(
-            userId: auth.userId ?? (kind == .guest ? Self.persistedLocalOwnerId() : nil),
+            userId: auth.userId,
             displayName: (name.isEmpty || name == "there" || name == "friend") ? nil : name,
             birthStamp: localBirthDate.map(BirthDateWheels.stamp),
             pronouns: localPronouns.nilIfEmpty,
@@ -704,7 +701,7 @@ final class SessionStore {
         #endif
     }
 
-    /// Call after the user finishes Sign-in / guest, or after silent restore of a
+    /// Call after the user finishes Sign-in, or after silent restore of a
     /// already-configured returning account (so the next launch is not `.firstTime`).
     func markSignInScreenCompleted() {
         guard !localSignInScreenSeen else { return }
@@ -763,7 +760,6 @@ final class SessionStore {
     /// Language and appearance stay. Do not call while a provider sheet is in progress.
     func restartPreAuthOnboarding() {
         guard kind != .authenticated, !auth.isRestoring else { return }
-        guestUnlocked = false
         localOnboardingComplete = false
         localOnboardingPaywallOffered = false
         localPrivacyAcknowledged = false
@@ -803,10 +799,6 @@ final class SessionStore {
         UserDefaults.standard.set(true, forKey: Keys.onboardingComplete)
         if let userId = auth.userId {
             Self.persistPerUserOnboardingComplete(true, userId: userId)
-        } else {
-            ProfileSetupKeychain.markOnboardingComplete(
-                userId: kind == .guest ? Self.persistedLocalOwnerId() : nil
-            )
         }
         UserDefaults.standard.removeObject(forKey: Keys.firstTimePhase)
         localFirstTimePhase = "language"
@@ -920,7 +912,7 @@ final class SessionStore {
         if let userId = auth.userId {
             UserDefaults.standard.set(true, forKey: Self.medicationPlanConfirmedKey(for: userId))
         }
-        ProfileSetupKeychain.markPlanConfirmed(userId: auth.userId ?? (kind == .guest ? Self.persistedLocalOwnerId() : nil))
+        ProfileSetupKeychain.markPlanConfirmed(userId: auth.userId)
     }
 
     func clearMedicationPlanConfirmed() {
@@ -1041,7 +1033,6 @@ final class SessionStore {
     }
 
     var email: String? { auth.email }
-    var isGuest: Bool { kind == .guest }
     var canSync: Bool { kind == .authenticated }
     var supabaseConfigured: Bool { auth.isConfigured }
     var googleConfigured: Bool { auth.isGoogleConfigured }
@@ -1049,18 +1040,6 @@ final class SessionStore {
     var isLoading: Bool { auth.isLoading }
     var errorMessage: String? { auth.errorMessage }
     var lastAuthNote: String? { auth.statusMessage }
-
-    func continueAsGuest() {
-        auth.clearMessages()
-        guestUnlocked = true
-        completedRestoreUserId = planOwnerId
-        let hasLocal = onLocalTreatmentsCheck?() ?? false
-        hasMedicalData = hasLocal
-        userDataLoadState = .loaded
-        LaunchLog.auth("guest unlock load=\(userDataLoadState) medical=\(hasMedicalData)")
-        markSignInScreenCompleted()
-        branchAfterSignInScreenIfNeeded()
-    }
 
     func saveOnboardingNames(displayName: String, companionName: String) {
         saveOnboardingProfile(
@@ -1173,11 +1152,10 @@ final class SessionStore {
         Task { await auth.signOut() }
     }
 
-    /// Splash → language → how it works → privacy → sign-in. Never enables guest.
+    /// Splash → language → how it works → privacy → sign-in.
     /// Identity returns from Supabase on the next sign-in so a new Google/email
     /// account cannot inherit the previous user's name, DOB, or pronouns.
     private func resetFirstTimePathAfterLogout() {
-        guestUnlocked = false
         localOnboardingComplete = false
         localOnboardingPaywallOffered = false
         localPrivacyAcknowledged = false
@@ -1262,7 +1240,6 @@ final class SessionStore {
         clearSignInScreenSeenThisInstall()
         localOptionalAnalytics = false
         localOptionalMarketing = false
-        guestUnlocked = false
         profileId = nil
         isResolvingPostAuth = false
         userDataLoadState = .notLoaded
@@ -1440,7 +1417,7 @@ final class SessionStore {
                 userDataLoadState = .loaded
             }
         }
-        completedRestoreUserId = auth.userId ?? (kind == .guest ? planOwnerId : nil)
+        completedRestoreUserId = auth.userId
 
         let identityComplete = hasCompleteIdentityProfile
         let keychainProfile = ProfileSetupKeychain.isComplete(for: auth.userId)
@@ -1567,7 +1544,7 @@ final class SessionStore {
         LaunchLog.auth("newAccount phase=\(localFirstTimePhase) identity=\(identityComplete) restore=\(isRestore)")
     }
 
-    /// After the user finishes Sign-in (or guest), branch Home vs profile. Never miss-you.
+    /// After the user finishes Sign-in, branch Home vs profile. Never miss-you.
     private func branchAfterSignInScreenIfNeeded() {
         let keychainProfile = ProfileSetupKeychain.isComplete(for: auth.userId)
             || ProfileSetupKeychain.load().isComplete
@@ -1657,7 +1634,7 @@ final class SessionStore {
     func noteLocalDataBound() {
         guard kind != .authenticated else { return }
         // Session restore is still in flight — do not mark loaded from a
-        // welcome/guest bind or Home will treat an empty store as final.
+        // welcome bind or Home will treat an empty store as final.
         guard !auth.isRestoring else { return }
         guard userDataLoadState != .failed, userDataLoadState != .loading else { return }
         let hasLocal = onLocalTreatmentsCheck?() ?? false

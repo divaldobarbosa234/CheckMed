@@ -18,13 +18,13 @@ export function AccountGate({ visible, onCreateAccount, onDismiss }: AccountGate
     <View style={styles.overlay} accessibilityViewIsModal>
       <View style={styles.card}>
         <Character size={88} />
-        <SpeechBubble text="An account keeps this prescription with you. Guest can browse Home — cloud scan waits for a real session." />
+        <SpeechBubble text="An account keeps this prescription with you. Sign in with Apple, Google, or email before a scan can sync." />
         <Text style={styles.title}>Account required to sync</Text>
         <Text style={styles.body}>
           Photo and PDF stay on this phone until you sign in. Then Phase 3 can sync to your CheckMed account.
         </Text>
         <Button label="Create account" onPress={onCreateAccount} />
-        <Button label="Keep browsing as guest" variant="ghost" onPress={onDismiss} />
+        <Button label="Not now" variant="ghost" onPress={onDismiss} />
       </View>
     </View>
   );

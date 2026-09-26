@@ -18,18 +18,13 @@ export default function SignInScreen() {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState<'apple' | 'google' | 'facebook' | 'email' | null>(null);
 
-  async function enterAsGuest() {
-    await session.continueAsGuest();
-    router.replace('/home');
-  }
-
   async function onProvider(provider: 'apple' | 'google' | 'facebook') {
     setBusy(provider);
     try {
       const signedIn = await session.signInWithProvider(provider);
       if (signedIn) router.replace('/home');
     } catch {
-      // Error is shown from session.error — keep guest available.
+      // Error is shown from session.error.
     } finally {
       setBusy(null);
     }
@@ -56,15 +51,14 @@ export default function SignInScreen() {
         </View>
         <Text style={styles.title}>Sign in to CheckMed</Text>
         <Text style={styles.body}>
-          Real session. Guest can still tap Home. An account is required before a prescription photo or PDF
+          Real session. Sign in with Apple, Google, or email. An account is required before a prescription photo or PDF
           syncs to the cloud.
         </Text>
 
         {session.error ? <Text style={styles.error}>{session.error}</Text> : null}
         {!session.configured ? (
           <Text style={styles.warn}>
-            Supabase keys are not in .env yet. Provider buttons stay on screen and explain what to add. Guest
-            still works.
+            Supabase keys are not in .env yet. Provider buttons stay on screen and explain what to add.
           </Text>
         ) : null}
 
@@ -105,7 +99,6 @@ export default function SignInScreen() {
           busy={busy === 'email'}
           onPress={() => void onMagicLink()}
         />
-        <Button label="Continue as guest" variant="secondary" disabled={busy !== null} onPress={() => void enterAsGuest()} />
         <Button label="Back" variant="ghost" disabled={busy !== null} onPress={() => router.back()} />
 
         <Text style={styles.hint}>

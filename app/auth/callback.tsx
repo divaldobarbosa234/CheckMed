@@ -12,7 +12,7 @@ import { useSession } from '@/features/auth/session';
 
 export default function AuthCallbackScreen() {
   const router = useRouter();
-  const { kind, error, continueAsGuest } = useSession();
+  const { kind, error } = useSession();
   const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -43,7 +43,7 @@ export default function AuthCallbackScreen() {
         <SpeechBubble
           text={
             message
-              ? 'That link did not stick. Try sign-in again — guest Home is still open.'
+              ? 'That link did not stick. Try sign-in again.'
               : 'Finishing sign-in. Hold on a second.'
           }
         />
@@ -52,14 +52,6 @@ export default function AuthCallbackScreen() {
       </View>
       <View style={styles.actions}>
         <Button label="Back to sign in" onPress={() => router.replace('/(auth)/sign-in')} />
-        <Button
-          label="Continue as guest"
-          variant="secondary"
-          onPress={async () => {
-            await continueAsGuest();
-            router.replace('/home');
-          }}
-        />
       </View>
     </SafeAreaView>
   );

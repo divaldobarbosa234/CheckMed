@@ -4,7 +4,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Character } from '@/design/Character';
-import { GuestBanner } from '@/design/GuestBanner';
 import { PathNode } from '@/design/PathNode';
 import { SafetyCaption } from '@/design/SafetyCaption';
 import { SpeechBubble } from '@/design/SpeechBubble';
@@ -16,14 +15,11 @@ import { useTodayPath } from '@/features/today/useTodayPath';
 export default function HomeScreen() {
   const router = useRouter();
   const path = useTodayPath();
-  const { kind, displayName, companionName } = useSession();
-  const isGuest = kind === 'guest' || kind === 'unknown';
+  const { displayName, companionName } = useSession();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {isGuest ? <GuestBanner onCreateAccount={() => router.push('/(auth)/sign-in')} /> : null}
-
         <View style={styles.topRow}>
           <View>
             <Text style={styles.greeting}>Hey {displayName}</Text>

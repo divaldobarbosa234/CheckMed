@@ -22,7 +22,7 @@ import {
 } from './oauth';
 import { getSupabase } from './supabase';
 
-export type SessionKind = 'loading' | 'unknown' | 'guest' | 'authenticated';
+export type SessionKind = 'loading' | 'unknown' | 'authenticated';
 
 type SessionValue = {
   kind: SessionKind;
@@ -34,7 +34,6 @@ type SessionValue = {
   companionName: string;
   error: string | null;
   redirectUri: string;
-  continueAsGuest: () => Promise<void>;
   signOut: () => Promise<void>;
   deleteAccount: () => Promise<void>;
   sendMagicLink: (email: string) => Promise<string>;
@@ -58,17 +57,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const client = getSupabase();
 
     async function hydrate() {
-      const [storedGuest, storedName, storedCompanion] = await Promise.all([
-        AsyncStorage.getItem(GUEST_STORAGE_KEY),
+      const [storedName, storedCompanion] = await Promise.all([
         AsyncStorage.getItem(DISPLAY_NAME_KEY),
         AsyncStorage.getItem(COMPANION_NAME_KEY),
       ]);
       if (cancelled) return;
       if (storedName) setDisplayName(storedName);
       if (storedCompanion) setCompanionName(storedCompanion);
+      await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
 
       if (!client) {
-        setKind(storedGuest ? 'guest' : 'unknown');
+        setKind('unknown');
         return;
       }
 
@@ -81,7 +80,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const fromEmail = data.session.user.email?.split('@')[0];
         if (!storedName && fromEmail) setDisplayName(fromEmail);
       } else {
-        setKind(storedGuest ? 'guest' : 'unknown');
+        setKind('unknown');
       }
     }
 
@@ -128,11 +127,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       error,
       redirectUri,
       clearError: () => setError(null),
-      continueAsGuest: async () => {
-        await AsyncStorage.setItem(GUEST_STORAGE_KEY, '1');
-        setKind('guest');
-        setError(null);
-      },
       signOut: async () => {
         const client = getSupabase();
         try {
@@ -140,9 +134,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         } catch (err) {
           setError(messageFromAuthError(err));
         }
-        await AsyncStorage.setItem(GUEST_STORAGE_KEY, '1');
+        await AsyncStorage.removeItem(GUEST_STORAGE_KEY);
         setUser(null);
-        setKind('guest');
+        setKind('unknown');
       },
       deleteAccount: async () => {
         // Cloud wipe of treatments lands in Phase 6. Session must still clear now.

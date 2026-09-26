@@ -43,7 +43,7 @@ struct ProfileView: View {
         let raw = session.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let lowered = raw.lowercased()
         if raw.isEmpty || lowered == "there" || lowered == "friend" {
-            return session.isGuest ? session.t(.profileGuest) : session.t(.homeFriendName)
+            return session.t(.homeFriendName)
         }
         return raw
     }
@@ -63,13 +63,11 @@ struct ProfileView: View {
                     languageFamilyCard
                     moreCard
                     helpBanner
-                    if !session.isGuest {
-                        Button(session.t(.profileDelete)) { confirmDelete = true }
-                            .font(.system(.caption, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.danger)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                    }
+                    Button(session.t(.profileDelete)) { confirmDelete = true }
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.danger)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
                     if let error = session.errorMessage {
                         Text(error)
                             .font(.system(.caption, design: .rounded).weight(.bold))
@@ -215,7 +213,7 @@ struct ProfileView: View {
                 .foregroundStyle(CheckMedTheme.muted)
             HStack(spacing: 12) {
                 iconBadge("envelope.fill", wash: CheckMedTheme.belly, tint: CheckMedTheme.primaryShadow)
-                Text(session.email ?? session.t(.profileGuest))
+                Text(session.email ?? session.t(.profileAccount))
                     .font(.system(.subheadline, design: .rounded).weight(.heavy))
                     .foregroundStyle(CheckMedTheme.ink)
                     .lineLimit(1)

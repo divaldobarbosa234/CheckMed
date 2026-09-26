@@ -10,12 +10,7 @@ import { useSession } from '@/features/auth/session';
 
 export default function WelcomeScreen() {
   const router = useRouter();
-  const { continueAsGuest, kind, displayName } = useSession();
-
-  async function enterAsGuest() {
-    await continueAsGuest();
-    router.replace('/home');
-  }
+  const { kind, displayName } = useSession();
 
   const signedIn = kind === 'authenticated';
 
@@ -48,12 +43,6 @@ export default function WelcomeScreen() {
           label="I already have an account"
           variant="secondary"
           onPress={() => router.push('/(auth)/sign-in')}
-        />
-        <Button
-          label="Continue as guest"
-          variant="ghost"
-          onPress={() => void enterAsGuest()}
-          accessibilityHint="Opens today's path without an account. Scanning will not sync."
         />
         <SafetyCaption />
       </View>

@@ -322,7 +322,7 @@ struct FirstTimeOnboardingView: View {
             bootstrapPhase()
         }
         .onChange(of: session.kind) { oldKind, kind in
-            if oldKind == .authenticated || oldKind == .guest, !session.isSessionUnlocked {
+            if oldKind == .authenticated, !session.isSessionUnlocked {
                 if phase.requiresAuth { return }
                 afterSplash = .language
                 didBootstrapPhase = false

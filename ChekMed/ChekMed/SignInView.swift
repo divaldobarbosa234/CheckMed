@@ -56,7 +56,7 @@ struct SignInView: View {
             }
         }
         .onChange(of: session.kind) { _, kind in
-            guard kind == .authenticated || kind == .guest else { return }
+            guard kind == .authenticated else { return }
             session.markSignInScreenCompleted()
             if let onAuthenticated {
                 onAuthenticated()
@@ -114,13 +114,6 @@ struct SignInView: View {
                 .foregroundStyle(CheckMedTheme.ink)
                 .padding(.top, 4)
                 .accessibilityIdentifier("auth-continue-email")
-                Button(session.t(.continueAsGuest)) {
-                    session.continueAsGuest()
-                }
-                .font(.system(.footnote, design: .rounded).weight(.semibold))
-                .foregroundStyle(CheckMedTheme.muted)
-                .padding(.top, 2)
-                .accessibilityIdentifier("auth-continue-guest")
             }
             .padding(.horizontal, 28)
             .padding(.top, 28)

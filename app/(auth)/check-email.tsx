@@ -6,12 +6,10 @@ import { Button } from '@/design/Button';
 import { Character } from '@/design/Character';
 import { SpeechBubble } from '@/design/SpeechBubble';
 import { colors, space, type } from '@/design/tokens';
-import { useSession } from '@/features/auth/session';
 
 export default function CheckEmailScreen() {
   const router = useRouter();
   const { email } = useLocalSearchParams<{ email?: string }>();
-  const { continueAsGuest } = useSession();
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -23,17 +21,10 @@ export default function CheckEmailScreen() {
           {email
             ? `Tap the link we sent to ${email}. It brings you back into CheckMed.`
             : 'Tap the magic link in your inbox. It brings you back into CheckMed.'}{' '}
-          You can still continue as a guest while you wait.
+          You can wait here and tap the link, or go back to sign in.
         </Text>
       </View>
       <View style={styles.actions}>
-        <Button
-          label="Continue as guest"
-          onPress={async () => {
-            await continueAsGuest();
-            router.replace('/home');
-          }}
-        />
         <Button label="Back to sign in" variant="secondary" onPress={() => router.back()} />
       </View>
     </SafeAreaView>

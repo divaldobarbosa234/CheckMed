@@ -55,7 +55,7 @@ enum ProfileSetupKeychain {
         if let stored = snap.userId, !stored.isEmpty {
             return stored.caseInsensitiveCompare(userId.uuidString) == .orderedSame
         }
-        // Completed before we had a user id (guest → later sign-in): claim for this user.
+        // Completed before we had a user id (leftover device flags → later sign-in): claim for this user.
         return true
     }
 

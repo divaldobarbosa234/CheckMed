@@ -49,7 +49,7 @@ struct AccountGateView: View {
             VStack(spacing: 16) {
                 PhilView(size: 88)
                 SpeechBubbleView(
-                    text: "An account keeps this prescription with you. Guest can still walk the scan screens — cloud save waits for a real session."
+                    text: "An account keeps this prescription with you. Sign in with Apple, Google, or email before the plan can sync."
                 )
                 Text("Account required to sync")
                     .font(.system(.title3, design: .rounded).weight(.heavy))

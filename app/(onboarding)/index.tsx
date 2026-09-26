@@ -35,7 +35,7 @@ const BEATS = [
 
 export default function OnboardingScreen() {
   const router = useRouter();
-  const { saveOnboardingNames, continueAsGuest, displayName, companionName } = useSession();
+  const { saveOnboardingNames, displayName, companionName } = useSession();
   const [step, setStep] = useState(0);
   const [name, setName] = useState(displayName === 'there' ? '' : displayName);
   const [companion, setCompanion] = useState(companionName || COMPANION_NAME);
@@ -53,12 +53,6 @@ export default function OnboardingScreen() {
       return;
     }
     setStep((current) => current + 1);
-  }
-
-  async function skipToGuest() {
-    await persistNames();
-    await continueAsGuest();
-    router.replace('/home');
   }
 
   return (
@@ -104,9 +98,7 @@ export default function OnboardingScreen() {
 
       <View style={styles.actions}>
         <Button label={last ? 'Create account' : 'Continue'} onPress={() => void next()} />
-        {last ? (
-          <Button label="Continue as guest" variant="secondary" onPress={() => void skipToGuest()} />
-        ) : (
+        {last ? null : (
           <Button
             label="Back"
             variant="ghost"
