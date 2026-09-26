@@ -366,11 +366,15 @@ final class CheckMedStore {
     /// Ungated from `surfacesPlan` so a saved Rx is visible mid post-journey.
     /// Includes finished treatments (history) without creating extra active slots.
     func reportMedicineSummaries() -> [MedicineSummary] {
-        summaries(treatments: treatments(), requireSurfacesPlan: false)
+        ReportPerf.measure("store.reportMedicineSummaries") {
+            summaries(treatments: treatments(), requireSurfacesPlan: false, applyDoseDefaults: false)
+        }
     }
 
     func reportCurrentMedicines() -> [MedicineSummary] {
-        reportMedicineSummaries().filter { $0.treatmentStatus == "active" }
+        ReportPerf.measure("store.reportCurrentMedicines") {
+            reportMedicineSummaries().filter { $0.treatmentStatus == "active" }
+        }
     }
 
     struct PrescriptionHistoryItem: Identifiable {
@@ -383,6 +387,7 @@ final class CheckMedStore {
     }
 
     func reportPrescriptionHistory() -> [PrescriptionHistoryItem] {
+        ReportPerf.measure("store.reportPrescriptionHistory") {
         _ = revision
         return treatments().compactMap { treatment in
             let meds = medicines(for: treatment.id)
@@ -398,6 +403,7 @@ final class CheckMedStore {
             )
         }
         .sorted { $0.date > $1.date }
+        }
     }
 
     struct PrescriptionSourceItem: Identifiable {
@@ -409,6 +415,7 @@ final class CheckMedStore {
     }
 
     func reportPrescriptionSources() -> [PrescriptionSourceItem] {
+        ReportPerf.measure("store.reportPrescriptionSources") {
         _ = revision
         return treatments().compactMap { treatment in
             guard let url = PrescriptionSourceArchive.url(for: treatment.id) else { return nil }
@@ -421,6 +428,7 @@ final class CheckMedStore {
             )
         }
         .sorted { $0.date > $1.date }
+        }
     }
 
     func archiveImportedSource(_ pending: PendingPrescriptionImport) {
@@ -428,29 +436,38 @@ final class CheckMedStore {
         PrescriptionSourceArchive.saveIfAbsent(pending, treatmentId: treatment.id)
     }
 
-    private func summaries(treatments treatmentList: [TreatmentRecord], requireSurfacesPlan: Bool) -> [MedicineSummary] {
+    private func summaries(
+        treatments treatmentList: [TreatmentRecord],
+        requireSurfacesPlan: Bool,
+        applyDoseDefaults: Bool = true
+    ) -> [MedicineSummary] {
         _ = revision
         if requireSurfacesPlan, !surfacesPlan { return [] }
         let treatmentsById = Dictionary(uniqueKeysWithValues: treatmentList.map { ($0.id, $0) })
         let now = Date()
         return medicines().compactMap { medicine in
             guard let treatment = treatmentsById[medicine.treatmentId] else { return nil }
-            medicine.applyDoseDefaultsIfNeeded()
+            if applyDoseDefaults {
+                medicine.applyDoseDefaultsIfNeeded()
+            }
             let medSchedules = schedules(for: medicine.id)
             let times = max(1, medSchedules.count)
             let scheduleTimes = medSchedules.map(\.timeOfDay).sorted()
+            let form = applyDoseDefaults ? medicine.medicineForm : Self.reportDisplayForm(medicine)
+            let quantityPerDose = applyDoseDefaults ? medicine.quantityPerDose : Self.reportDisplayQuantity(medicine)
+            let doseUnit = applyDoseDefaults ? medicine.doseMedicineUnit : Self.reportDisplayDoseUnit(medicine)
             let refillComplete = MedicineUnits.hasCompleteRefillData(
                 packageAmount: medicine.packageAmount,
-                quantityPerDose: medicine.quantityPerDose,
+                quantityPerDose: quantityPerDose,
                 packageUnit: medicine.packageMedicineUnit,
-                doseUnit: medicine.doseMedicineUnit
+                doseUnit: doseUnit
             )
             let days = refillComplete ? MedicineUnits.daysLeft(
                 packageAmount: medicine.packageAmount,
                 packageUnit: medicine.packageMedicineUnit,
                 stockPercent: medicine.stockPercent,
-                quantityPerDose: medicine.quantityPerDose,
-                doseUnit: medicine.doseMedicineUnit,
+                quantityPerDose: quantityPerDose,
+                doseUnit: doseUnit,
                 timesPerDay: times
             ) : nil
             let scheduleIds = Set(medSchedules.map(\.id))
@@ -472,12 +489,12 @@ final class CheckMedStore {
                 timesPerDay: times,
                 treatmentTitle: treatment.title,
                 treatmentStatus: treatment.status,
-                form: medicine.medicineForm,
+                form: form,
                 packageAmount: medicine.packageAmount,
                 packageUnit: medicine.packageMedicineUnit,
                 stockPercent: medicine.stockPercent,
-                quantityPerDose: medicine.quantityPerDose,
-                doseUnit: medicine.doseMedicineUnit,
+                quantityPerDose: quantityPerDose,
+                doseUnit: doseUnit,
                 doctorName: medicine.doctorName,
                 doctorId: medicine.doctorId,
                 hospitalName: medicine.hospitalName,
@@ -492,6 +509,26 @@ final class CheckMedStore {
                 refillDataComplete: refillComplete
             )
         }
+    }
+
+    /// Read-only display inference. Does not write `form` / dose unit onto the model.
+    private static func reportDisplayForm(_ medicine: MedicineRecord) -> MedicineForm {
+        if !medicine.form.isEmpty, medicine.form != MedicineForm.other.rawValue {
+            return medicine.medicineForm
+        }
+        return MedicineForm.infer(from: medicine.doseLabel, medicineName: medicine.name)
+    }
+
+    private static func reportDisplayQuantity(_ medicine: MedicineRecord) -> Double {
+        if medicine.quantityPerDose > 0 { return medicine.quantityPerDose }
+        return MedicineUnits.parseDoseLabel(medicine.doseLabel).quantity
+    }
+
+    private static func reportDisplayDoseUnit(_ medicine: MedicineRecord) -> MedicineUnit {
+        if !medicine.doseUnit.isEmpty, medicine.doseUnit != MedicineUnit.other.rawValue {
+            return medicine.doseMedicineUnit
+        }
+        return MedicineUnits.parseDoseLabel(medicine.doseLabel).unit
     }
 
     func medicineMostUrgentForRefill() -> MedicineSummary? {

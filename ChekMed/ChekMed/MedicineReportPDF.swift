@@ -305,26 +305,50 @@ struct MedicineReportScreen: View {
     @State private var showThemePicker = false
     @State private var previewSource: CheckMedStore.PrescriptionSourceItem?
 
-    private var medicines: [CheckMedStore.MedicineSummary] { treatments.reportMedicineSummaries() }
-    private var currentMedicines: [CheckMedStore.MedicineSummary] { treatments.reportCurrentMedicines() }
-    private var history: [CheckMedStore.PrescriptionHistoryItem] { treatments.reportPrescriptionHistory() }
-    private var sources: [CheckMedStore.PrescriptionSourceItem] { treatments.reportPrescriptionSources() }
-    private var adherence: AdherenceSnapshot { treatments.adherence() }
+    private struct ReportSnapshot {
+        var medicines: [CheckMedStore.MedicineSummary]
+        var currentMedicines: [CheckMedStore.MedicineSummary]
+        var history: [CheckMedStore.PrescriptionHistoryItem]
+        var sources: [CheckMedStore.PrescriptionSourceItem]
+        var adherence: AdherenceSnapshot
+        var hasReportData: Bool { !medicines.isEmpty }
+        var hasNotes: Bool {
+            medicines.contains {
+                !$0.doctorNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    || !$0.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
+        }
+    }
+
+    private func buildSnapshot() -> ReportSnapshot {
+        ReportPerf.measure("reportSnapshot") {
+            let medicines = treatments.reportMedicineSummaries()
+            return ReportSnapshot(
+                medicines: medicines,
+                currentMedicines: medicines.filter { $0.treatmentStatus == "active" },
+                history: treatments.reportPrescriptionHistory(),
+                sources: treatments.reportPrescriptionSources(),
+                adherence: treatments.adherence()
+            )
+        }
+    }
+
     private var canExportPDF: Bool { entitlements.isSuper }
-    private var hasReportData: Bool { !medicines.isEmpty }
 
     var body: some View {
+        let _ = ReportPerf.reportBody()
+        let snap = buildSnapshot()
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 18) {
                 reportNavigation
                 reportHero
-                if hasReportData {
-                    completenessCard
-                    currentMedicationsCard
-                    historyCard
-                    scheduleCard
-                    notesCard
-                    sourcesCard
+                if snap.hasReportData {
+                    completenessCard(snap)
+                    currentMedicationsCard(snap)
+                    historyCard(snap)
+                    scheduleCard(snap)
+                    notesCard(snap)
+                    sourcesCard(snap)
                     exportActions
                 } else {
                     emptyState
@@ -358,8 +382,8 @@ struct MedicineReportScreen: View {
         .sheet(isPresented: $showThemePicker) {
             ReportPDFThemePicker(
                 patientName: session.displayName,
-                medicines: medicines,
-                adherence: adherence
+                medicines: snap.medicines,
+                adherence: snap.adherence
             ) { theme in
                 showThemePicker = false
                 exportPDF(theme: theme)
@@ -367,6 +391,11 @@ struct MedicineReportScreen: View {
         }
         .sheet(item: $previewSource) { item in
             PrescriptionSourcePreview(item: item)
+        }
+        .onAppear {
+            ReportPerf.log("REPORT ONAPPEAR")
+            ReportPerf.log("REPORT TASK absent (MedicineReportScreen has no .task)")
+            ReportPerf.ready()
         }
     }
 
@@ -421,14 +450,14 @@ struct MedicineReportScreen: View {
         )
     }
 
-    private var completenessCard: some View {
+    private func completenessCard(_ snap: ReportSnapshot) -> some View {
         let items: [(Bool, String)] = [
-            (!currentMedicines.isEmpty, session.t(.reportCurrentMedications)),
-            (!history.isEmpty, session.t(.reportPrescriptionHistory)),
-            (medicines.contains { !$0.doctorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }, session.t(.reportDoctor)),
-            (medicines.contains { !$0.scheduleTimes.isEmpty }, session.t(.reportMedicationSchedule)),
-            (hasNotes, session.t(.reportNotesSection)),
-            (!sources.isEmpty, session.t(.reportSources)),
+            (!snap.currentMedicines.isEmpty, session.t(.reportCurrentMedications)),
+            (!snap.history.isEmpty, session.t(.reportPrescriptionHistory)),
+            (snap.medicines.contains { !$0.doctorName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }, session.t(.reportDoctor)),
+            (snap.medicines.contains { !$0.scheduleTimes.isEmpty }, session.t(.reportMedicationSchedule)),
+            (snap.hasNotes, session.t(.reportNotesSection)),
+            (!snap.sources.isEmpty, session.t(.reportSources)),
         ]
         return VStack(alignment: .leading, spacing: 12) {
             Text(session.t(.reportBuilding))
@@ -461,19 +490,12 @@ struct MedicineReportScreen: View {
         )
     }
 
-    private var hasNotes: Bool {
-        medicines.contains {
-            !$0.doctorNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                || !$0.reason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        }
-    }
-
-    private var currentMedicationsCard: some View {
+    private func currentMedicationsCard(_ snap: ReportSnapshot) -> some View {
         reportSection(title: session.t(.reportCurrentMedications)) {
-            if currentMedicines.isEmpty {
+            if snap.currentMedicines.isEmpty {
                 missingCopy
             } else {
-                ForEach(currentMedicines) { med in
+                ForEach(snap.currentMedicines) { med in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(med.name)
                             .font(.system(.body, design: .rounded).weight(.heavy))
@@ -487,12 +509,12 @@ struct MedicineReportScreen: View {
         }
     }
 
-    private var historyCard: some View {
+    private func historyCard(_ snap: ReportSnapshot) -> some View {
         reportSection(title: session.t(.reportPrescriptionHistory)) {
-            if history.isEmpty {
+            if snap.history.isEmpty {
                 missingCopy
             } else {
-                ForEach(history) { item in
+                ForEach(snap.history) { item in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(item.title)
                             .font(.system(.body, design: .rounded).weight(.heavy))
@@ -517,7 +539,7 @@ struct MedicineReportScreen: View {
         }
     }
 
-    private var scheduleCard: some View {
+    private func scheduleCard(_ snap: ReportSnapshot) -> some View {
         let periods: [(key: String, label: String)] = [
             ("Morning", session.t(.morning)),
             ("Afternoon", session.t(.afternoon)),
@@ -525,11 +547,11 @@ struct MedicineReportScreen: View {
             ("Night", session.t(.night)),
         ]
         return reportSection(title: session.t(.reportMedicationSchedule)) {
-            if currentMedicines.allSatisfy(\.scheduleTimes.isEmpty) {
+            if snap.currentMedicines.allSatisfy(\.scheduleTimes.isEmpty) {
                 missingCopy
             } else {
                 ForEach(periods, id: \.key) { period in
-                    let rows = scheduleRows(in: period.key)
+                    let rows = scheduleRows(snap.currentMedicines, in: period.key)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(period.label)
                             .font(.system(.caption, design: .rounded).weight(.heavy))
@@ -552,13 +574,13 @@ struct MedicineReportScreen: View {
         }
     }
 
-    private var notesCard: some View {
+    private func notesCard(_ snap: ReportSnapshot) -> some View {
         reportSection(title: session.t(.reportNotesSection)) {
-            if !hasNotes {
+            if !snap.hasNotes {
                 missingCopy
             } else {
-                ForEach(currentMedicines + medicines.filter { med in
-                    !currentMedicines.contains(where: { $0.id == med.id })
+                ForEach(snap.currentMedicines + snap.medicines.filter { med in
+                    !snap.currentMedicines.contains(where: { $0.id == med.id })
                 }) { med in
                     let notes = [med.reason, med.doctorNotes]
                         .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -579,12 +601,12 @@ struct MedicineReportScreen: View {
         }
     }
 
-    private var sourcesCard: some View {
+    private func sourcesCard(_ snap: ReportSnapshot) -> some View {
         reportSection(title: session.t(.reportSources)) {
-            if sources.isEmpty {
+            if snap.sources.isEmpty {
                 missingCopy
             } else {
-                ForEach(sources) { item in
+                ForEach(snap.sources) { item in
                     Button {
                         previewSource = item
                     } label: {
@@ -654,7 +676,7 @@ struct MedicineReportScreen: View {
             .foregroundStyle(CheckMedTheme.muted)
     }
 
-    private func scheduleRows(in period: String) -> [String] {
+    private func scheduleRows(_ currentMedicines: [CheckMedStore.MedicineSummary], in period: String) -> [String] {
         currentMedicines.flatMap { med in
             med.scheduleTimes.filter { Self.period(for: $0) == period }.map { "\($0) · \(med.name)" }
         }
@@ -682,19 +704,20 @@ struct MedicineReportScreen: View {
             showDownloadPaywall = true
             return
         }
-        guard !medicines.isEmpty else { return }
+        guard !treatments.reportMedicineSummaries().isEmpty else { return }
         showThemePicker = true
     }
 
     private func exportPDF(theme: ReportTheme) {
         let live = treatments.reportMedicineSummaries()
+        let stats = treatments.adherence()
         let doc = MedicineReportDocument(
             patientName: session.displayName,
             generatedAt: Date(),
             medicines: live,
-            takenCount: adherence.takenCount,
-            skippedCount: max(0, adherence.plannedCount - adherence.takenCount),
-            plannedCount: adherence.plannedCount,
+            takenCount: stats.takenCount,
+            skippedCount: max(0, stats.plannedCount - stats.takenCount),
+            plannedCount: stats.plannedCount,
             refillDates: live.compactMap { med in
                 guard let date = med.lastRefillAt else { return nil }
                 let df = DateFormatter()
@@ -785,20 +808,28 @@ private struct PrescriptionSourcePreview: View {
 
     var body: some View {
         NavigationStack {
+            let _ = ReportPerf.log("PrescriptionSourcePreview body")
             Group {
                 if item.isPDF {
+                    let _ = ReportPerf.log("START PDFDocument/PDFView")
                     PDFKitRepresentedView(url: item.url)
-                } else if let image = UIImage(contentsOfFile: item.url.path) {
-                    ScrollView {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .padding()
-                    }
+                        .onAppear { ReportPerf.log("END PDFDocument/PDFView (view appeared)") }
                 } else {
-                    Text(session.t(.reportMissingSection))
-                        .font(.system(.body, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
+                    let image = ReportPerf.measure("UIImage(contentsOfFile:)") {
+                        UIImage(contentsOfFile: item.url.path)
+                    }
+                    if let image {
+                        ScrollView {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .padding()
+                        }
+                    } else {
+                        Text(session.t(.reportMissingSection))
+                            .font(.system(.body, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
                 }
             }
             .background(CheckMedTheme.background)
@@ -809,24 +840,6 @@ private struct PrescriptionSourcePreview: View {
                     Button(session.t(.done)) { dismiss() }
                 }
             }
-        }
-    }
-}
-
-private struct PDFKitRepresentedView: UIViewRepresentable {
-    let url: URL
-
-    func makeUIView(context: Context) -> PDFView {
-        let view = PDFView()
-        view.autoScales = true
-        view.displayMode = .singlePageContinuous
-        view.document = PDFDocument(url: url)
-        return view
-    }
-
-    func updateUIView(_ uiView: PDFView, context: Context) {
-        if uiView.document?.documentURL != url {
-            uiView.document = PDFDocument(url: url)
         }
     }
 }

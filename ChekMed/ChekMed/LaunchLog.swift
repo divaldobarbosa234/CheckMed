@@ -101,6 +101,68 @@ enum FreezeDiag {
     }
 }
 
+/// DEBUG-only Report-tab timing. No production behavior.
+enum ReportPerf {
+    private static let clock = ContinuousClock()
+    private static var tapAt: ContinuousClock.Instant?
+    private static var bodyCount = 0
+    private static var didReady = false
+
+    static func tap() {
+        #if DEBUG
+        tapAt = clock.now
+        bodyCount = 0
+        didReady = false
+        log("TAP")
+        #endif
+    }
+
+    static func log(_ message: String) {
+        #if DEBUG
+        let now = clock.now
+        let since: String
+        if let tapAt {
+            since = "+\(milliseconds(now - tapAt))ms"
+        } else {
+            since = "+?ms"
+        }
+        print("[REPORT-PERF] \(since) \(message) main=\(Thread.isMainThread)")
+        #endif
+    }
+
+    static func measure<T>(_ name: String, _ work: () -> T) -> T {
+        #if DEBUG
+        let start = clock.now
+        log("START \(name)")
+        let result = work()
+        log("END \(name) duration=\(milliseconds(clock.now - start))ms")
+        return result
+        #else
+        return work()
+        #endif
+    }
+
+    static func reportBody() {
+        #if DEBUG
+        bodyCount += 1
+        log("REPORT VIEW BODY #\(bodyCount)")
+        #endif
+    }
+
+    static func ready() {
+        #if DEBUG
+        guard !didReady else { return }
+        didReady = true
+        log("REPORT READY")
+        #endif
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Int {
+        let parts = duration.components
+        return Int(parts.seconds * 1000) + Int(parts.attoseconds / 1_000_000_000_000_000)
+    }
+}
+
 enum NetworkTimeoutError: Error, Sendable {
     case timedOut(TimeInterval)
 }

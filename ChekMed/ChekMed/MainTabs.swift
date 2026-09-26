@@ -339,6 +339,8 @@ struct ProfileView: View {
                 title: session.t(.reportsHubTitle),
                 subtitle: session.t(.reportsHubSubhead)
             ) {
+                ReportPerf.tap()
+                ReportPerf.log("TAB STATE CHANGED profile path reportsHub")
                 path.append(AppRoute.reportsHub)
             }
             divider
@@ -508,6 +510,7 @@ struct ReportsTabView: View {
     @State private var path = NavigationPath()
 
     var body: some View {
+        let _ = ReportPerf.log("ReportsTabView body")
         NavigationStack(path: $path) {
             ReportsHubScreen(go: { path.append($0) })
                 .toolbar(path.isEmpty ? .hidden : .automatic, for: .navigationBar)
@@ -522,6 +525,7 @@ struct ReportsHubScreen: View {
     var go: (AppRoute) -> Void
 
     var body: some View {
+        let _ = ReportPerf.log("ReportsHubScreen body")
         MedicineReportScreen(go: go)
     }
 }
@@ -580,6 +584,9 @@ struct FloatingPlusMenu: View {
             PlusMenuDestinationHost(destination: dest)
         }
         .onChange(of: destination) { _, newValue in
+            if newValue == .reports {
+                ReportPerf.log("TAB STATE CHANGED destination=reports sheet")
+            }
             if newValue != nil { menuExpanded = false }
         }
     }
@@ -676,6 +683,9 @@ struct FloatingPlusMenu: View {
             entitlements.presentPaywall()
             return
         }
+        if dest == .reports {
+            ReportPerf.tap()
+        }
         destination = dest
     }
 
@@ -698,6 +708,7 @@ struct PlusMenuDestinationHost: View {
                 PharmaciesTabView()
             case .reports:
                 ReportsTabView()
+                    .onAppear { ReportPerf.log("PlusMenuDestinationHost reports onAppear") }
             case .scanPrescription:
                 NavigationStack(path: $scanPath) {
                     AppRouteView(route: .addPrescription, path: $scanPath)
