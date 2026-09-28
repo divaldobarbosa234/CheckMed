@@ -37,6 +37,7 @@ enum AppRoute: Hashable {
     case termsOfUse
     case paywall
     case family
+    case journeyTree
     case journeyReport
     case community
     case pharmacySearch(query: String = "")
@@ -167,6 +168,7 @@ struct AppRouteView: View {
         case .termsOfUse: LegalDocumentView(kind: .termsOfUse)
         case .paywall: PaywallView()
         case .family: FamilyView()
+        case .journeyTree: JourneyTreeScreen(go: nav.go)
         case .journeyReport: JourneyReportScreen(go: nav.go)
         case .community: CommunityScreen()
         case .pharmacySearch(let query): PharmacySearchScreen(initialQuery: query)

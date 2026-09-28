@@ -2126,18 +2126,115 @@ final class CheckMedStore {
         )
     }
 
-    /// Journey / Treatment History only. Home, reminders, and DoseLog seeding still use `status == "active"`.
-    /// `endDate` on today stays current: same `end < startOfDay(now)` rule as `finishedTreatments()`.
-    func isCurrentOnJourneyHistory(status: String, endDate: Date?, now: Date = Date()) -> Bool {
-        guard status == "active" else { return false }
-        if let end = endDate, end < calendar.startOfDay(for: now) { return false }
-        return true
+    /// Journey Tree / Report / History. Derived only — does not write.
+    func journeyKind(
+        status: String,
+        startDate: Date,
+        endDate: Date?,
+        now: Date = Date()
+    ) -> TreatmentJourneyKind? {
+        TreatmentJourneyClassification.classify(
+            deletedAt: nil,
+            status: status,
+            startDate: startDate,
+            endDate: endDate,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    func isCurrentOnJourneyHistory(status: String, startDate: Date, endDate: Date?, now: Date = Date()) -> Bool {
+        journeyKind(status: status, startDate: startDate, endDate: endDate, now: now) == .current
     }
 
     func isCurrentOnJourneyHistory(treatmentId: UUID, now: Date = Date()) -> Bool {
         _ = revision
         guard let treatment = treatments().first(where: { $0.id == treatmentId }) else { return false }
-        return isCurrentOnJourneyHistory(status: treatment.status, endDate: treatment.endDate, now: now)
+        return journeyKind(
+            status: treatment.status,
+            startDate: treatment.startDate,
+            endDate: treatment.endDate,
+            now: now
+        ) == .current
+    }
+
+    func isPastOnJourneyHistory(treatmentId: UUID, now: Date = Date()) -> Bool {
+        _ = revision
+        guard let treatment = treatments().first(where: { $0.id == treatmentId }) else { return false }
+        return journeyKind(
+            status: treatment.status,
+            startDate: treatment.startDate,
+            endDate: treatment.endDate,
+            now: now
+        ) == .past
+    }
+
+    struct JourneyTreeBranch: Identifiable, Equatable, Sendable {
+        var id: UUID
+        var title: String
+        var startDate: Date
+        var endDate: Date?
+        var medicineNames: [String]
+    }
+
+    struct JourneyTreeSnapshot: Equatable, Sendable {
+        var current: [JourneyTreeBranch]
+        var future: [JourneyTreeBranch]
+        var past: [JourneyTreeBranch]
+
+        var isEmpty: Bool { current.isEmpty && future.isEmpty && past.isEmpty }
+    }
+
+    /// Read-only Journey Tree. Groups medicines under their Treatment UUID.
+    func journeyTreeSnapshot(now: Date = Date()) -> JourneyTreeSnapshot {
+        _ = revision
+        var current: [JourneyTreeBranch] = []
+        var future: [JourneyTreeBranch] = []
+        var past: [JourneyTreeBranch] = []
+        for treatment in treatments() {
+            guard let kind = TreatmentJourneyClassification.classify(
+                deletedAt: treatment.deletedAt,
+                status: treatment.status,
+                startDate: treatment.startDate,
+                endDate: treatment.endDate,
+                now: now,
+                calendar: calendar
+            ) else { continue }
+            let names = medicines(for: treatment.id).map(\.name).filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            guard !names.isEmpty else { continue }
+            let branch = JourneyTreeBranch(
+                id: treatment.id,
+                title: treatment.title,
+                startDate: treatment.startDate,
+                endDate: treatment.endDate,
+                medicineNames: names
+            )
+            switch kind {
+            case .current: current.append(branch)
+            case .future: future.append(branch)
+            case .past: past.append(branch)
+            }
+        }
+        current.sort { $0.startDate > $1.startDate }
+        future.sort { $0.startDate < $1.startDate }
+        past.sort { $0.startDate > $1.startDate }
+        return JourneyTreeSnapshot(current: current, future: future, past: past)
+    }
+
+    /// Today's Challenge / Home path: current Journey treatments only. Does not seed logs.
+    private func currentJourneyTreatmentIds(now: Date = Date()) -> Set<UUID> {
+        Set(
+            treatments().compactMap { treatment in
+                TreatmentJourneyClassification.classify(
+                    deletedAt: treatment.deletedAt,
+                    status: treatment.status,
+                    startDate: treatment.startDate,
+                    endDate: treatment.endDate,
+                    now: now,
+                    calendar: calendar
+                ) == .current ? treatment.id : nil
+            }
+        )
     }
 
     private func finishedTreatments() -> [TreatmentRecord] {

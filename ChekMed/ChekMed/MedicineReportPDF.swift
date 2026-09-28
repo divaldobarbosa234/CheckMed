@@ -516,7 +516,7 @@ struct MedicineReportScreen: View {
             } else {
                 ForEach(snap.history) { item in
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(item.title)
+                        Text(item.medicines.joined(separator: " · "))
                             .font(.system(.body, design: .rounded).weight(.heavy))
                         Text(formattedDate(item.date))
                             .font(.system(.caption, design: .rounded).weight(.bold))

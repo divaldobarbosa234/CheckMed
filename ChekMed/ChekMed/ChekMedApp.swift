@@ -22,7 +22,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let philFailures = PhilCoachContractChecks.failures()
             let prescriptionDateFailures = PrescriptionDateContractChecks.failures()
             let laterAddFailures = LaterAddPersistContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures
+            let journeyTreeFailures = TreatmentJourneyClassificationContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -31,6 +32,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("PhilCoach failures:", philFailures)
             print("PrescriptionDate failures:", prescriptionDateFailures)
             print("LaterAddPersist failures:", laterAddFailures)
+            print("JourneyTree failures:", journeyTreeFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
                 "Gamification failures: \(gamificationFailures)",
@@ -40,6 +42,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "PhilCoach failures: \(philFailures)",
                 "PrescriptionDate failures: \(prescriptionDateFailures)",
                 "LaterAddPersist failures: \(laterAddFailures)",
+                "JourneyTree failures: \(journeyTreeFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {

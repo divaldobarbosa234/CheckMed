@@ -1073,11 +1073,11 @@ struct HomeView: View {
                     tint: CheckMedTheme.flowDot
                 ) { navPath.append(AppRoute.treatmentHistory) }
                 progressActionCard(
-                    title: session.t(.journeyTitle),
+                    title: session.t(.journeyTreeTitle),
                     hint: session.t(.progressJourneyHint),
                     icon: "chart.line.uptrend.xyaxis",
                     tint: Color(hex: 0x9B7ED9)
-                ) { navPath.append(AppRoute.journeyReport) }
+                ) { navPath.append(AppRoute.journeyTree) }
                 progressActionCard(
                     title: session.t(.progressHeadline),
                     hint: session.t(.progressSubhead),

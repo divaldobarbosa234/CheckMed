@@ -1516,11 +1516,11 @@ struct ProgressDashboardScreen: View {
                     tint: CheckMedTheme.flowDot
                 ) { go(.treatmentHistory) }
                 actionCard(
-                    title: session.t(.journeyTitle),
+                    title: session.t(.journeyTreeTitle),
                     hint: session.t(.progressJourneyHint),
                     icon: "chart.line.uptrend.xyaxis",
                     tint: Color(hex: 0x9B7ED9)
-                ) { go(.journeyReport) }
+                ) { go(.journeyTree) }
                 actionCard(
                     title: session.t(.reportHeadline),
                     hint: session.t(.reportProgressHint),
@@ -1698,13 +1698,50 @@ struct TreatmentHistoryScreen: View {
 
     private struct TreatmentGroup: Identifiable {
         var id: UUID
-        var title: String
-        var status: String
         var medicines: [CheckMedStore.MedicineSummary]
+        var startDate: Date?
+        var endDate: Date?
+        var isCurrent: Bool
+        var isPast: Bool
     }
 
-    private var groups: [TreatmentGroup] {
+    private struct HistorySnapshot {
+        var groups: [TreatmentGroup]
+        var currentGroups: [TreatmentGroup]
+        var historyGroups: [TreatmentGroup]
+    }
+
+    var body: some View {
+        let snapshot = historySnapshot()
+        ScreenScaffold(title: session.t(.progressHistory), bubble: session.t(.progressEmptyBody)) {
+            if snapshot.groups.isEmpty {
+                Text(session.t(.todayNothing))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                if !snapshot.currentGroups.isEmpty {
+                    sectionLabel(session.t(.currentTreatmentHeadline))
+                    ForEach(snapshot.currentGroups) { group in
+                        treatmentGroupBlock(group)
+                    }
+                }
+                if !snapshot.historyGroups.isEmpty {
+                    sectionLabel(session.t(.treatmentHistorySection))
+                    ForEach(snapshot.historyGroups) { group in
+                        treatmentGroupBlock(group)
+                    }
+                }
+            }
+            CheckMedButton(title: session.t(.homeScan), style: .secondary) { go(.addPrescription) }
+        }
+    }
+
+    /// One `reportMedicineSummaries()` and one `journeyReports()` per body evaluation.
+    private func historySnapshot() -> HistorySnapshot {
         let summaries = treatments.reportMedicineSummaries()
+        let reportsById = Dictionary(
+            uniqueKeysWithValues: treatments.journeyReports().map { ($0.treatmentId, $0) }
+        )
         var order: [UUID] = []
         var byId: [UUID: [CheckMedStore.MedicineSummary]] = [:]
         for summary in summaries {
@@ -1713,47 +1750,35 @@ struct TreatmentHistoryScreen: View {
             }
             byId[summary.treatmentId, default: []].append(summary)
         }
-        return order.compactMap { treatmentId in
-            guard let medicines = byId[treatmentId], let first = medicines.first else { return nil }
+        let groups: [TreatmentGroup] = order.compactMap { treatmentId in
+            guard let medicines = byId[treatmentId], !medicines.isEmpty else { return nil }
+            let report = reportsById[treatmentId]
+            let kind = report.map {
+                treatments.journeyKind(status: $0.treatmentStatus, startDate: $0.startDate, endDate: $0.endDate)
+            } ?? nil
+            let isCurrent: Bool
+            let isPast: Bool
+            if let kind {
+                isCurrent = kind == .current
+                isPast = kind == .past
+            } else {
+                isCurrent = treatments.isCurrentOnJourneyHistory(treatmentId: treatmentId)
+                isPast = treatments.isPastOnJourneyHistory(treatmentId: treatmentId)
+            }
             return TreatmentGroup(
                 id: treatmentId,
-                title: first.treatmentTitle,
-                status: first.treatmentStatus,
-                medicines: medicines
+                medicines: medicines,
+                startDate: report?.startDate,
+                endDate: report?.endDate,
+                isCurrent: isCurrent,
+                isPast: isPast
             )
         }
-    }
-
-    private var currentGroups: [TreatmentGroup] {
-        groups.filter { treatments.isCurrentOnJourneyHistory(treatmentId: $0.id) }
-    }
-
-    private var historyGroups: [TreatmentGroup] {
-        groups.filter { !treatments.isCurrentOnJourneyHistory(treatmentId: $0.id) }
-    }
-
-    var body: some View {
-        ScreenScaffold(title: session.t(.progressHistory), bubble: session.t(.progressEmptyBody)) {
-            if groups.isEmpty {
-                Text(session.t(.todayNothing))
-                    .font(.system(.body, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.muted)
-            } else {
-                if !currentGroups.isEmpty {
-                    sectionLabel(session.t(.currentTreatmentHeadline))
-                    ForEach(currentGroups) { group in
-                        treatmentGroupBlock(group)
-                    }
-                }
-                if !historyGroups.isEmpty {
-                    sectionLabel(session.t(.treatmentHistorySection))
-                    ForEach(historyGroups) { group in
-                        treatmentGroupBlock(group)
-                    }
-                }
-            }
-            CheckMedButton(title: session.t(.homeScan), style: .secondary) { go(.addPrescription) }
-        }
+        return HistorySnapshot(
+            groups: groups,
+            currentGroups: groups.filter(\.isCurrent),
+            historyGroups: groups.filter(\.isPast)
+        )
     }
 
     private func sectionLabel(_ title: String) -> some View {
@@ -1767,19 +1792,41 @@ struct TreatmentHistoryScreen: View {
 
     private func treatmentGroupBlock(_ group: TreatmentGroup) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(group.title)
+            Text(group.medicines.map(\.name).joined(separator: " · "))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
             Text(
-                treatments.isCurrentOnJourneyHistory(treatmentId: group.id)
+                group.isCurrent
                     ? session.t(.treatmentStatusActive)
                     : session.t(.treatmentStatusCompleted)
             )
             .font(.system(.caption, design: .rounded).weight(.heavy))
             .foregroundStyle(CheckMedTheme.muted)
+            if let dates = dateLine(for: group) {
+                Text(dates)
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
             ForEach(group.medicines) { med in
                 CardBlock(kicker: med.frequency, title: "\(med.name) · \(med.doseLabel)")
             }
         }
+    }
+
+    private func dateLine(for group: TreatmentGroup) -> String? {
+        guard let startDate = group.startDate else { return nil }
+        let start = formatted(startDate)
+        if let end = group.endDate {
+            return "\(start) – \(formatted(end))"
+        }
+        return "\(session.t(.progressTreatmentStarted)) · \(start)"
+    }
+
+    private func formatted(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = session.foundationCalendar
+        formatter.locale = session.locale.foundationLocale
+        formatter.setLocalizedDateFormatFromTemplate("dMMMMy")
+        return formatter.string(from: date)
     }
 }
 

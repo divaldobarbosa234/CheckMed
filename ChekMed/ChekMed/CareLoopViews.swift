@@ -79,11 +79,15 @@ struct JourneyReportScreen: View {
     }
 
     private var currentReports: [JourneyReport] {
-        reports.filter { treatments.isCurrentOnJourneyHistory(status: $0.treatmentStatus, endDate: $0.endDate) }
+        reports.filter {
+            treatments.journeyKind(status: $0.treatmentStatus, startDate: $0.startDate, endDate: $0.endDate) == .current
+        }
     }
 
     private var historyReports: [JourneyReport] {
-        reports.filter { !treatments.isCurrentOnJourneyHistory(status: $0.treatmentStatus, endDate: $0.endDate) }
+        reports.filter {
+            treatments.journeyKind(status: $0.treatmentStatus, startDate: $0.startDate, endDate: $0.endDate) == .past
+        }
     }
 
     private var journeyGame: GamificationSnapshot {
@@ -163,15 +167,18 @@ struct JourneyReportScreen: View {
 
     private func reportCard(_ report: JourneyReport) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(report.title)
+            Text(report.medicines.joined(separator: " · "))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
             Text(
-                treatments.isCurrentOnJourneyHistory(status: report.treatmentStatus, endDate: report.endDate)
+                treatments.journeyKind(status: report.treatmentStatus, startDate: report.startDate, endDate: report.endDate) == .current
                     ? session.t(.treatmentStatusActive)
                     : session.t(.treatmentStatusCompleted)
             )
             .font(.system(.caption, design: .rounded).weight(.heavy))
             .foregroundStyle(CheckMedTheme.muted)
+            Text(dateLine(report))
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
             Text(session.t(.journeyStats, report.takenCount, report.plannedCount, report.percent))
                 .font(.system(.body, design: .rounded).weight(.bold))
             Text(session.t(.journeySkipped, report.skippedCount))
@@ -198,13 +205,29 @@ struct JourneyReportScreen: View {
     private static func shareText(reports: [JourneyReport], session: SessionStore) -> String {
         reports.map { report in
             """
-            \(report.title)
+            \(report.medicines.joined(separator: " · "))
             \(session.t(.journeyStats, report.takenCount, report.plannedCount, report.percent))
             \(session.t(.journeySkipped, report.skippedCount))
             \(report.medicines.joined(separator: ", "))
             \(session.t(.journeyNotAdvice))
             """
         }.joined(separator: "\n\n")
+    }
+
+    private func dateLine(_ report: JourneyReport) -> String {
+        let start = formatted(report.startDate)
+        if let end = report.endDate {
+            return "\(start) – \(formatted(end))"
+        }
+        return "\(session.t(.progressTreatmentStarted)) · \(start)"
+    }
+
+    private func formatted(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = session.foundationCalendar
+        formatter.locale = session.locale.foundationLocale
+        formatter.setLocalizedDateFormatFromTemplate("dMMMMy")
+        return formatter.string(from: date)
     }
 }
 
