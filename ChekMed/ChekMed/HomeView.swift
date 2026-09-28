@@ -99,6 +99,7 @@ struct HomeView: View {
     @State private var lastGameSkipped = -1
     /// Feeling check-in waits until Phil’s overlay finishes. UI-only; not a second timer.
     @State private var presentedFeeling: FeelingSheetItem?
+    @State private var highlightedNotificationLogId: String?
 
     private var greetingWord: String {
         let hour = session.foundationCalendar.component(.hour, from: Date())
@@ -252,7 +253,10 @@ struct HomeView: View {
                                 proxy.scrollTo("todays-challenge", anchor: .top)
                             }
                         }
-                        TodaysChallengeCard(snapshot: game) { doseId in
+                        TodaysChallengeCard(
+                            snapshot: game,
+                            highlightedDoseId: highlightedNotificationLogId
+                        ) { doseId in
                             #if DEBUG
                             print("[PHASE4A-REGRESSION] dose tap challenge id=\(doseId)")
                             #endif
@@ -319,6 +323,7 @@ struct HomeView: View {
                 primeGamificationIfNeeded()
                 refreshDashboardPhilFlag()
                 presentFeelingCheckInIfNeeded()
+                consumeNotificationFocus(proxy: proxy)
                 Task { @MainActor in
                     treatments.refreshDoseLogsForDisplay()
                     path.reload()
@@ -326,6 +331,8 @@ struct HomeView: View {
                     primeGamificationIfNeeded()
                     refreshDashboardPhilFlag()
                     presentFeelingCheckInIfNeeded()
+                    consumeNotificationFocus(proxy: proxy)
+                    scrollToHighlightedNotification(proxy: proxy)
                 }
                 FreezeDiag.log("Home onAppear END")
             }
@@ -335,9 +342,13 @@ struct HomeView: View {
                 if tab == .home {
                     applyMoodVisibilityForToday(animated: false)
                     presentFeelingCheckInIfNeeded()
+                    consumeNotificationFocus(proxy: proxy)
                 } else {
                     dismissPhilReaction(animated: false)
                 }
+            }
+            .onChange(of: path.pendingNotificationLogId) { _, _ in
+                consumeNotificationFocus(proxy: proxy)
             }
             .onChange(of: navPath.count) { _, count in
                 refreshDashboardPhilFlag()
@@ -700,6 +711,22 @@ struct HomeView: View {
 
     private func refreshDashboardPhilFlag() {
         path.dashboardPresentsPhil = session.selectedMainTab == .home && navPath.isEmpty
+    }
+
+    private func consumeNotificationFocus(proxy: ScrollViewProxy) {
+        guard session.selectedMainTab == .home else { return }
+        guard let id = path.consumeNotificationFocus() else { return }
+        highlightedNotificationLogId = id.uuidString
+        scrollToHighlightedNotification(proxy: proxy)
+    }
+
+    private func scrollToHighlightedNotification(proxy: ScrollViewProxy) {
+        guard let key = highlightedNotificationLogId else { return }
+        if challengeNodes.contains(where: { $0.id == key }) {
+            proxy.scrollTo(key, anchor: .center)
+        } else {
+            proxy.scrollTo("todays-challenge", anchor: .top)
+        }
     }
 
     private func confirmDoseAndCoach(id: String) {

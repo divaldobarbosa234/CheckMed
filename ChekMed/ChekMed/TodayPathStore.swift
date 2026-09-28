@@ -27,6 +27,8 @@ final class TodayPathStore {
 
     var nodes: [DoseNode] = []
     var mood: CompanionMood = .idle
+    /// Presentation-only. Default notification tap → Home focuses this DoseLog. Never writes logs.
+    var pendingNotificationLogId: UUID?
 
     @ObservationIgnored
     private weak var store: CheckMedStore?
@@ -43,7 +45,7 @@ final class TodayPathStore {
     var overdue: DoseNode? {
         nodes.first { node in
             (node.status == .current || node.status == .locked)
-                && node.scheduledAt.addingTimeInterval(15 * 60) < Date()
+                && node.scheduledAt.addingTimeInterval(15 * 60) < CheckMedClock.now
         }
     }
 
@@ -117,6 +119,18 @@ final class TodayPathStore {
     /// Missed Challenge/Home taps must not confirm Taken. Re-present the existing sheet instead.
     func requestMissedSheetPresentation() {
         missedSheetRequestNonce &+= 1
+    }
+
+    func queueNotificationFocus(logId: UUID) {
+        if pendingNotificationLogId != logId {
+            pendingNotificationLogId = logId
+        }
+    }
+
+    func consumeNotificationFocus() -> UUID? {
+        guard let id = pendingNotificationLogId else { return nil }
+        pendingNotificationLogId = nil
+        return id
     }
 
     /// Notification / AlarmKit Taken while Home can present. Discarded if Home is covered or away.

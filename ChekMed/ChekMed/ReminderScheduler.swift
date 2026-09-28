@@ -106,6 +106,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
             #if DEBUG
             Self.trace4h("RESCHEDULE skipped 20s throttle force=false")
             #endif
+            Task { await purgeStaleDeliveredNotifications() }
             return
         }
         if !force, rescheduleTask != nil {
@@ -242,14 +243,16 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         )
     }
 
-    nonisolated private static func syncAlarmsOffMain(
+    /// AlarmKit must run on the main actor/thread (`AlarmManager` / presentation APIs).
+    /// Call from `rebuild` (already `@MainActor`) via `await` so the actor can suspend;
+    /// never `Task.detached` — that caused `Call must be made on main thread` after
+    /// notification-tap foreground rebuilds when the 2.8s timeout orphaned off-main work.
+    private static func syncAlarmsOnMain(
         drafts: [ReminderDraft],
         asOf now: Date = Date(),
         copy: DoseAlarmKit.Copy
     ) async -> Set<UUID> {
-        await Task.detached(priority: .utility) {
-            await DoseAlarmKit.syncDoseAlarms(drafts: drafts, asOf: now, copy: copy)
-        }.value
+        await DoseAlarmKit.syncDoseAlarms(drafts: drafts, asOf: now, copy: copy)
     }
 
     private func rebuild() async {
@@ -264,13 +267,14 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         #endif
 
         guard session.hasConfirmedMedicationPlan, store.surfacesPlan else {
-            await Self.syncAlarmsOffMain(drafts: [], copy: Self.alarmKitCopy(locale: session.locale, theme: .philChime))
+            await Self.syncAlarmsOnMain(drafts: [], copy: Self.alarmKitCopy(locale: session.locale, theme: .philChime))
             let center = UNUserNotificationCenter.current()
             let existing = await center.pendingNotificationRequests()
             let ours = existing.filter { $0.identifier.hasPrefix("checkmed.") }.map(\.identifier)
             if !ours.isEmpty {
                 center.removePendingNotificationRequests(withIdentifiers: ours)
             }
+            await purgeStaleDeliveredNotifications()
             #if DEBUG
             Self.unDiag("REBUILD END skipped (no confirmed plan / surfacesPlan=false) drafts=0 surviving=0 attempted=0 added=0")
             await Self.dumpCheckmedNotifications(center, label: "after skip-wipe")
@@ -311,7 +315,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         let theme = entitlements?.canChooseAlarmTheme == true
             ? ReminderPreferences.alarmTheme
             : .philChime
-        let alarmKitDoseIds = await Self.syncAlarmsOffMain(
+        let alarmKitDoseIds = await Self.syncAlarmsOnMain(
             drafts: drafts,
             asOf: schedulingNow,
             copy: Self.alarmKitCopy(locale: locale, theme: theme)
@@ -352,6 +356,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
                 addedNudge30: false
             )
             #endif
+            await purgeStaleDeliveredNotifications()
             return
         }
         center.setNotificationCategories(Self.categories(locale: locale))
@@ -493,6 +498,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
                 )
             )
         }
+        await purgeStaleDeliveredNotifications()
         #if DEBUG
         Self.unDiag(
             "REBUILD END drafts=\(drafts.count) surviving=\(surviving.count) "
@@ -842,32 +848,74 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         return stamp >= 22 * 60 + 30 || stamp < 7 * 60
     }
 
-    nonisolated func userNotificationCenter(
+    /// UN may invoke these off-main. The `@MainActor` type isolation must cover the
+    /// full callback (including a default banner tap that is otherwise a no-op) so
+    /// SwiftUI/UIKit scene CA transactions do not continue on the UN queue.
+    func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
+        #if DEBUG
+        print("[UN-DELEGATE] willPresent entered")
+        print("[UN-DELEGATE] willPresent MainActor")
+        #endif
         await speakIfNeeded(notification)
         return [.banner, .sound, .list]
     }
 
-    nonisolated func userNotificationCenter(
+    func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse
     ) async {
+        #if DEBUG
+        print("[UN-DELEGATE] didReceive entered")
+        print("[UN-DELEGATE] didReceive MainActor")
+        #endif
         let info = response.notification.request.content.userInfo
+        defer {
+            #if DEBUG
+            print("[UN-DELEGATE] didReceive completed")
+            #endif
+        }
         guard let raw = info["logId"] as? String, let id = UUID(uuidString: raw) else { return }
         switch response.actionIdentifier {
         case ReminderAction.taken:
-            await handleLogAction(id: id, action: .confirmTaken)
+            handleLogAction(id: id, action: .confirmTaken)
         case ReminderAction.snooze, ReminderAction.remindLater:
-            await handleLogAction(id: id, action: .snooze)
+            handleLogAction(id: id, action: .snooze)
         case ReminderAction.didNotTake:
-            await handleLogAction(id: id, action: .didNotTake)
+            handleLogAction(id: id, action: .didNotTake)
         case UNNotificationDismissActionIdentifier:
-            await handleLogAction(id: id, action: .stop)
+            handleLogAction(id: id, action: .stop)
+        case UNNotificationDefaultActionIdentifier:
+            routeDefaultNotificationTap(id: id, kind: info["kind"] as? String)
         default:
             break
         }
+    }
+
+    private func routeDefaultNotificationTap(id: UUID, kind rawKind: String?) {
+        guard let rawKind, let kind = ReminderDraft.Kind(rawValue: rawKind), kind.routesDefaultTapToHomeDose else {
+            return
+        }
+        path?.queueNotificationFocus(logId: id)
+        if let session, session.selectedMainTab != .home {
+            session.selectedMainTab = .home
+        }
+    }
+
+    /// Removes delivered `checkmed.*` banners whose treatment/medicine/log is gone or inactive.
+    /// Does not strip live open-dose banners that already fired.
+    private func purgeStaleDeliveredNotifications() async {
+        guard let store else { return }
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let stale = delivered.map(\.request.identifier).filter { identifier in
+            identifier.hasPrefix("checkmed.")
+                && !store.shouldRetainDeliveredCheckmedNotification(identifier: identifier)
+        }
+        guard !stale.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: stale)
     }
 
     private func speakIfNeeded(_ notification: UNNotification) async {

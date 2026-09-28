@@ -13,7 +13,7 @@ nonisolated struct DoseAlarmMetadata: Codable, Hashable, Sendable {}
 
 /// Schedules AlarmKit alerts for upcoming doses on iOS 26+. Falls closed to `UNUserNotificationCenter` when unauthorized or scheduling fails.
 /// AlarmKit exposes Stop plus one secondary button — not a reliable extra “I took it” action — so Stop is never Taken.
-/// `nonisolated` so AlarmKit cannot occupy the SwiftUI main actor (default isolation is MainActor).
+/// Entry points hop to `@MainActor`: `AlarmManager` requires the main thread.
 nonisolated enum DoseAlarmKit {
     static var isSupported: Bool {
         if #available(iOS 26.0, *) {
@@ -28,13 +28,11 @@ nonisolated enum DoseAlarmKit {
 
     @discardableResult
     static func requestAuthorizationIfNeeded() async -> Bool {
-        await withTimeout(seconds: 2.2) {
-            await requestAuthorizationUnbound()
-        } ?? false
+        await requestAuthorizationOnMain()
     }
 
     /// Returns log IDs that were successfully scheduled with AlarmKit (skip UN dose notifications for these).
-    /// Never run on the main actor: AlarmKit can deadlock SwiftUI if it hops back to main while we wait.
+    /// Must run on the main actor/thread — call from `@MainActor` `ReminderScheduler.rebuild` via `await`.
     struct Copy: Sendable {
         var title: String
         var snooze: String
@@ -46,11 +44,28 @@ nonisolated enum DoseAlarmKit {
     }
 
     static func syncDoseAlarms(drafts: [ReminderDraft], asOf now: Date = Date(), copy: Copy) async -> Set<UUID> {
-        await withTimeout(seconds: 2.8) {
+        await syncDoseAlarmsOnMain(drafts: drafts, asOf: now, copy: copy)
+    }
+
+    @MainActor
+    private static func requestAuthorizationOnMain() async -> Bool {
+        await withTimeoutOnMain(seconds: 2.2) {
+            await requestAuthorizationUnbound()
+        } ?? false
+    }
+
+    @MainActor
+    private static func syncDoseAlarmsOnMain(
+        drafts: [ReminderDraft],
+        asOf now: Date,
+        copy: Copy
+    ) async -> Set<UUID> {
+        await withTimeoutOnMain(seconds: 2.8) {
             await syncDoseAlarmsUnbound(drafts: drafts, asOf: now, copy: copy)
         } ?? []
     }
 
+    @MainActor
     private static func requestAuthorizationUnbound() async -> Bool {
         guard #available(iOS 26.0, *) else { return false }
         #if canImport(AlarmKit)
@@ -69,6 +84,7 @@ nonisolated enum DoseAlarmKit {
         #endif
     }
 
+    @MainActor
     private static func syncDoseAlarmsUnbound(
         drafts: [ReminderDraft],
         asOf now: Date,
@@ -91,6 +107,7 @@ nonisolated enum DoseAlarmKit {
 
         var scheduled = Set<UUID>()
         for draft in upcoming {
+            if Task.isCancelled { break }
             do {
                 try await schedule(draft: draft, copy: copy)
                 scheduled.insert(draft.id)
@@ -105,12 +122,16 @@ nonisolated enum DoseAlarmKit {
         #endif
     }
 
-    private static func withTimeout<T: Sendable>(
+    /// Timeout that keeps AlarmKit work on the main actor (unlike a bare `@Sendable` task-group child).
+    @MainActor
+    private static func withTimeoutOnMain<T: Sendable>(
         seconds: TimeInterval,
-        _ work: @escaping @Sendable () async -> T
+        _ work: @escaping @MainActor () async -> T
     ) async -> T? {
         await withTaskGroup(of: T?.self) { group in
-            group.addTask { await work() }
+            group.addTask { @MainActor in
+                await work()
+            }
             group.addTask {
                 let ns = UInt64(max(0.2, seconds) * 1_000_000_000)
                 try? await Task.sleep(nanoseconds: ns)
@@ -118,11 +139,14 @@ nonisolated enum DoseAlarmKit {
             }
             let first = await group.next() ?? nil
             group.cancelAll()
+            // Drain so a timed-out AlarmKit schedule cannot keep running after rebuild continues.
+            for await _ in group {}
             return first
         }
     }
 
     #if canImport(AlarmKit)
+    @MainActor
     @available(iOS 26.0, *)
     private static func schedule(draft: ReminderDraft, copy: Copy) async throws {
         let titleText = copy.title

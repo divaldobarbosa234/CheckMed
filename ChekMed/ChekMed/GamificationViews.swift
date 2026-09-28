@@ -251,6 +251,7 @@ struct DailyMedicationJourneyCard: View {
 struct TodaysChallengeCard: View {
     @Environment(SessionStore.self) private var session
     let snapshot: GamificationSnapshot
+    var highlightedDoseId: String? = nil
     var onConfirmDose: ((String) -> Void)? = nil
 
     var body: some View {
@@ -316,6 +317,13 @@ struct TodaysChallengeCard: View {
                         }
                         Spacer(minLength: 0)
                     }
+                    .background {
+                        if line.id == highlightedDoseId {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(CheckMedTheme.mintWash)
+                        }
+                    }
+                    .id(line.id)
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("\(line.medicine), \(line.time), \(line.detail), \(line.isTakenLate ? session.t(.homeTakenLate) : (line.isTaken ? session.t(.taken) : (line.isMissed ? session.t(.skipped) : session.t(.homeStatusPending))))")
                 }

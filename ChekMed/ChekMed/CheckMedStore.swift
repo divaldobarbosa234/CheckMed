@@ -31,6 +31,15 @@ struct ReminderDraft: Identifiable, Sendable {
         case refill
         case stockRefill
         case stockDaysLeft
+
+        var routesDefaultTapToHomeDose: Bool {
+            switch self {
+            case .dose, .nudge5, .nudge30, .missed, .confirm, .advance:
+                true
+            case .refill, .stockRefill, .stockDaysLeft:
+                false
+            }
+        }
     }
 
     var id: UUID
@@ -1538,6 +1547,54 @@ final class CheckMedStore {
         return medicines().first(where: { $0.id == medicineId })?.name
     }
 
+    /// Read-only: whether a delivered `checkmed.*` banner still belongs to a live plan.
+    func shouldRetainDeliveredCheckmedNotification(identifier: String) -> Bool {
+        if identifier == Engagement.winBackId || identifier == Engagement.leaveSetupId {
+            return true
+        }
+        guard identifier.hasPrefix("checkmed.") else { return true }
+        let parts = identifier.split(separator: ".").map(String.init)
+        guard parts.count >= 3 else { return true }
+        let kindRaw = parts[1]
+        guard let uuid = UUID(uuidString: parts[2]) else { return true }
+        // Identifier uses `stockDays`; Kind raw value is `stockDaysLeft`. Do not treat as DoseLog.
+        if kindRaw == "stockDays" {
+            return isMedicineOnActiveTreatment(uuid)
+        }
+        guard let kind = ReminderDraft.Kind(rawValue: kindRaw) else { return true }
+        switch kind {
+        case .dose, .nudge5, .nudge30, .missed, .confirm, .advance:
+            return isDeliveredDoseFamilyStillValid(logId: uuid)
+        case .refill:
+            return isActiveTreatment(uuid)
+        case .stockRefill, .stockDaysLeft:
+            return isMedicineOnActiveTreatment(uuid)
+        }
+    }
+
+    private func isDeliveredDoseFamilyStillValid(logId: UUID) -> Bool {
+        guard let log = allLogs().first(where: { $0.id == logId && $0.deletedAt == nil }) else { return false }
+        let status = DoseLogStatus(rawValue: log.status) ?? .pending
+        if status.isConfirmedTaken { return false }
+        guard let schedule = allSchedules().first(where: { $0.id == log.scheduleId && $0.deletedAt == nil }) else {
+            return false
+        }
+        return isMedicineOnActiveTreatment(schedule.medicineId)
+    }
+
+    private func isActiveTreatment(_ id: UUID) -> Bool {
+        allTreatments().contains {
+            $0.id == id && $0.deletedAt == nil && $0.status == "active"
+        }
+    }
+
+    private func isMedicineOnActiveTreatment(_ medicineId: UUID) -> Bool {
+        guard let medicine = allMedicines().first(where: { $0.id == medicineId && $0.deletedAt == nil }) else {
+            return false
+        }
+        return isActiveTreatment(medicine.treatmentId)
+    }
+
     #if DEBUG
     /// One-shot 5B-4H: nearest `.pendingConfirmation` log to `now` (read-only).
     func debugMostRecentPendingConfirmation(now: Date) -> (
@@ -1759,7 +1816,7 @@ final class CheckMedStore {
     }
 
     /// Read-only today's challenge counts. One slot per medicine + minute.
-    func todayChallengeCounts(now: Date = Date()) -> DoseLoop.TodayChallengeCounts {
+    func todayChallengeCounts(now: Date = CheckMedClock.now) -> DoseLoop.TodayChallengeCounts {
         _ = revision
         let counts = DoseLoop.todayChallengeCounts(
             logs: todayChallengeProbes(),
@@ -1783,7 +1840,7 @@ final class CheckMedStore {
     }
 
     /// Read-only Mon–Sun progress. Cached by revision + calendar day. Does not write.
-    func weeklyMedicationProgress(now: Date = Date()) -> DoseLoop.WeeklyMedicationProgressSnapshot {
+    func weeklyMedicationProgress(now: Date = CheckMedClock.now) -> DoseLoop.WeeklyMedicationProgressSnapshot {
         _ = revision
         let today = calendar.startOfDay(for: now)
         if let cached = cachedWeekly,
@@ -2955,6 +3012,18 @@ final class CheckMedStore {
         cachedWeeklyRevision = -1
         cachedWeeklyDay = nil
     }
+
+    #if DEBUG
+    /// Clock command only: drop weekly cache so the next read uses `CheckMedClock.now`.
+    /// Does not notify, does not bump revision, does not touch adherence cache.
+    func invalidateTimeDerivedCachesForTestClock() {
+        cachedWeekly = nil
+        cachedWeeklyRevision = -1
+        cachedWeeklyDay = nil
+        lastChallengeDiag = nil
+        lastWeeklyDiag = nil
+    }
+    #endif
 
     private func save() {
         FreezeDiag.context("save() BEFORE", hasChanges: context.hasChanges)

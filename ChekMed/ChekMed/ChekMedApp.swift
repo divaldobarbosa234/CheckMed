@@ -23,7 +23,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let prescriptionDateFailures = PrescriptionDateContractChecks.failures()
             let laterAddFailures = LaterAddPersistContractChecks.failures()
             let journeyTreeFailures = TreatmentJourneyClassificationContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures
+            let clockFailures = CheckMedClockContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + clockFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("PrescriptionDate failures:", prescriptionDateFailures)
             print("LaterAddPersist failures:", laterAddFailures)
             print("JourneyTree failures:", journeyTreeFailures)
+            print("TestClock failures:", clockFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
                 "Gamification failures: \(gamificationFailures)",
@@ -43,6 +45,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "PrescriptionDate failures: \(prescriptionDateFailures)",
                 "LaterAddPersist failures: \(laterAddFailures)",
                 "JourneyTree failures: \(journeyTreeFailures)",
+                "TestClock failures: \(clockFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -63,6 +66,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     philFailures.isEmpty ? nil : "PHIL COACH FAILURE: \(philFailures.joined(separator: "; "))",
                     prescriptionDateFailures.isEmpty ? nil : "PRESCRIPTION DATE FAILURE: \(prescriptionDateFailures.joined(separator: "; "))",
                     laterAddFailures.isEmpty ? nil : "LATER ADD PERSIST FAILURE: \(laterAddFailures.joined(separator: "; "))",
+                    clockFailures.isEmpty ? nil : "TEST CLOCK FAILURE: \(clockFailures.joined(separator: "; "))",
+                    journeyTreeFailures.isEmpty ? nil : "JOURNEY TREE FAILURE: \(journeyTreeFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }
@@ -133,6 +138,15 @@ struct ChekMedApp: App {
         treatments.setTimeZone(session.foundationTimeZone)
         family.applyScope(to: treatments, primaryProfileId: profileId)
         path.bind(store: treatments)
+        #if DEBUG
+        CheckMedClock.installCommandBridge(
+            timeZone: { [session] in session.foundationTimeZone },
+            onApplied: { [treatments, path] in
+                treatments.invalidateTimeDerivedCachesForTestClock()
+                path.reload()
+            }
+        )
+        #endif
         syncEngine.bind(store: treatments, session: session)
         syncEngine.bindFamily(family)
         treatments.onRecordsChanged = { [path] in

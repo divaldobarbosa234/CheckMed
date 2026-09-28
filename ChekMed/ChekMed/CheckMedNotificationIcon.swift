@@ -1,4 +1,3 @@
-import UIKit
 import UniformTypeIdentifiers
 import UserNotifications
 
@@ -31,11 +30,12 @@ enum CheckMedNotificationIcon {
     }
 
     private static func pngData() -> Data? {
+        // Bundle file only — never `UIImage(named:)` (requires main thread).
         if let url = Bundle.main.url(forResource: "CheckMedNotificationPhil", withExtension: "png"),
            let data = try? Data(contentsOf: url),
            !data.isEmpty {
             return data
         }
-        return UIImage(named: "CheckMedNotificationPhil")?.pngData()
+        return nil
     }
 }
