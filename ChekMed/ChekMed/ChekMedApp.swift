@@ -13,6 +13,15 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         ReminderScheduler.shared.configure()
         #if DEBUG
         Task {
+            let rewardReport = RewardEngineContractChecks.runtimeReport()
+            print("RewardEngine runtime:\n\(rewardReport)")
+            if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                try? rewardReport.write(
+                    to: docs.appendingPathComponent("checkmed-reward-contracts.txt"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
             try? await Task.sleep(nanoseconds: 400_000_000)
             let doseFailures = DoseLoopContractChecks.failures()
             let gamificationFailures = GamificationContractChecks.failures()
@@ -24,7 +33,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let laterAddFailures = LaterAddPersistContractChecks.failures()
             let journeyTreeFailures = TreatmentJourneyClassificationContractChecks.failures()
             let clockFailures = CheckMedClockContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + clockFailures
+            let rewardFailures = RewardEngineContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + clockFailures + rewardFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -35,6 +45,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("LaterAddPersist failures:", laterAddFailures)
             print("JourneyTree failures:", journeyTreeFailures)
             print("TestClock failures:", clockFailures)
+            print("RewardEngine failures:", rewardFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
                 "Gamification failures: \(gamificationFailures)",
@@ -46,6 +57,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "LaterAddPersist failures: \(laterAddFailures)",
                 "JourneyTree failures: \(journeyTreeFailures)",
                 "TestClock failures: \(clockFailures)",
+                "RewardEngine failures: \(rewardFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -68,6 +80,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     laterAddFailures.isEmpty ? nil : "LATER ADD PERSIST FAILURE: \(laterAddFailures.joined(separator: "; "))",
                     clockFailures.isEmpty ? nil : "TEST CLOCK FAILURE: \(clockFailures.joined(separator: "; "))",
                     journeyTreeFailures.isEmpty ? nil : "JOURNEY TREE FAILURE: \(journeyTreeFailures.joined(separator: "; "))",
+                    rewardFailures.isEmpty ? nil : "REWARD ENGINE FAILURE: \(rewardFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }

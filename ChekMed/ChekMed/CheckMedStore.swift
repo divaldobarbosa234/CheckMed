@@ -115,6 +115,20 @@ final class CheckMedStore {
     /// When false, Home / reminders / summaries hide plan rows even if SwiftData still has them.
     private(set) var surfacesPlan = false
 
+    /// Bound SwiftUI store. Unbound `persistDoseAction` delegates reward follow-on here.
+    @ObservationIgnored
+    private static weak var liveStore: CheckMedStore?
+
+    private struct PendingCanonicalDoseReward {
+        var logId: UUID
+        var previous: DoseLogStatus
+        var next: DoseLogStatus
+        var now: Date
+    }
+
+    @ObservationIgnored
+    private static var pendingCanonicalDoseRewards: [PendingCanonicalDoseReward] = []
+
     @ObservationIgnored
     var onRecordsChanged: (() -> Void)?
     @ObservationIgnored
@@ -135,6 +149,7 @@ final class CheckMedStore {
             DoseScheduleRecord.self,
             DoseLogRecord.self,
             FeelingRecord.self,
+            RewardGrant.self,
             CommunityCommentRecord.self,
         ])
         let disk = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
@@ -161,6 +176,8 @@ final class CheckMedStore {
         ) { _ in
             FreezeDiag.log("SWIFTDATA WILLSAVE NSManagedObjectContextWillSave")
         }
+        Self.liveStore = self
+        flushPendingCanonicalDoseRewards()
     }
 
     func bindIdentity(ownerId: UUID?, profileId: UUID?) {
@@ -994,6 +1011,7 @@ final class CheckMedStore {
             }
         }
         save()
+        recordRewardsAfterDoseConfirm(log: log, previous: previous, next: next, now: now)
         notify()
         requestSync()
         #if DEBUG
@@ -1005,6 +1023,72 @@ final class CheckMedStore {
             )
         }
         #endif
+    }
+
+    private func recordRewardsAfterDoseConfirm(
+        log: DoseLogRecord,
+        previous: DoseLogStatus,
+        next: DoseLogStatus,
+        now: Date
+    ) {
+        guard next.isConfirmedTaken, !previous.isConfirmedTaken else { return }
+        guard let owner = log.ownerId ?? ownerId, let profile = log.profileId ?? writeProfileId else { return }
+        let counts = todayChallengeCounts(now: now)
+        let streak = streakFromCanonical(now: now, todayCounts: counts)
+        RewardEngine.applyDoseRewards(
+            context: context,
+            facts: RewardEngine.DoseFacts(
+                logId: log.id,
+                ownerId: owner,
+                profileId: profile,
+                previous: previous,
+                next: next,
+                dayIsComplete: counts.isComplete,
+                currentStreak: streak.currentDays,
+                now: now
+            ),
+            calendar: calendar
+        )
+    }
+
+    /// Same follow-on as Home confirm. Call after the DoseLog row is already saved.
+    private func applyCanonicalDoseRewards(
+        logId: UUID,
+        previous: DoseLogStatus,
+        next: DoseLogStatus,
+        now: Date
+    ) {
+        invalidateCache()
+        guard let log = allLogs().first(where: { $0.id == logId && $0.deletedAt == nil }) else { return }
+        recordRewardsAfterDoseConfirm(log: log, previous: previous, next: next, now: now)
+    }
+
+    private static func enqueueOrApplyCanonicalDoseRewards(
+        logId: UUID,
+        previous: DoseLogStatus,
+        next: DoseLogStatus,
+        now: Date
+    ) {
+        if let live = liveStore {
+            live.applyCanonicalDoseRewards(logId: logId, previous: previous, next: next, now: now)
+            return
+        }
+        pendingCanonicalDoseRewards.append(
+            PendingCanonicalDoseReward(logId: logId, previous: previous, next: next, now: now)
+        )
+    }
+
+    private func flushPendingCanonicalDoseRewards() {
+        let pending = Self.pendingCanonicalDoseRewards
+        Self.pendingCanonicalDoseRewards = []
+        for item in pending {
+            applyCanonicalDoseRewards(
+                logId: item.logId,
+                previous: item.previous,
+                next: item.next,
+                now: item.now
+            )
+        }
     }
 
     /// Create upcoming logs + expire overdue ones. Call from lifecycle / sync /
@@ -1215,6 +1299,12 @@ final class CheckMedStore {
         stamp(treatment)
         logsEnsuredDay = nil
         save()
+        RewardEngine.applyTreatmentComplete(
+            context: context,
+            ownerId: treatment.ownerId ?? ownerId,
+            profileId: treatment.profileId ?? writeProfileId,
+            treatmentId: treatment.id
+        )
         notify()
         requestSync()
     }
@@ -1663,6 +1753,7 @@ final class CheckMedStore {
             DoseScheduleRecord.self,
             DoseLogRecord.self,
             FeelingRecord.self,
+            RewardGrant.self,
             CommunityCommentRecord.self,
         ])
         let disk = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
@@ -1722,6 +1813,12 @@ final class CheckMedStore {
         try? context.save()
         FreezeDiag.log("SWIFTDATA WRITE END source=persistDoseAction")
         if next.isConfirmedTaken, !previous.isConfirmedTaken {
+            enqueueOrApplyCanonicalDoseRewards(
+                logId: id,
+                previous: previous,
+                next: next,
+                now: now
+            )
             let scheduleId = log.scheduleId
             let scheduleDesc = FetchDescriptor<DoseScheduleRecord>(
                 predicate: #Predicate { row in row.id == scheduleId && row.deletedAt == nil }
@@ -2885,6 +2982,7 @@ final class CheckMedStore {
             if let record = row as? DoseScheduleRecord { return record.ownerId == ownerId }
             if let record = row as? DoseLogRecord { return record.ownerId == ownerId }
             if let record = row as? FeelingRecord { return record.ownerId == ownerId }
+            if let record = row as? RewardGrant { return record.ownerId == ownerId }
             if let record = row as? CommunityCommentRecord { return record.ownerId == ownerId }
             return true
         }
@@ -2908,6 +3006,7 @@ final class CheckMedStore {
         if let record = row as? DoseScheduleRecord { return record.profileId }
         if let record = row as? DoseLogRecord { return record.profileId }
         if let record = row as? FeelingRecord { return record.profileId }
+        if let record = row as? RewardGrant { return record.profileId }
         return nil
     }
 

@@ -476,6 +476,38 @@ final class FeelingRecord {
 }
 
 @Model
+final class RewardGrant {
+    @Attribute(.unique) var id: UUID
+    var ownerId: UUID?
+    var profileId: UUID?
+    @Attribute(.unique) var eventKey: String
+    var kind: String
+    var xp: Int
+    var achievementId: String?
+    var createdAt: Date
+
+    init(
+        id: UUID = UUID(),
+        ownerId: UUID? = nil,
+        profileId: UUID? = nil,
+        eventKey: String,
+        kind: String,
+        xp: Int,
+        achievementId: String? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.ownerId = ownerId
+        self.profileId = profileId
+        self.eventKey = eventKey
+        self.kind = kind
+        self.xp = xp
+        self.achievementId = achievementId
+        self.createdAt = createdAt
+    }
+}
+
+@Model
 final class CommunityCommentRecord {
     @Attribute(.unique) var id: UUID
     var ownerId: UUID?
