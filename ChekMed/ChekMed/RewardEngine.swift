@@ -360,6 +360,87 @@ enum RewardEngineContractChecks {
             .filter { $0.eventKey == doseKey }
         expect(relaunchRows.count == 1, "G: grant still visible on a new ModelContext (same container)")
 
+        let progressSchema = Schema([RewardGrant.self])
+        let progressConfig = ModelConfiguration(schema: progressSchema, isStoredInMemoryOnly: true)
+        guard let progressContainer = try? ModelContainer(for: progressSchema, configurations: [progressConfig]) else {
+            expect(false, "H: RewardProgress in-memory container failed")
+            expect(false, "I: RewardProgress in-memory container failed")
+            return failures
+        }
+        let progressContext = ModelContext(progressContainer)
+        let hOwner = UUID()
+        let hProfile = UUID()
+        for amount in [10, 20, 15] {
+            progressContext.insert(
+                RewardGrant(
+                    ownerId: hOwner,
+                    profileId: hProfile,
+                    eventKey: "test.h.\(amount).\(UUID().uuidString)",
+                    kind: "test",
+                    xp: amount,
+                    achievementId: nil,
+                    createdAt: now
+                )
+            )
+        }
+        try? progressContext.save()
+        let hRows = (try? progressContext.fetch(FetchDescriptor<RewardGrant>())) ?? []
+        let hSum = RewardCatalog.totalXP(fromGrantAmounts: hRows.map(\.xp))
+        expect(hSum == 45, "H: 10+20+15 → 45 XP")
+
+        let iContext = ModelContext(progressContainer)
+        iContext.insert(
+            RewardGrant(
+                ownerId: hOwner,
+                profileId: hProfile,
+                eventKey: "test.i.xp.\(UUID().uuidString)",
+                kind: "dose_taken",
+                xp: 10,
+                achievementId: nil,
+                createdAt: now
+            )
+        )
+        iContext.insert(
+            RewardGrant(
+                ownerId: hOwner,
+                profileId: hProfile,
+                eventKey: "test.i.ach.\(UUID().uuidString)",
+                kind: "first_dose",
+                xp: 0,
+                achievementId: "first_dose",
+                createdAt: now
+            )
+        )
+        try? iContext.save()
+        let iRows = ((try? iContext.fetch(FetchDescriptor<RewardGrant>())) ?? [])
+            .filter { $0.eventKey.hasPrefix("test.i.") }
+        expect(RewardCatalog.totalXP(fromGrantAmounts: iRows.map(\.xp)) == 10, "I: 10 XP + 0 XP achievement → 10 XP")
+
+        let zero = RewardCatalog.progress(totalXP: 0)
+        expect(zero.currentLevel == 1 && zero.progressFraction == 0, "J: 0 XP → Level 1, progress 0")
+        let fortyNine = RewardCatalog.progress(totalXP: 49)
+        expect(fortyNine.currentLevel == 1 && fortyNine.xpAtNextLevel == 50, "J: 49 XP → Level 1")
+        let fifty = RewardCatalog.progress(totalXP: 50)
+        expect(fifty.currentLevel == 2 && fifty.xpIntoLevel == 0 && fifty.xpAtCurrentLevelStart == 50, "J: 50 XP → Level 2")
+        let oneFortyNine = RewardCatalog.progress(totalXP: 149)
+        expect(oneFortyNine.currentLevel == 2, "J: 149 XP → Level 2")
+        let oneFifty = RewardCatalog.progress(totalXP: 150)
+        expect(oneFifty.currentLevel == 3 && oneFifty.xpIntoLevel == 0, "J: 150 XP → Level 3")
+
+        let mid = RewardCatalog.progress(totalXP: 100)
+        expect(mid.currentLevel == 2, "K: 100 XP → Level 2")
+        expect(mid.xpIntoLevel == 50, "K: 100 XP is 50 into Level 2")
+        expect(mid.xpNeededForNext == 50 && mid.xpAtNextLevel == 150, "K: 50 XP needed for Level 3 threshold")
+        expect(mid.progressFraction > 0 && mid.progressFraction < 1, "K: progress fraction between 0 and 1")
+        expect(!mid.isMaxDefinedLevel, "K: 100 XP is not max level")
+
+        let maxed = RewardCatalog.progress(totalXP: 3500)
+        expect(maxed.currentLevel == RewardCatalog.levelThresholds.count, "L: 3500 XP is the highest defined level")
+        expect(maxed.isMaxDefinedLevel && maxed.progressFraction == 1.0, "L: max level progressFraction is 1.0")
+        expect(maxed.xpNeededForNext == 0 && maxed.xpAtNextLevel == nil, "L: no next-level XP at max")
+        let over = RewardCatalog.progress(totalXP: 9_999)
+        expect(over.currentLevel == maxed.currentLevel && over.progressFraction == 1.0 && over.xpNeededForNext >= 0, "L: overshoot stays at max without negative next XP")
+
         _ = count()
         _ = xpTotal()
         return failures
@@ -380,6 +461,11 @@ enum RewardEngineContractChecks {
             line("E"),
             line("F"),
             line("G"),
+            line("H"),
+            line("I"),
+            line("J"),
+            line("K"),
+            line("L"),
             "allPass: \(failures.isEmpty)",
         ].joined(separator: "\n")
     }

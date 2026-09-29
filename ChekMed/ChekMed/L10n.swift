@@ -175,6 +175,7 @@ enum L10n {
         case treatmentsSubhead, treatmentsPhilBubble, treatmentsYourMeds, treatmentsNeedMore, treatmentsNeedMoreBody
         case progressTakenAsPlanned, progressDosesLabel, progressTreatmentsLabel, progressCalendar, progressHistory
         case progressHeadline, progressSubhead, progressPhilBubble, progressWeekTitle, progressKeepGoing
+        case rewardLevel, rewardTotalXP, rewardXPToNext, rewardMaxLevel
         case weeklyYourWeek, weeklyDaysComplete, weeklyAdherencePercent
         case weeklyDayComplete, weeklyDayMissed, weeklyDayUpcoming, weeklyDayNotApplicable, weeklyDayNoDoses
         case weeklyDayToday, weeklyDayDosesCompleted
@@ -885,6 +886,10 @@ enum L10n {
         .weeklyDayToday: "Today",
         .weeklyDayDosesCompleted: "%d of %d doses completed",
         .progressKeepGoing: "Keep it up! You can do it.",
+        .rewardLevel: "Level %d",
+        .rewardTotalXP: "%d XP",
+        .rewardXPToNext: "%d XP to Level %d",
+        .rewardMaxLevel: "Highest level for now",
         .progressDosesTaken: "%d/%d doses taken",
         .progressNextSoon: "Next dose soon",
         .progressTreatmentsHeader: "Treatments",
@@ -1696,6 +1701,10 @@ enum L10n {
         .weeklyDayToday: "Hoje",
         .weeklyDayDosesCompleted: "%d de %d doses concluídas",
         .progressKeepGoing: "Continue assim! Você consegue!",
+        .rewardLevel: "Nível %d",
+        .rewardTotalXP: "%d XP",
+        .rewardXPToNext: "%d XP para o nível %d",
+        .rewardMaxLevel: "Nível máximo por agora",
         .progressDosesTaken: "%d/%d doses tomadas",
         .progressNextSoon: "Próxima dose em breve",
         .progressTreatmentsHeader: "Tratamentos",
@@ -2507,6 +2516,10 @@ enum L10n {
         .weeklyDayToday: "Hoy",
         .weeklyDayDosesCompleted: "%d de %d dosis completadas",
         .progressKeepGoing: "¡Sigue así! Tú puedes.",
+        .rewardLevel: "Nivel %d",
+        .rewardTotalXP: "%d XP",
+        .rewardXPToNext: "%d XP para el nivel %d",
+        .rewardMaxLevel: "Nivel máximo por ahora",
         .progressDosesTaken: "%d/%d dosis tomadas",
         .progressNextSoon: "Próxima dosis pronto",
         .progressTreatmentsHeader: "Tratamientos",
@@ -3318,6 +3331,10 @@ enum L10n {
         .weeklyDayToday: "Aujourd’hui",
         .weeklyDayDosesCompleted: "%d dose(s) sur %d prises",
         .progressKeepGoing: "Continuez ! Vous pouvez le faire.",
+        .rewardLevel: "Niveau %d",
+        .rewardTotalXP: "%d XP",
+        .rewardXPToNext: "%d XP vers le niveau %d",
+        .rewardMaxLevel: "Niveau le plus élevé pour l’instant",
         .progressDosesTaken: "%d/%d doses prises",
         .progressNextSoon: "Prochaine dose bientôt",
         .progressTreatmentsHeader: "Traitements",

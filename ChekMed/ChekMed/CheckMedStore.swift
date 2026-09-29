@@ -105,6 +105,8 @@ final class CheckMedStore {
     @ObservationIgnored private var cachedWeekly: DoseLoop.WeeklyMedicationProgressSnapshot?
     @ObservationIgnored private var cachedWeeklyRevision = -1
     @ObservationIgnored private var cachedWeeklyDay: Date?
+    @ObservationIgnored private var cachedRewardProgress: RewardProgress?
+    @ObservationIgnored private var cachedRewardProgressRevision = -1
     @ObservationIgnored private var lastChallengeDiag: String?
     @ObservationIgnored private var lastWeeklyDiag: String?
     @ObservationIgnored private var lastStreakWindowDiag: String?
@@ -1987,6 +1989,20 @@ final class CheckMedStore {
         return snapshot
     }
 
+    /// Read-only XP/level from visible RewardGrant rows. Does not write.
+    func rewardProgress() -> RewardProgress {
+        _ = revision
+        if let cached = cachedRewardProgress, cachedRewardProgressRevision == revision {
+            return cached
+        }
+        let grants: [RewardGrant] = visible(fetch())
+        let total = RewardCatalog.totalXP(fromGrantAmounts: grants.map(\.xp))
+        let snapshot = RewardCatalog.progress(totalXP: total)
+        cachedRewardProgress = snapshot
+        cachedRewardProgressRevision = revision
+        return snapshot
+    }
+
     private func todayChallengeProbes() -> [DoseLoop.DoseSummaryProbe] {
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
@@ -3110,6 +3126,8 @@ final class CheckMedStore {
         cachedWeekly = nil
         cachedWeeklyRevision = -1
         cachedWeeklyDay = nil
+        cachedRewardProgress = nil
+        cachedRewardProgressRevision = -1
     }
 
     #if DEBUG

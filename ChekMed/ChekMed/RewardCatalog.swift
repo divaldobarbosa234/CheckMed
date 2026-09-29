@@ -98,4 +98,71 @@ enum RewardCatalog {
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: day)
     }
+
+    /// Cumulative XP required to *enter* each level. Index 0 is Level 1.
+    /// Append later rungs; do not reorder released thresholds.
+    static let levelThresholds: [Int] = [0, 50, 150, 300, 500, 800, 1200, 1800, 2500, 3500]
+
+    static func totalXP(fromGrantAmounts amounts: [Int]) -> Int {
+        amounts.reduce(0) { $0 + max(0, $1) }
+    }
+
+    static func progress(totalXP: Int) -> RewardProgress {
+        RewardProgress.from(totalXP: totalXP, thresholds: levelThresholds)
+    }
+}
+
+/// Derived from the RewardGrant XP sum. Not persisted.
+struct RewardProgress: Equatable, Sendable {
+    var totalXP: Int
+    var currentLevel: Int
+    var xpAtCurrentLevelStart: Int
+    var xpAtNextLevel: Int?
+    var xpIntoLevel: Int
+    var xpNeededForNext: Int
+    var progressFraction: Double
+    var isMaxDefinedLevel: Bool
+
+    static func from(totalXP: Int, thresholds: [Int]) -> RewardProgress {
+        let xp = max(0, totalXP)
+        let rungs = thresholds.isEmpty ? [0] : thresholds
+        var index = 0
+        for i in rungs.indices where xp >= rungs[i] {
+            index = i
+        }
+        let start = rungs[index]
+        let level = index + 1
+        let atMax = index == rungs.count - 1
+        if atMax {
+            return RewardProgress(
+                totalXP: xp,
+                currentLevel: level,
+                xpAtCurrentLevelStart: start,
+                xpAtNextLevel: nil,
+                xpIntoLevel: xp - start,
+                xpNeededForNext: 0,
+                progressFraction: 1.0,
+                isMaxDefinedLevel: true
+            )
+        }
+        let next = rungs[index + 1]
+        let span = next - start
+        let into = xp - start
+        let fraction: Double
+        if span <= 0 {
+            fraction = 1.0
+        } else {
+            fraction = min(1.0, max(0.0, Double(into) / Double(span)))
+        }
+        return RewardProgress(
+            totalXP: xp,
+            currentLevel: level,
+            xpAtCurrentLevelStart: start,
+            xpAtNextLevel: next,
+            xpIntoLevel: into,
+            xpNeededForNext: max(0, next - xp),
+            progressFraction: fraction,
+            isMaxDefinedLevel: false
+        )
+    }
 }

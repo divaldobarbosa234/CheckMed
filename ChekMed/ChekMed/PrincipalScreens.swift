@@ -1331,10 +1331,12 @@ struct ProgressDashboardScreen: View {
     }
 
     var body: some View {
+        let xpProgress = treatments.rewardProgress()
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 philBanner
+                xpProgressCard(xpProgress)
                 weekCard
                 if treatments.activeMedicineCount > 0 {
                     JourneyGamificationCard(
@@ -1417,6 +1419,58 @@ struct ProgressDashboardScreen: View {
         }
         .frame(minHeight: 178)
         .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+    }
+
+    private func xpProgressCard(_ progress: RewardProgress) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(session.t(.rewardLevel, progress.currentLevel))
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.ink)
+                .textCase(.uppercase)
+            Text(session.t(.rewardTotalXP, progress.totalXP))
+                .font(.system(.title2, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.ink)
+            if progress.isMaxDefinedLevel {
+                Text(session.t(.rewardMaxLevel))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else {
+                Text(session.t(.rewardXPToNext, progress.xpNeededForNext, progress.currentLevel + 1))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(CheckMedTheme.hairline)
+                    Capsule()
+                        .fill(CheckMedTheme.primary)
+                        .frame(width: max(8, geo.size.width * CGFloat(progress.progressFraction)))
+                }
+            }
+            .frame(height: 10)
+            .accessibilityHidden(true)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(xpProgressAccessibility(progress))
+    }
+
+    private func xpProgressAccessibility(_ progress: RewardProgress) -> String {
+        let level = session.t(.rewardLevel, progress.currentLevel)
+        let xp = session.t(.rewardTotalXP, progress.totalXP)
+        if progress.isMaxDefinedLevel {
+            return "\(level). \(xp). \(session.t(.rewardMaxLevel))"
+        }
+        return "\(level). \(xp). \(session.t(.rewardXPToNext, progress.xpNeededForNext, progress.currentLevel + 1))"
     }
 
     private var weekCard: some View {
