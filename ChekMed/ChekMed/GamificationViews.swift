@@ -830,9 +830,15 @@ struct AchievementGallerySection: View {
                 }
             }
         }
+        // Same overlay geometry as FloatingPlusMenu (58pt plus + 10pt gap) plus reading room.
+        // Lets the last gallery row scroll above the tab bar and green + without moving those controls.
+        .padding(.bottom, Self.bottomOverlayClearance)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(session.t(.achievementsTitle))
     }
+
+    /// Plus control is 58pt, with 10pt gap above the tab bar (`FloatingPlusMenu`).
+    private static let bottomOverlayClearance: CGFloat = 58 + 10 + 16
 }
 
 private struct AchievementGalleryTile: View {
