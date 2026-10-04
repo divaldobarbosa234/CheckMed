@@ -107,6 +107,8 @@ final class CheckMedStore {
     @ObservationIgnored private var cachedWeeklyDay: Date?
     @ObservationIgnored private var cachedRewardProgress: RewardProgress?
     @ObservationIgnored private var cachedRewardProgressRevision = -1
+    @ObservationIgnored private var cachedAchievementGallery: [RewardCatalog.AchievementGalleryItem]?
+    @ObservationIgnored private var cachedAchievementGalleryRevision = -1
     @ObservationIgnored private var lastChallengeDiag: String?
     @ObservationIgnored private var lastWeeklyDiag: String?
     @ObservationIgnored private var lastStreakWindowDiag: String?
@@ -2023,6 +2025,21 @@ final class CheckMedStore {
         return snapshot
     }
 
+    /// Read-only catalog + visible RewardGrant achievementIds. Does not write.
+    func achievementGallery() -> [RewardCatalog.AchievementGalleryItem] {
+        _ = revision
+        if let cached = cachedAchievementGallery, cachedAchievementGalleryRevision == revision {
+            return cached
+        }
+        let grants: [RewardGrant] = visible(fetch())
+        let items = RewardCatalog.galleryItems(
+            fromGrantFacts: grants.map { ($0.achievementId, $0.createdAt) }
+        )
+        cachedAchievementGallery = items
+        cachedAchievementGalleryRevision = revision
+        return items
+    }
+
     private func todayChallengeProbes() -> [DoseLoop.DoseSummaryProbe] {
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
@@ -3152,6 +3169,8 @@ final class CheckMedStore {
         cachedWeeklyDay = nil
         cachedRewardProgress = nil
         cachedRewardProgressRevision = -1
+        cachedAchievementGallery = nil
+        cachedAchievementGalleryRevision = -1
     }
 
     #if DEBUG

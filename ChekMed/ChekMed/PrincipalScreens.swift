@@ -1337,6 +1337,7 @@ struct ProgressDashboardScreen: View {
                 header
                 philBanner
                 xpProgressCard(xpProgress)
+                AchievementGallerySection(items: treatments.achievementGallery())
                 weekCard
                 if treatments.activeMedicineCount > 0 {
                     JourneyGamificationCard(

@@ -441,6 +441,24 @@ enum RewardEngineContractChecks {
         let over = RewardCatalog.progress(totalXP: 9_999)
         expect(over.currentLevel == maxed.currentLevel && over.progressFraction == 1.0 && over.xpNeededForNext >= 0, "L: overshoot stays at max without negative next XP")
 
+        let emptyGallery = RewardCatalog.galleryItems(fromGrantFacts: [])
+        expect(emptyGallery.count == RewardCatalog.Achievement.allCases.count, "M: catalog lists every achievement")
+        expect(emptyGallery.allSatisfy { !$0.isUnlocked }, "M: no grants → all locked")
+        let beforeCount = ((try? progressContext.fetch(FetchDescriptor<RewardGrant>())) ?? []).count
+        _ = RewardCatalog.galleryItems(fromGrantFacts: [])
+        let afterCount = ((try? progressContext.fetch(FetchDescriptor<RewardGrant>())) ?? []).count
+        expect(beforeCount == afterCount, "M: mapping gallery does not insert grants")
+        let unlockedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let mixed = RewardCatalog.galleryItems(
+            fromGrantFacts: [
+                (achievementId: "first_dose", createdAt: unlockedAt),
+                (achievementId: nil, createdAt: now),
+                (achievementId: "unknown", createdAt: now),
+            ]
+        )
+        expect(mixed.first { $0.achievement == .firstDose }?.unlockedAt == unlockedAt, "M: first_dose unlocks from achievementId")
+        expect(mixed.filter(\.isUnlocked).count == 1, "M: XP-only and unknown ids do not unlock extra catalog rows")
+
         _ = count()
         _ = xpTotal()
         return failures
@@ -466,6 +484,7 @@ enum RewardEngineContractChecks {
             line("J"),
             line("K"),
             line("L"),
+            line("M"),
             "allPass: \(failures.isEmpty)",
         ].joined(separator: "\n")
     }

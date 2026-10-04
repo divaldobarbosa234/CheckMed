@@ -15,7 +15,7 @@ enum RewardCatalog {
         case treatmentComplete = "treatment_complete"
     }
 
-    enum Achievement: String, Equatable, Sendable {
+    enum Achievement: String, Equatable, Sendable, CaseIterable {
         case firstDose = "first_dose"
         case firstDay = "first_day"
         case firstRecovery = "first_recovery"
@@ -26,6 +26,50 @@ enum RewardCatalog {
         case streak14 = "streak_14"
         case streak30 = "streak_30"
         case streak90 = "streak_90"
+    }
+
+    /// Read-only gallery row. Unlock comes from existing RewardGrant rows only.
+    struct AchievementGalleryItem: Equatable, Identifiable, Sendable {
+        var achievement: Achievement
+        var unlockedAt: Date?
+        var id: String { achievement.rawValue }
+        var isUnlocked: Bool { unlockedAt != nil }
+    }
+
+    /// Catalog order for Your Progress. Does not award grants.
+    static func galleryItems(
+        fromGrantFacts facts: [(achievementId: String?, createdAt: Date)]
+    ) -> [AchievementGalleryItem] {
+        var unlocked: [Achievement: Date] = [:]
+        for fact in facts {
+            guard let raw = fact.achievementId,
+                  let achievement = Achievement(rawValue: raw) else { continue }
+            if let existing = unlocked[achievement] {
+                if fact.createdAt < existing {
+                    unlocked[achievement] = fact.createdAt
+                }
+            } else {
+                unlocked[achievement] = fact.createdAt
+            }
+        }
+        return Achievement.allCases.map { achievement in
+            AchievementGalleryItem(achievement: achievement, unlockedAt: unlocked[achievement])
+        }
+    }
+
+    static func gallerySymbolName(for achievement: Achievement) -> String {
+        switch achievement {
+        case .firstDose: "pills.fill"
+        case .firstDay: "sun.max.fill"
+        case .firstRecovery: "arrow.uturn.forward.circle.fill"
+        case .firstTreatmentComplete: "flag.checkered"
+        case .streak1: "flame"
+        case .streak3: "flame.fill"
+        case .streak7: "calendar"
+        case .streak14: "calendar.badge.checkmark"
+        case .streak30: "star.fill"
+        case .streak90: "trophy.fill"
+        }
     }
 
     static let streakThresholds: [Int] = [1, 3, 7, 14, 30, 90]
