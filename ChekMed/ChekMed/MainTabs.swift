@@ -107,7 +107,7 @@ struct ProfileView: View {
                 }
                 Button(session.t(.cancel), role: .cancel) {}
             } message: {
-                Text(session.t(.profileDeleteBody))
+                Text(session.t(session.hasAppleIdentity ? .profileDeleteBodyApple : .profileDeleteBody))
             }
             .disabled(session.isDeletingAccount)
             .overlay {

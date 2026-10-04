@@ -124,7 +124,7 @@ enum L10n {
         case profileTitle, profileGuestBubble, profileSignedBubble, profileAccount, profileGuest
         case profileSignOut, profileNotifs, profileOn, profileSettings, profileFamily, profileFamilyCount
         case profileSuper, profileFree, profileReminders, profileMedicines, profileLibrary
-        case profileDelete, profileDeleteTitle, profileDeleteBody, profileDeleteConfirm, profileDeleteFailed, profileSignOutHere
+        case profileDelete, profileDeleteTitle, profileDeleteBody, profileDeleteBodyApple, profileDeleteConfirm, profileDeleteFailed, profileDeleteCancelled, profileSignOutHere
         case profileSubhead, profileNotifsHint, profileSettingsHint, profileAppLanguage
         case profileFamilyManage, profileHelpTitle, profileHelpBody, profileTalkToUs, profileMore
         case taken, skip, skipped, logged, locked, takenStaysFree
@@ -696,8 +696,10 @@ enum L10n {
         .profileDelete: "Delete account & data",
         .profileDeleteTitle: "Delete account & data",
         .profileDeleteBody: "This permanently deletes your account, medication information, and saved prescription files on this device and in the cloud. You cannot undo this.",
+        .profileDeleteBodyApple: "To permanently delete an Apple-linked account, your iPhone will ask you to authenticate with Apple. That revokes Apple’s authorization and deletes your account, medication information, and saved prescription files on this device and in the cloud. You cannot undo this.",
         .profileDeleteConfirm: "Delete permanently",
         .profileDeleteFailed: "Your account was not deleted. Check your connection and try again.",
+        .profileDeleteCancelled: "You cancelled Apple authentication. Your account and data were not deleted.",
         .profileSignOutHere: "Sign out here",
         .profileSubhead: "Here is your information and preferences.",
         .profileNotifsHint: "Turn on reminders, alerts, and more.",
@@ -1513,8 +1515,10 @@ enum L10n {
         .profileDelete: "Excluir conta e dados",
         .profileDeleteTitle: "Excluir conta e dados",
         .profileDeleteBody: "Isso exclui de forma permanente sua conta, as informações de medicamentos e os arquivos de receita salvos neste aparelho e na nuvem. Não é possível desfazer.",
+        .profileDeleteBodyApple: "Para excluir de forma permanente uma conta ligada à Apple, o iPhone pedirá autenticação da Apple. Isso revoga a autorização da Apple e apaga sua conta, os medicamentos e os arquivos de receita neste aparelho e na nuvem. Não é possível desfazer.",
         .profileDeleteConfirm: "Excluir permanentemente",
         .profileDeleteFailed: "Sua conta não foi excluída. Verifique a conexão e tente de novo.",
+        .profileDeleteCancelled: "Você cancelou a autenticação da Apple. Sua conta e seus dados não foram excluídos.",
         .profileSignOutHere: "Sair agora",
         .profileSubhead: "Aqui está a sua informação e preferências.",
         .profileNotifsHint: "Ative lembretes, alertas e mais.",
@@ -2330,8 +2334,10 @@ enum L10n {
         .profileDelete: "Eliminar cuenta y datos",
         .profileDeleteTitle: "Eliminar cuenta y datos",
         .profileDeleteBody: "Esto elimina de forma permanente tu cuenta, la información de medicamentos y los archivos de receta guardados en este dispositivo y en la nube. No se puede deshacer.",
+        .profileDeleteBodyApple: "Para eliminar de forma permanente una cuenta vinculada a Apple, el iPhone pedirá autenticación de Apple. Esto revoca la autorización de Apple y elimina tu cuenta, los medicamentos y los archivos de receta en este dispositivo y en la nube. No se puede deshacer.",
         .profileDeleteConfirm: "Eliminar definitivamente",
         .profileDeleteFailed: "Tu cuenta no se eliminó. Comprueba la conexión e inténtalo de nuevo.",
+        .profileDeleteCancelled: "Cancelaste la autenticación de Apple. Tu cuenta y tus datos no se eliminaron.",
         .profileSignOutHere: "Cerrar sesión aquí",
         .profileSubhead: "Aquí está tu información y preferencias.",
         .profileNotifsHint: "Activa recordatorios, alertas y más.",
@@ -3147,8 +3153,10 @@ enum L10n {
         .profileDelete: "Supprimer le compte et les données",
         .profileDeleteTitle: "Supprimer le compte et les données",
         .profileDeleteBody: "Cela supprime définitivement votre compte, les informations de médicaments et les fichiers d’ordonnance enregistrés sur cet appareil et dans le cloud. Cette action est irréversible.",
+        .profileDeleteBodyApple: "Pour supprimer définitivement un compte lié à Apple, l’iPhone demandera une authentification Apple. Cela révoque l’autorisation Apple et supprime votre compte, vos médicaments et vos fichiers d’ordonnance sur cet appareil et dans le cloud. Cette action est irréversible.",
         .profileDeleteConfirm: "Supprimer définitivement",
         .profileDeleteFailed: "Votre compte n’a pas été supprimé. Vérifiez la connexion et réessayez.",
+        .profileDeleteCancelled: "Vous avez annulé l’authentification Apple. Votre compte et vos données n’ont pas été supprimés.",
         .profileSignOutHere: "Se déconnecter ici",
         .profileSubhead: "Voici vos informations et préférences.",
         .profileNotifsHint: "Activez rappels, alertes et plus encore.",

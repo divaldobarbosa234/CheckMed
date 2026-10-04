@@ -43,6 +43,11 @@ nonisolated struct CheckMedProfile: Codable, Sendable {
     }
 }
 
+enum AppleDeletionAuthFailure: Error {
+    case cancelled
+    case failed
+}
+
 /// Owns the Supabase client, persisted session, and provider sign-in.
 /// SessionStore is the single SwiftUI session source and wraps this type.
 @MainActor
@@ -54,6 +59,7 @@ final class AuthManager {
     private(set) var displayName = "friend"
     private(set) var companionName = "Phil"
     private(set) var email: String?
+    private(set) var hasAppleIdentity = false
     private(set) var errorMessage: String?
     private(set) var statusMessage: String?
 
@@ -185,7 +191,8 @@ final class AuthManager {
 
     /// Deletes only the currently authenticated Auth user via a JWT-gated Edge Function.
     /// Does not take a user id from the client. Does not wipe local data.
-    func deleteOwnAuthenticatedAccount() async -> Bool {
+    /// `appleAuthorizationCode` is required when the Auth user has an Apple identity.
+    func deleteOwnAuthenticatedAccount(appleAuthorizationCode: String? = nil) async -> Bool {
         errorMessage = nil
         statusMessage = nil
         guard let client, isAuthenticated, userId != nil else { return false }
@@ -193,14 +200,49 @@ final class AuthManager {
         defer { isLoading = false }
         do {
             struct Payload: Decodable { let ok: Bool }
-            let payload: Payload = try await NetworkDeadline.run(seconds: 20) {
-                try await client.functions.invoke("delete-account")
+            struct Body: Encodable { var appleAuthorizationCode: String? }
+            let payload: Payload = try await NetworkDeadline.run(seconds: 30) {
+                if let appleAuthorizationCode, !appleAuthorizationCode.isEmpty {
+                    return try await client.functions.invoke(
+                        "delete-account",
+                        options: FunctionInvokeOptions(body: Body(appleAuthorizationCode: appleAuthorizationCode))
+                    )
+                }
+                return try await client.functions.invoke("delete-account")
             }
             guard payload.ok else { return false }
             return true
         } catch {
             LaunchLog.error("delete-account: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    func refreshAppleIdentityLink() async {
+        guard let client, isAuthenticated else {
+            hasAppleIdentity = false
+            return
+        }
+        if hasAppleIdentity { return }
+        if let user = try? await client.auth.user() {
+            hasAppleIdentity = Self.userHasAppleIdentity(user)
+        }
+    }
+
+    /// Native Apple sheet only to collect a one-time authorization code for server revocation.
+    /// Does not create a second Supabase session.
+    func appleAuthorizationCodeForDeletion() async -> Result<String, AppleDeletionAuthFailure> {
+        do {
+            let rawNonce = Self.randomNonce()
+            let result = try await appleSignIn.signIn(hashedNonce: Self.sha256Hex(rawNonce))
+            guard let code = result.authorizationCode, !code.isEmpty else {
+                return .failure(.failed)
+            }
+            return .success(code)
+        } catch {
+            if Self.isAppleCancel(error) { return .failure(.cancelled) }
+            LaunchLog.error("apple deletion auth: \(error.localizedDescription)")
+            return .failure(.failed)
         }
     }
 
@@ -459,10 +501,12 @@ final class AuthManager {
             if displayName == "friend", let pending = pendingAppleDisplayName, !pending.isEmpty {
                 displayName = pending
             }
+            hasAppleIdentity = Self.userHasAppleIdentity(user)
         } else {
             displayName = "friend"
             companionName = "Phil"
             pendingAppleDisplayName = nil
+            hasAppleIdentity = false
         }
         if session != nil {
             errorMessage = nil
@@ -526,6 +570,19 @@ final class AuthManager {
             errorMessage = Self.message(for: error)
         }
         isLoading = false
+    }
+
+    private static func userHasAppleIdentity(_ user: User) -> Bool {
+        if user.identities?.contains(where: { $0.provider.lowercased() == "apple" }) == true {
+            return true
+        }
+        if user.appMetadata["provider"]?.stringValue?.lowercased() == "apple" {
+            return true
+        }
+        if let providers = user.appMetadata["providers"]?.arrayValue {
+            return providers.contains { $0.stringValue?.lowercased() == "apple" }
+        }
+        return false
     }
 
     private static func inferredDisplayName(from user: User) -> String {

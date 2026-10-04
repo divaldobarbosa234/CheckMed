@@ -4,6 +4,8 @@ import UIKit
 
 struct AppleIDSignInResult: Sendable {
     var idToken: String
+    var authorizationCode: String?
+    var appleUserId: String?
     var fullName: String?
 }
 
@@ -66,7 +68,20 @@ final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             if !formatted.isEmpty { fullName = formatted }
         }
-        continuation?.resume(returning: AppleIDSignInResult(idToken: idToken, fullName: fullName))
+        let authorizationCode = credential.authorizationCode.flatMap { String(data: $0, encoding: .utf8) }
+            .flatMap { raw -> String? in
+                let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        let appleUserId = credential.user.trimmingCharacters(in: .whitespacesAndNewlines)
+        continuation?.resume(
+            returning: AppleIDSignInResult(
+                idToken: idToken,
+                authorizationCode: authorizationCode,
+                appleUserId: appleUserId.isEmpty ? nil : appleUserId,
+                fullName: fullName
+            )
+        )
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {

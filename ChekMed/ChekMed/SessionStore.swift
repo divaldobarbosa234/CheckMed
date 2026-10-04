@@ -1039,6 +1039,7 @@ final class SessionStore {
     var googleConfigured: Bool { auth.isGoogleConfigured }
     var isRestoring: Bool { auth.isRestoring }
     var isLoading: Bool { auth.isLoading }
+    var hasAppleIdentity: Bool { auth.hasAppleIdentity }
     var errorMessage: String? { auth.errorMessage }
     var lastAuthNote: String? { auth.statusMessage }
 
@@ -1161,14 +1162,30 @@ final class SessionStore {
     @MainActor
     private func performAccountDeletion(treatments: CheckMedStore, family: FamilyStore) async {
         guard !isDeletingAccount else { return }
-        isDeletingAccount = true
-        defer { isDeletingAccount = false }
         auth.clearMessages()
         guard kind == .authenticated, let userId = auth.userId else {
             auth.presentError(t(.profileDeleteFailed))
             return
         }
-        let deletedRemotely = await auth.deleteOwnAuthenticatedAccount()
+        await auth.refreshAppleIdentityLink()
+        var appleAuthorizationCode: String?
+        if auth.hasAppleIdentity {
+            switch await auth.appleAuthorizationCodeForDeletion() {
+            case .success(let code):
+                appleAuthorizationCode = code
+            case .failure(.cancelled):
+                auth.presentError(t(.profileDeleteCancelled))
+                return
+            case .failure(.failed):
+                auth.presentError(t(.profileDeleteFailed))
+                return
+            }
+        }
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        let deletedRemotely = await auth.deleteOwnAuthenticatedAccount(
+            appleAuthorizationCode: appleAuthorizationCode
+        )
         guard deletedRemotely else {
             auth.presentError(t(.profileDeleteFailed))
             return
