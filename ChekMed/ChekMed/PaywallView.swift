@@ -536,7 +536,7 @@ private struct TrialPhilCrowd: View {
             .offset(x: 103, y: 48)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Phil")
+        .accessibilityLabel("Cooper")
     }
 
     private var crowdGlow: some View {

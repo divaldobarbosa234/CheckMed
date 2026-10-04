@@ -87,7 +87,7 @@ struct SignInView: View {
     private var landing: some View {
         VStack(spacing: 0) {
             VStack(spacing: 8) {
-                Text("checkmed")
+                Text("Conny Cooper")
                     .font(.system(size: 34, weight: .heavy, design: .rounded))
                     .foregroundStyle(CheckMedTheme.ink)
                     .padding(.top, 12)

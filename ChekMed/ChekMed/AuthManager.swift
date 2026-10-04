@@ -171,7 +171,7 @@ final class AuthManager {
     func resetPassword(email: String) async {
         await run { client in
             try await client.auth.resetPasswordForEmail(email)
-            self.statusMessage = "If that email is registered, Phil sent a reset link."
+            self.statusMessage = "If that email is registered, Cooper sent a reset link."
         }
     }
 

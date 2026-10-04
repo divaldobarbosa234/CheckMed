@@ -4,7 +4,7 @@ import Foundation
 /// Explicit confirm from a notification action. Never attached to AlarmKit Stop.
 nonisolated struct DoseTakenIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "I took it"
-    static var description: IntentDescription = IntentDescription("Confirms this CheckMed dose was taken.")
+    static var description: IntentDescription = IntentDescription("Confirms this Conny Cooper dose was taken.")
     static var isDiscoverable = false
     static var openAppWhenRun = false
 
@@ -28,7 +28,7 @@ nonisolated struct DoseTakenIntent: LiveActivityIntent {
 /// AlarmKit / notification snooze: same dose event, still unconfirmed.
 nonisolated struct DoseSnoozeIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Snooze"
-    static var description: IntentDescription = IntentDescription("Snoozes this CheckMed dose without marking it taken.")
+    static var description: IntentDescription = IntentDescription("Snoozes this Conny Cooper dose without marking it taken.")
     static var isDiscoverable = false
     static var openAppWhenRun = false
 
@@ -52,7 +52,7 @@ nonisolated struct DoseSnoozeIntent: LiveActivityIntent {
 /// AlarmKit Stop / dismiss: not taken. Follow-up confirmation is scheduled separately.
 nonisolated struct DoseStoppedIntent: LiveActivityIntent {
     static var title: LocalizedStringResource = "Stop"
-    static var description: IntentDescription = IntentDescription("Stops this CheckMed alarm without marking the dose taken.")
+    static var description: IntentDescription = IntentDescription("Stops this Conny Cooper alarm without marking the dose taken.")
     static var isDiscoverable = false
     static var openAppWhenRun = false
 

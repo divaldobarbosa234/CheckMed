@@ -30,7 +30,7 @@ struct PhilWelcomeCluster: View {
         }
         .clipped()
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Phil")
+        .accessibilityLabel("Cooper")
     }
 
     private func phil(_ name: String, size: CGFloat) -> some View {

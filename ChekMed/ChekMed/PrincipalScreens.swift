@@ -22,7 +22,7 @@ struct TodayTreatmentScreen: View {
         ScreenScaffold(
             title: session.t(.homeTodaysTreatment),
             kicker: session.t(.homeTodaysTreatment),
-            bubble: "Phil: Morning's done. Evening is still open whenever you're ready."
+            bubble: "Cooper: Morning's done. Evening is still open whenever you're ready."
         ) {
             Text(session.t(.todayGlance))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
@@ -113,8 +113,8 @@ struct DailySummaryScreen: View {
             title: session.t(.homeSummary),
             philSize: 128,
             bubble: path.pathComplete
-                ? "Phil: That's a full day. I'm proud of you."
-                : "Phil: We'll keep going together."
+                ? "Cooper: That's a full day. I'm proud of you."
+                : "Cooper: We'll keep going together."
         ) {
             Text(path.pathComplete ? "You did it!" : session.t(.homeToday))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
@@ -242,7 +242,7 @@ struct VerifyPrescriptionScreen: View {
         ScreenScaffold(
             title: "Verify prescription",
             kicker: "Verify with Littmann",
-            bubble: "Please confirm this matches the paper. CheckMed does not add or invent doses."
+            bubble: "Please confirm this matches the paper. Conny Cooper does not add or invent doses."
         ) {
             Text("Is this correct?")
                 .font(.system(.title3, design: .rounded).weight(.heavy))
@@ -483,7 +483,7 @@ struct TreatmentOverviewScreen: View {
                 PhilDoctor2DImage(size: 112)
                     .offset(y: 6)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text("Phil")
+                    Text("Cooper")
                         .font(.system(.caption, design: .rounded).weight(.heavy))
                         .foregroundStyle(CheckMedTheme.primaryShadow)
                     Text(session.t(.treatmentsPhilBubble))
@@ -988,7 +988,7 @@ struct EditTreatmentScreen: View {
     var body: some View {
         ScreenScaffold(
             title: "Edit treatment",
-            bubble: "Changing times does not change the prescribed amount. CheckMed will never suggest doubling a missed dose."
+            bubble: "Changing times does not change the prescribed amount. Conny Cooper will never suggest doubling a missed dose."
         ) {
             field("Dose", text: $dose)
             field("Frequency", text: $frequency)
@@ -1367,7 +1367,7 @@ struct ProgressDashboardScreen: View {
     private var header: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("CheckMed")
+                Text("Conny Cooper")
                     .font(.system(.caption, design: .rounded).weight(.heavy))
                     .foregroundStyle(CheckMedTheme.muted)
                 Text(session.t(.progressHeadline))
@@ -1896,7 +1896,7 @@ struct TreatmentCompleteScreen: View {
             title: session.t(.progressTitle),
             philSize: 140,
             bubble: stats.hasHistory
-                ? "Phil: You finished the course. That's something to be proud of."
+                ? "Cooper: You finished the course. That's something to be proud of."
                 : session.t(.progressEmptyBubble)
         ) {
             Text(stats.hasHistory ? session.t(.progressOnARoll) : session.t(.progressEmptyBody))

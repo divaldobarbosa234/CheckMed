@@ -138,7 +138,7 @@ struct ProfileView: View {
                 .accessibilityHidden(true)
             HStack(alignment: .bottom, spacing: 2) {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("CheckMed")
+                    Text("Conny Cooper")
                         .font(.system(.caption, design: .rounded).weight(.heavy))
                         .foregroundStyle(CheckMedTheme.primaryShadow)
                     Text(session.t(.profileTitle))

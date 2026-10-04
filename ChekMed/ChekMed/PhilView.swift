@@ -27,7 +27,7 @@ struct PhilView: View {
 
     var body: some View {
         PhilLibraryImage(asset: libraryAsset, size: size)
-        .accessibilityLabel("Phil, the CheckMed companion")
+        .accessibilityLabel("Cooper, the Conny Cooper companion")
     }
 }
 

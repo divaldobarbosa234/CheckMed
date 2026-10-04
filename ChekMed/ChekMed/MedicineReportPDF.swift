@@ -727,7 +727,7 @@ struct MedicineReportScreen: View {
             }
         )
         let data = MedicineReportPDF.build(document: doc, theme: theme, session: session)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("CheckMed-Medical-Report-\(theme.rawValue).pdf")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Conny-Cooper-Medical-Report-\(theme.rawValue).pdf")
         try? data.write(to: url, options: .atomic)
         shareURL = url
         showShare = true

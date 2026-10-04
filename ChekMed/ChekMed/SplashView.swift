@@ -36,7 +36,7 @@ struct SplashView: View {
             guard let item = note.object as? AVPlayerItem, item == player?.currentItem else { return }
             player?.pause()
         }
-        .accessibilityLabel("Phil")
+        .accessibilityLabel("Cooper")
         .accessibilityAddTraits(.isImage)
     }
 

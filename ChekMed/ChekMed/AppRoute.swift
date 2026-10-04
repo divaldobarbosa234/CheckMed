@@ -107,7 +107,7 @@ enum CheckMedDemo {
     static let food = "Can usually be taken with or without food. Alcohol is not a substitute for medical advice — ask your pharmacist if unsure."
 
     static let howSteps: [(title: String, body: String)] = [
-        ("Take a photo", "Take a picture of your prescription and let CheckMed help read and organize the information."),
+        ("Take a photo", "Take a picture of your prescription and let Conny Cooper help read and organize the information."),
         ("Know what you’re taking", "See your medicines, dosage, frequency, and important information in one simple place."),
         ("Get reminders", "Create a personalized medication schedule and receive reminders when it’s time to take each medicine."),
         ("Hear it explained", "Use AI voice assistance to listen to your medication instructions and explanations."),

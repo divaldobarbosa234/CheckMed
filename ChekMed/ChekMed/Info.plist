@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>NSCameraUsageDescription</key>
-	<string>CheckMed uses the camera to photograph prescriptions so Phil can help you organize them. You review every field before anything is saved.</string>
+	<string>Conny Cooper uses the camera to photograph prescriptions so Cooper can help you organize them. You review every field before anything is saved.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>CheckMed can import a prescription photo from your library so Phil can help you organize it. You review every field before anything is saved.</string>
+	<string>Conny Cooper can import a prescription photo from your library so Cooper can help you organize it. You review every field before anything is saved.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>CheckMed uses your location only to search nearby pharmacies. Availability is not a medical recommendation — confirm stock with the pharmacy.</string>
+	<string>Conny Cooper uses your location only to search nearby pharmacies. Availability is not a medical recommendation — confirm stock with the pharmacy.</string>
 	<key>NSAlarmKitUsageDescription</key>
-	<string>CheckMed uses alarms for medication dose times so Phil can wake the device even in Silent or Focus. Stopping or snoozing an alarm does not mark a dose as taken — only an explicit confirmation does.</string>
+	<string>Conny Cooper uses alarms for medication dose times so Cooper can wake the device even in Silent or Focus. Stopping or snoozing an alarm does not mark a dose as taken — only an explicit confirmation does.</string>
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
