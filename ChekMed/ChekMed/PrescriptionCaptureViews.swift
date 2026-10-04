@@ -279,6 +279,10 @@ enum PrescriptionSourceArchive {
         }
     }
 
+    static func remove(for treatmentId: UUID) {
+        removeFiles(for: treatmentId)
+    }
+
     private static func removeFiles(for treatmentId: UUID) {
         let jpeg = folder.appendingPathComponent("\(treatmentId.uuidString).jpg")
         let pdf = folder.appendingPathComponent("\(treatmentId.uuidString).pdf")

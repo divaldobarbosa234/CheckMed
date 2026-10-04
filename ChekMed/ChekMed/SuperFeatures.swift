@@ -265,6 +265,17 @@ final class FamilyStore {
         Task { await onCloudSync?() }
     }
 
+    /// Local Super extra-seat keys for one owner. Does not call cloud sync.
+    func clearLocalSeat(for ownerId: UUID) {
+        extra = nil
+        activeId = nil
+        UserDefaults.standard.removeObject(forKey: Self.extraKey(ownerId))
+        UserDefaults.standard.removeObject(forKey: Self.activeKey(ownerId))
+        if self.ownerId == ownerId {
+            self.ownerId = nil
+        }
+    }
+
     func selectPrimary() {
         activeId = nil
         persistActive()

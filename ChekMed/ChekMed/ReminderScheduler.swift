@@ -83,6 +83,23 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         FreezeDiag.log("ReminderScheduler.bind done")
     }
 
+    /// Account deletion: cancel CheckMed local notifications and AlarmKit dose alarms.
+    /// Does not mark doses taken. Does not require onboarding flags.
+    func cancelAllManagedReminders() async {
+        await Self.syncAlarmsOnMain(drafts: [], copy: Self.alarmKitCopy(locale: session?.locale ?? .english, theme: .philChime))
+        let center = UNUserNotificationCenter.current()
+        let pending = await center.pendingNotificationRequests()
+        let pendingOurs = pending.filter { $0.identifier.hasPrefix("checkmed.") }.map(\.identifier)
+        if !pendingOurs.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: pendingOurs)
+        }
+        let delivered = await center.deliveredNotifications()
+        let deliveredOurs = delivered.map(\.request.identifier).filter { $0.hasPrefix("checkmed.") }
+        if !deliveredOurs.isEmpty {
+            center.removeDeliveredNotifications(withIdentifiers: deliveredOurs)
+        }
+    }
+
     func reschedule(force: Bool = true) {
         #if DEBUG
         Self.trace4h(

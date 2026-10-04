@@ -102,10 +102,24 @@ struct ProfileView: View {
                     || settings.authorizationStatus == .provisional
             }
             .alert(session.t(.profileDeleteTitle), isPresented: $confirmDelete) {
-                Button(session.t(.profileSignOutHere), role: .destructive) { session.deleteAccount() }
+                Button(session.t(.profileDeleteConfirm), role: .destructive) {
+                    session.deleteAccount(treatments: treatments, family: family)
+                }
                 Button(session.t(.cancel), role: .cancel) {}
             } message: {
                 Text(session.t(.profileDeleteBody))
+            }
+            .disabled(session.isDeletingAccount)
+            .overlay {
+                if session.isDeletingAccount {
+                    ZStack {
+                        Color.black.opacity(0.18)
+                            .ignoresSafeArea()
+                        ProgressView()
+                            .tint(CheckMedTheme.primary)
+                    }
+                    .allowsHitTesting(true)
+                }
             }
         }
     }

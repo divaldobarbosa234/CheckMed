@@ -183,6 +183,37 @@ final class AuthManager {
         apply(session: nil)
     }
 
+    /// Deletes only the currently authenticated Auth user via a JWT-gated Edge Function.
+    /// Does not take a user id from the client. Does not wipe local data.
+    func deleteOwnAuthenticatedAccount() async -> Bool {
+        errorMessage = nil
+        statusMessage = nil
+        guard let client, isAuthenticated, userId != nil else { return false }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            struct Payload: Decodable { let ok: Bool }
+            let payload: Payload = try await NetworkDeadline.run(seconds: 20) {
+                try await client.functions.invoke("delete-account")
+            }
+            guard payload.ok else { return false }
+            return true
+        } catch {
+            LaunchLog.error("delete-account: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Drop the local Auth/Google session after the Auth user is already gone remotely.
+    func clearSessionAfterRemoteAccountDeletion() async {
+        leftoverSignOutGeneration += 1
+        GIDSignIn.sharedInstance.signOut()
+        if let client {
+            try? await client.auth.signOut(scope: .local)
+        }
+        apply(session: nil)
+    }
+
     func signInWithApple() async {
         errorMessage = nil
         statusMessage = nil

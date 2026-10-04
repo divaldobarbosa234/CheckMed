@@ -253,6 +253,7 @@ final class SessionStore {
 
     private(set) var profileId: UUID?
     private(set) var isResolvingPostAuth = false
+    private(set) var isDeletingAccount = false
     private(set) var userDataLoadState: UserDataLoadState = .notLoaded
     /// Settled restore never treats an empty in-memory array as “new user”.
     private(set) var hasMedicalData = false
@@ -1152,6 +1153,35 @@ final class SessionStore {
         Task { await auth.signOut() }
     }
 
+    /// Cloud Auth deletion must succeed before local wipe. Failures stay signed in.
+    func deleteAccount(treatments: CheckMedStore, family: FamilyStore) {
+        Task { await performAccountDeletion(treatments: treatments, family: family) }
+    }
+
+    @MainActor
+    private func performAccountDeletion(treatments: CheckMedStore, family: FamilyStore) async {
+        guard !isDeletingAccount else { return }
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+        auth.clearMessages()
+        guard kind == .authenticated, let userId = auth.userId else {
+            auth.presentError(t(.profileDeleteFailed))
+            return
+        }
+        let deletedRemotely = await auth.deleteOwnAuthenticatedAccount()
+        guard deletedRemotely else {
+            auth.presentError(t(.profileDeleteFailed))
+            return
+        }
+        treatments.eraseOwnedLocalData(ownerId: userId)
+        treatments.setSurfacesPlan(false)
+        treatments.bindIdentity(ownerId: nil, profileId: nil)
+        family.clearLocalSeat(for: userId)
+        await ReminderScheduler.shared.cancelAllManagedReminders()
+        applyLocalDeletionCleanup(userId: userId)
+        await auth.clearSessionAfterRemoteAccountDeletion()
+    }
+
     /// Splash → language → how it works → privacy → sign-in.
     /// Identity returns from Supabase on the next sign-in so a new Google/email
     /// account cannot inherit the previous user's name, DOB, or pronouns.
@@ -1199,8 +1229,8 @@ final class SessionStore {
         restoreCount = 0
     }
 
-    func deleteAccount() {
-        let deletingUserId = auth.userId
+    private func applyLocalDeletionCleanup(userId: UUID) {
+        markSignedOutForWelcomeBack()
         localDisplayName = "there"
         localCompanionName = "Phil"
         localLanguage = AppLocale.english.rawValue
@@ -1258,14 +1288,9 @@ final class SessionStore {
         completedRestoreUserId = nil
         inFlightRestoreId = nil
         restoreCount = 0
-        if let userId = deletingUserId {
-            UserDefaults.standard.removeObject(forKey: Self.onboardingCompleteKey(for: userId))
-            UserDefaults.standard.removeObject(forKey: Self.medicationPlanConfirmedKey(for: userId))
-            ProfileSetupKeychain.clear(for: userId)
-        } else {
-            ProfileSetupKeychain.clear()
-        }
-        Task { await auth.signOut() }
+        UserDefaults.standard.removeObject(forKey: Self.onboardingCompleteKey(for: userId))
+        UserDefaults.standard.removeObject(forKey: Self.medicationPlanConfirmedKey(for: userId))
+        ProfileSetupKeychain.clear(for: userId)
     }
 
     func requestProvider(_ provider: AuthProvider) {

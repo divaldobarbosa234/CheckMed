@@ -1507,6 +1507,26 @@ final class CheckMedStore {
         requestSync()
     }
 
+    /// Hard-delete SwiftData and prescription archive files for one Auth owner.
+    /// Does not sync. Call only after that Auth user is already deleted remotely.
+    func eraseOwnedLocalData(ownerId: UUID) {
+        let ownedTreatments = allTreatments().filter { $0.ownerId == ownerId }
+        for treatment in ownedTreatments {
+            PrescriptionSourceArchive.remove(for: treatment.id)
+        }
+        for row in ownedTreatments { context.delete(row) }
+        for row in allMedicines() where row.ownerId == ownerId { context.delete(row) }
+        for row in allSchedules() where row.ownerId == ownerId { context.delete(row) }
+        for row in allLogs() where row.ownerId == ownerId { context.delete(row) }
+        for row in allFeelings() where row.ownerId == ownerId { context.delete(row) }
+        for row in allComments() where row.ownerId == ownerId { context.delete(row) }
+        for row in allRewardGrants() where row.ownerId == ownerId { context.delete(row) }
+        invalidateCache()
+        logsEnsuredDay = nil
+        save()
+        notify()
+    }
+
     /// Soft-delete every treatment/medicine/schedule/log owned by the bound user (sync pushes deletes).
     func deleteAllOwnedPlanData() {
         let now = Date()
@@ -2426,6 +2446,10 @@ final class CheckMedStore {
     }
 
     private func allComments() -> [CommunityCommentRecord] {
+        fetch()
+    }
+
+    private func allRewardGrants() -> [RewardGrant] {
         fetch()
     }
 
