@@ -233,76 +233,17 @@ struct HomeView: View {
                         todayMissed: stats.todayMissedCount
                     )
                     header
-                    if isPlanVisibilityPending {
-                        restoringPlanCard
-                    } else if hasActivePlan {
-                        if let journey = DailyMedicationJourney.snapshot(
-                            from: game,
-                            nodes: nodes,
-                            planSurfaceReady: !isPlanVisibilityPending
-                        ) {
-                            DailyMedicationJourneyCard(
-                                journey: journey,
-                                streakDays: game.currentStreak
-                            ) {
-                                #if DEBUG
-                                print(
-                                    "[JOURNEY-DIAG] state=\(journey.state) action=\(String(describing: DailyMedicationJourney.action(for: journey.state))) challengeAnchorAvailable=true"
-                                )
-                                #endif
-                                proxy.scrollTo("todays-challenge", anchor: .top)
-                            }
-                        }
-                        TodaysChallengeCard(
-                            snapshot: game,
-                            highlightedDoseId: highlightedNotificationLogId
-                        ) { doseId in
-                            #if DEBUG
-                            print("[PHASE4A-REGRESSION] dose tap challenge id=\(doseId)")
-                            #endif
-                            let node = nodes.first(where: { $0.id == doseId })
-                            if node?.status == .skipped {
-                                path.requestMissedSheetPresentation()
-                                return
-                            }
-                            confirmDoseAndCoach(id: doseId)
-                        }
-                        .id("todays-challenge")
-                        WeeklyAdherenceCard(
-                            stats: stats,
-                            weekly: treatments.weeklyMedicationProgress(),
-                            snapshot: game,
-                            hasUpcomingDose: nodes.contains { $0.status == .current || $0.status == .locked }
-                        ) {
-                            navPath.append(AppRoute.treatmentOverview)
-                        }
-                        GamificationStreakCard(snapshot: game)
-                        if moodPhase != .hidden {
-                            moodCard
-                                .transition(.asymmetric(
-                                    insertion: .opacity.combined(with: .move(edge: .top)),
-                                    removal: .opacity.combined(with: .scale(scale: 0.96))
-                                ))
-                        }
-                        medicationsCard
-                        progressGlanceLinks
-                        if let days = treatments.daysUntilNextRevision(calendar: session.foundationCalendar), days >= 0 {
-                            revisionCard(days: days)
-                        }
-                        quoteBanner
-                    } else {
-                        emptyPlanCard
-                    }
-                    CheckMedButton(title: session.t(.homeScan)) {
-                        // Active-medicine free cap only — empty / under cap opens intake, not Super.
-                        if !entitlements.isSuper,
-                           treatments.storedMedicineCount > 0,
-                           entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount) <= 0 {
-                            entitlements.presentPaywall()
-                        } else {
-                            navPath.append(AppRoute.addPrescription)
+                    ConnyWeekStrip(
+                        days: ConnyWeekStrip.days(
+                            from: treatments.weeklyMedicationProgress(),
+                            calendar: session.foundationCalendar
+                        )
+                    ) { day in
+                        if !day.isToday {
+                            navPath.append(AppRoute.adherence)
                         }
                     }
+                    homeOccupancyContent(game: game, nodes: nodes, proxy: proxy)
                     SafetyCaption()
                         .frame(maxWidth: .infinity)
                 }
@@ -311,6 +252,10 @@ struct HomeView: View {
             .background(CheckMedTheme.background)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(navPath.isEmpty ? .hidden : .automatic, for: .navigationBar)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // Tab bar + floating + must not cover Scan / Calendar / Progress.
+                Color.clear.frame(height: ProgressOverlayGeometry.bottomClearance + 24)
+            }
             .navigationDestination(for: AppRoute.self) { route in
                 AppRouteView(route: route, path: $navPath)
             }
@@ -426,36 +371,143 @@ struct HomeView: View {
         }
     }
 
+    @ViewBuilder
+    private func homeOccupancyContent(
+        game: GamificationSnapshot,
+        nodes: [DoseNode],
+        proxy: ScrollViewProxy
+    ) -> some View {
+        let occupancy = HomePlanPresentationMapper.occupancy(
+            planReady: !isPlanVisibilityPending,
+            tree: treatments.journeyTreeSnapshot(),
+            hasScheduledToday: game.hasScheduledDoses
+        )
+        switch occupancy {
+        case .restoring:
+            restoringPlanCard
+        case .noTreatment:
+            HomeStatusCard(
+                title: session.t(.noTreatmentInProgressHeadline),
+                bodyText: session.t(.homeBubbleEmpty, greetingName),
+                primaryTitle: session.t(.homeScan),
+                primaryAction: openScan
+            )
+        case .completed:
+            HomeStatusCard(
+                title: session.t(.homeTreatmentCompleteTitle),
+                bodyText: session.t(.homeTreatmentCompleteBody),
+                primaryTitle: session.t(.finishTreatmentSeeReport),
+                primaryAction: { navPath.append(AppRoute.journeyReport) },
+                secondaryTitle: session.t(.homeScan),
+                secondaryAction: openScan
+            )
+        case .futureOnly:
+            HomeStatusCard(
+                title: session.t(.journeyStateUpcoming),
+                bodyText: session.t(.homeFutureTreatmentBody),
+                primaryTitle: session.t(.tabTreatments),
+                primaryAction: { navPath.append(AppRoute.treatmentOverview) }
+            )
+        case .activeQuietDay:
+            HomeStatusCard(
+                title: session.t(.challengeNoDosesToday),
+                bodyText: session.t(.homeActiveNoDosesToday),
+                primaryTitle: session.t(.tabTreatments),
+                primaryAction: { navPath.append(AppRoute.treatmentOverview) },
+                secondaryTitle: session.t(.myProgress),
+                secondaryAction: { navPath.append(AppRoute.progressDashboard) }
+            )
+        case .activeToday:
+            activeTodayStack(game: game, nodes: nodes, proxy: proxy)
+        }
+        HomePrimaryActionsRow(
+            onScan: openScan,
+            onCalendar: { navPath.append(AppRoute.adherence) },
+            onProgress: { navPath.append(AppRoute.progressDashboard) }
+        )
+    }
+
+    private func activeTodayStack(
+        game: GamificationSnapshot,
+        nodes: [DoseNode],
+        proxy: ScrollViewProxy
+    ) -> some View {
+        let journey = DailyMedicationJourney.snapshot(
+            from: game,
+            nodes: nodes,
+            planSurfaceReady: true
+        )
+        return VStack(alignment: .leading, spacing: 16) {
+            HomeTodayProgressCard(
+                snapshot: game,
+                highlightedDoseId: highlightedNotificationLogId,
+                onConfirmDose: { doseId in
+                    #if DEBUG
+                    print("[PHASE4A-REGRESSION] dose tap challenge id=\(doseId)")
+                    #endif
+                    let node = nodes.first(where: { $0.id == doseId })
+                    if node?.status == .skipped {
+                        path.requestMissedSheetPresentation()
+                        return
+                    }
+                    confirmDoseAndCoach(id: doseId)
+                },
+                onMissed: {
+                    path.requestMissedSheetPresentation()
+                }
+            )
+            .id("todays-challenge")
+
+            if let next = journey?.nextDose {
+                HomeNextDoseCard(line: next) {
+                    proxy.scrollTo(next.id, anchor: .center)
+                }
+            }
+
+            HomeEncouragementCard(
+                snapshot: game,
+                remaining: journey?.remaining ?? game.remainingCount
+            ) {
+                proxy.scrollTo("todays-challenge", anchor: .top)
+            }
+        }
+    }
+
+    private func openScan() {
+        if !entitlements.isSuper,
+           treatments.storedMedicineCount > 0,
+           entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount) <= 0 {
+            entitlements.presentPaywall()
+        } else {
+            navPath.append(AppRoute.addPrescription)
+        }
+    }
+
     private var header: some View {
         ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 34, style: .continuous)
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(
                     LinearGradient(
-                        colors: [CheckMedTheme.surface, CheckMedTheme.mintWash],
+                        colors: [CheckMedTheme.blueWash, CheckMedTheme.surface],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
-            Circle()
-                .fill(CheckMedTheme.primary.opacity(0.10))
-                .frame(width: 180, height: 180)
-                .offset(x: 38, y: 34)
-                .accessibilityHidden(true)
 
             HStack(alignment: .bottom, spacing: 0) {
-                VStack(alignment: .leading, spacing: 7) {
-                    Text(session.t(.homeGreetingFormat, greetingWord, greetingName))
-                        .font(.system(size: 30, weight: .black, design: .rounded))
-                        .foregroundStyle(CheckMedTheme.ink)
-                        .minimumScaleFactor(0.78)
-                    Rectangle()
-                        .fill(CheckMedTheme.primary)
-                        .frame(width: 44, height: 4)
-                        .clipShape(Capsule())
-                    Text(session.t(.homeFeelAsk))
-                        .font(.system(.headline, design: .rounded).weight(.heavy))
-                    Text(session.t(.homeFeelTogether))
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(session.t(.homeGreetingFormat, greetingWord, greetingName))
+                            .font(.system(size: 30, weight: .black, design: .rounded))
+                            .foregroundStyle(CheckMedTheme.ink)
+                            .minimumScaleFactor(0.78)
+                        Image(systemName: greetingSunSymbol)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(CheckMedTheme.current)
+                            .padding(.top, 8)
+                    }
+                    Text(session.t(.homeCareToday))
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
                         .foregroundStyle(CheckMedTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
                     if family.isViewingExtra, let extra = family.extra {
@@ -465,29 +517,53 @@ struct HomeView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                PhilDoctor2DImage(size: 142)
-                    .offset(y: 12)
+                VStack(spacing: 6) {
+                    Text(session.t(.homeCooperCheer))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(CheckMedTheme.surface, in: Capsule())
+                    PhilDoctor2DImage(size: 108)
+                }
             }
-            .padding(.leading, 18)
-            .padding(.trailing, 4)
+            .padding(.leading, 16)
+            .padding(.trailing, 8)
             .padding(.vertical, 14)
+            .padding(.top, 28)
 
-            Button {
-                navPath.append(AppRoute.settings)
-            } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .frame(width: 38, height: 38)
-                    .background(CheckMedTheme.surface.opacity(0.92), in: Circle())
-                    .shadow(color: CheckMedTheme.ink.opacity(0.08), radius: 8, y: 3)
+            HStack(spacing: 8) {
+                headerCircleButton(symbol: "bell.fill", label: session.t(.profileNotifs)) {
+                    navPath.append(AppRoute.notificationPrefs)
+                }
+                headerCircleButton(symbol: "gearshape.fill", label: session.t(.profileSettings)) {
+                    navPath.append(AppRoute.settings)
+                }
             }
-            .buttonStyle(.plain)
             .padding(10)
-            .accessibilityLabel(session.t(.profileSettings))
         }
-        .frame(minHeight: 190)
-        .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+
+    private var greetingSunSymbol: String {
+        let hour = session.foundationCalendar.component(.hour, from: Date())
+        switch hour {
+        case 5..<18: return "sun.max.fill"
+        default: return "moon.stars.fill"
+        }
+    }
+
+    private func headerCircleButton(symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(CheckMedTheme.ink)
+                .frame(width: 36, height: 36)
+                .background(CheckMedTheme.surface.opacity(0.94), in: Circle())
+                .shadow(color: CheckMedTheme.ink.opacity(0.08), radius: 8, y: 3)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 
     private var moodCard: some View {

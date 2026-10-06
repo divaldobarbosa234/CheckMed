@@ -1326,30 +1326,15 @@ struct ProgressDashboardScreen: View {
     var body: some View {
         let xpProgress = treatments.rewardProgress()
         let gallery = treatments.achievementGallery()
+        let weekly = treatments.weeklyMedicationProgress()
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 12) {
-                header
-                levelHero(xpProgress)
-                statsRow(gallery: gallery)
+            VStack(alignment: .leading, spacing: 14) {
+                progressHeroHeader
+                levelMeter(xpProgress)
+                thisWeekCard(weekly)
+                progressSummaryRow(weekly: weekly)
                 BadgesPreviewCard(items: gallery) { go(.badges) }
-                weeklyChallengeRow
-                journeyReportRow
-                if treatments.activeMedicineCount > 0 {
-                    JourneyGamificationCard(
-                        snapshot: Gamification.snapshot(
-                            nodes: treatments.todayNodes(),
-                            currentStreak: stats.streakDays,
-                            longestStreak: stats.longestStreakDays,
-                            hasActiveTreatment: true,
-                            todayTaken: stats.todayTaken,
-                            todayScheduled: stats.todayTotal,
-                            todayMissed: stats.todayMissedCount
-                        ),
-                        history: treatments.dayStatuses()
-                    )
-                }
-                quickActions
-                backHome
+                journeyBanner
                 SafetyCaption()
                     .frame(maxWidth: .infinity)
             }
@@ -1362,6 +1347,197 @@ struct ProgressDashboardScreen: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: ProgressOverlayGeometry.bottomClearance)
         }
+    }
+
+    private var progressHeroHeader: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(session.t(.progressHeadline))
+                    .font(.system(.title, design: .rounded).weight(.black))
+                Text(session.t(.progressSubhead))
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            PhilDoctor2DImage(size: 92)
+            Button { go(.settings) } label: {
+                Image(systemName: "gearshape.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .frame(width: 36, height: 36)
+                    .background(CheckMedTheme.surface, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(session.t(.profileSettings))
+        }
+    }
+
+    private func levelMeter(_ progress: RewardProgress) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(session.t(.rewardLevel, progress.currentLevel).uppercased())
+                    .font(.system(.caption, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.flowDot)
+                Text(session.t(.rewardTotalXP, progress.totalXP))
+                    .font(.system(.title, design: .rounded).weight(.black))
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(CheckMedTheme.hairline)
+                        Capsule()
+                            .fill(CheckMedTheme.primary)
+                            .frame(width: max(8, geo.size.width * CGFloat(progress.progressFraction)))
+                    }
+                }
+                .frame(height: 8)
+            }
+            Spacer(minLength: 8)
+            VStack(spacing: 6) {
+                if progress.isMaxDefinedLevel {
+                    Text(session.t(.rewardMaxLevel))
+                        .font(.system(.caption, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .multilineTextAlignment(.center)
+                } else {
+                    Text(session.t(.rewardXPToNext, progress.xpNeededForNext, progress.currentLevel + 1))
+                        .font(.system(.caption, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 110)
+                }
+                Image(systemName: "star.fill")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.current)
+                    .frame(width: 40, height: 40)
+                    .background(CheckMedTheme.sunshineWash, in: Circle())
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(xpProgressAccessibility(progress))
+    }
+
+    private func thisWeekCard(_ weekly: DoseLoop.WeeklyMedicationProgressSnapshot) -> some View {
+        let days = ConnyWeekStrip.days(from: weekly, calendar: session.foundationCalendar)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(session.t(.progressThisWeek))
+                    .font(.system(.headline, design: .rounded).weight(.heavy))
+                Spacer()
+                Button { go(.adherence) } label: {
+                    Text(session.t(.progressSeeDetails))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.flowDot)
+                }
+                .buttonStyle(.plain)
+            }
+            HStack(spacing: 8) {
+                ForEach(Array(days.enumerated()), id: \.offset) { _, day in
+                    VStack(spacing: 6) {
+                        Image(systemName: weekSymbol(day))
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(weekTint(day))
+                            .frame(width: 32, height: 32)
+                            .background(
+                                Circle().fill(day.isToday ? CheckMedTheme.flowDot.opacity(0.18) : CheckMedTheme.background)
+                            )
+                            .overlay(
+                                Circle().stroke(day.isToday ? CheckMedTheme.flowDot : Color.clear, lineWidth: 2)
+                            )
+                        Text(shortWeekday(day.date))
+                            .font(.system(.caption2, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .accessibilityLabel(weeklyDotLabel(day))
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+    }
+
+    private func weekSymbol(_ day: DoseLoop.WeeklyDaySnapshot) -> String {
+        switch day.status {
+        case .complete: "checkmark.circle.fill"
+        case .incomplete: "xmark.circle.fill"
+        default: "circle"
+        }
+    }
+
+    private func weekTint(_ day: DoseLoop.WeeklyDaySnapshot) -> Color {
+        if day.isToday { return CheckMedTheme.flowDot }
+        switch day.status {
+        case .complete: return CheckMedTheme.primaryShadow
+        case .incomplete: return CheckMedTheme.danger.opacity(0.7)
+        default: return CheckMedTheme.hairline
+        }
+    }
+
+    private func shortWeekday(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = session.locale.foundationLocale
+        formatter.calendar = session.foundationCalendar
+        formatter.setLocalizedDateFormatFromTemplate("EEE")
+        return formatter.string(from: date)
+    }
+
+    private func progressSummaryRow(weekly: DoseLoop.WeeklyMedicationProgressSnapshot) -> some View {
+        let percent = weekly.adherencePercentage ?? stats.weekPercent ?? 0
+        return HStack(spacing: 8) {
+            progressStat(
+                icon: "flame.fill",
+                tint: CheckMedTheme.streak,
+                value: "\(stats.streakDays)",
+                label: session.t(.progressStatDayStreak)
+            )
+            progressStat(
+                icon: "circle.dotted",
+                tint: CheckMedTheme.primaryShadow,
+                value: "\(percent)%",
+                label: session.t(.progressWeekPercentStat)
+            )
+            progressStat(
+                icon: "calendar",
+                tint: CheckMedTheme.flowDot,
+                value: "\(weekly.completedDays)",
+                label: session.t(.progressDaysCompletedStat)
+            )
+        }
+    }
+
+    private var journeyBanner: some View {
+        Button(action: { go(.journeyReport) }) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(session.t(.progressJourneyBannerTitle))
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.ink)
+                    Text(session.t(.progressJourneyBannerBody))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                PhilDoctor2DImage(size: 72)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CheckMedTheme.blueWash.opacity(0.7))
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(session.t(.progressJourneyHint))
     }
 
     private var header: some View {

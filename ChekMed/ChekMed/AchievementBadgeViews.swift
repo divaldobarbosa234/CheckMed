@@ -412,59 +412,56 @@ struct BadgesPreviewCard: View {
     var onOpen: () -> Void
 
     private var unlockedCount: Int { items.filter(\.isUnlocked).count }
-    private var preview: [RewardCatalog.AchievementGalleryItem] { Array(items.prefix(4)) }
+    private var preview: [RewardCatalog.AchievementGalleryItem] { Array(items.prefix(8)) }
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
 
     var body: some View {
-        Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: "trophy.fill")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.current)
-                        .frame(width: 26, height: 26)
-                        .background(CheckMedTheme.sunshineWash, in: Circle())
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(session.t(.badgesTitle))
-                            .font(.system(.headline, design: .rounded).weight(.heavy))
-                            .foregroundStyle(CheckMedTheme.ink)
-                        Text(session.t(.badgesCollected, unlockedCount, AchievementArtwork.totalCount))
-                            .font(.system(.caption, design: .rounded).weight(.semibold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.muted)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(session.t(.badgesTitle))
+                    .font(.system(.headline, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.ink)
+                Spacer()
+                Button(action: onOpen) {
+                    Text(session.t(.badgesSeeAll))
+                        .font(.system(.caption, design: .rounded).weight(.heavy))
+                        .foregroundStyle(CheckMedTheme.flowDot)
                 }
-                HStack(spacing: 6) {
-                    ForEach(preview) { item in
-                        AchievementBadgeArt(
-                            achievement: item.achievement,
-                            unlocked: item.isUnlocked,
-                            size: 72
-                        )
+                .buttonStyle(.plain)
+                .accessibilityHint(session.t(.badgesOpenHint))
+            }
+            LazyVGrid(columns: columns, spacing: 10) {
+                ForEach(preview) { item in
+                    Button(action: onOpen) {
+                        VStack(spacing: 6) {
+                            AchievementBadgeArt(
+                                achievement: item.achievement,
+                                unlocked: item.isUnlocked,
+                                size: 64
+                            )
+                            Text(session.t(AchievementArtwork.titleKey(for: item.achievement)))
+                                .font(.system(.caption2, design: .rounded).weight(.bold))
+                                .foregroundStyle(item.isUnlocked ? CheckMedTheme.ink : CheckMedTheme.muted)
+                                .multilineTextAlignment(.center)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.8)
+                        }
                         .frame(maxWidth: .infinity)
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(session.t(AchievementArtwork.titleKey(for: item.achievement)))
                 }
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CheckMedTheme.surface)
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-            )
-            .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
         }
-        .buttonStyle(.plain)
-        .accessibilityElement(children: .ignore)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(
             "\(session.t(.badgesTitle)). \(session.t(.badgesCollected, unlockedCount, AchievementArtwork.totalCount))"
         )
-        .accessibilityHint(session.t(.badgesOpenHint))
-        .accessibilityAddTraits(.isButton)
     }
 }
 
