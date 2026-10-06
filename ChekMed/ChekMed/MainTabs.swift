@@ -21,7 +21,7 @@ struct ProgressTabView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ProgressDashboardScreen(go: { path.append($0) })
-                .toolbar(path.isEmpty ? .hidden : .automatic, for: .navigationBar)
+                .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: AppRoute.self) { route in
                     AppRouteView(route: route, path: $path)
                 }

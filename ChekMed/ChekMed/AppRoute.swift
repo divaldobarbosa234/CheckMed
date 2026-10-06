@@ -25,6 +25,7 @@ enum AppRoute: Hashable {
     case missedDose
     case reminderSettings
     case progressDashboard
+    case badges
     case adherence
     case treatmentHistory
     case treatmentComplete
@@ -156,6 +157,7 @@ struct AppRouteView: View {
         case .missedDose: MissedDoseScreen(go: nav.go)
         case .reminderSettings: ReminderSettingsScreen(go: nav.go)
         case .progressDashboard: ProgressDashboardScreen(go: nav.go)
+        case .badges: BadgesScreen()
         case .adherence: AdherenceScreen()
         case .treatmentHistory: TreatmentHistoryScreen(go: nav.go)
         case .treatmentComplete: TreatmentCompleteScreen(go: nav.go)

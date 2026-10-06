@@ -1322,23 +1322,18 @@ struct ProgressDashboardScreen: View {
     @Environment(CheckMedStore.self) private var treatments
 
     private var stats: AdherenceSnapshot { treatments.adherence() }
-    private var hasUpcomingScheduledDose: Bool {
-        treatments.todayNodes().contains { $0.status == .current || $0.status == .locked }
-    }
-    private var weekFraction: CGFloat {
-        guard let percent = stats.weekPercent else { return 0 }
-        return CGFloat(percent) / 100
-    }
 
     var body: some View {
         let xpProgress = treatments.rewardProgress()
+        let gallery = treatments.achievementGallery()
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 header
-                philBanner
-                xpProgressCard(xpProgress)
-                AchievementGallerySection(items: treatments.achievementGallery())
-                weekCard
+                levelHero(xpProgress)
+                statsRow(gallery: gallery)
+                BadgesPreviewCard(items: gallery) { go(.badges) }
+                weeklyChallengeRow
+                journeyReportRow
                 if treatments.activeMedicineCount > 0 {
                     JourneyGamificationCard(
                         snapshot: Gamification.snapshot(
@@ -1358,25 +1353,21 @@ struct ProgressDashboardScreen: View {
                 SafetyCaption()
                     .frame(maxWidth: .infinity)
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
         }
         .background(CheckMedTheme.background)
-        .navigationTitle(session.t(.progressHeadline))
+        .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: ProgressOverlayGeometry.bottomClearance)
+        }
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Conny Cooper")
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
-                    .foregroundStyle(CheckMedTheme.muted)
-                Text(session.t(.progressHeadline))
-                    .font(.system(.title, design: .rounded).weight(.black))
-                Text(session.t(.progressSubhead))
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-            }
+        HStack(alignment: .center) {
+            Text(session.t(.progressHeadline))
+                .font(.system(.title, design: .rounded).weight(.black))
             Spacer()
             Button { go(.settings) } label: {
                 Image(systemName: "gearshape.fill")
@@ -1391,68 +1382,37 @@ struct ProgressDashboardScreen: View {
         }
     }
 
-    private var philBanner: some View {
-        ZStack {
-            LinearGradient(
-                colors: [CheckMedTheme.mintWash, CheckMedTheme.blueWash],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            Circle()
-                .fill(CheckMedTheme.primary.opacity(0.10))
-                .frame(width: 170, height: 170)
-                .offset(x: -95, y: 18)
-            HStack(alignment: .bottom, spacing: 0) {
-                PhilDoctor2DImage(size: 146)
-                    .offset(y: 11)
-                Text(session.t(.progressPhilBubble))
-                    .font(.system(.title3, design: .rounded).weight(.heavy))
+    private func levelHero(_ progress: RewardProgress) -> some View {
+        HStack(alignment: .center, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(session.t(.rewardLevel, progress.currentLevel))
+                    .font(.system(.title, design: .rounded).weight(.black))
                     .foregroundStyle(CheckMedTheme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(CheckMedTheme.surface.opacity(0.95))
-                    .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-                    .shadow(color: CheckMedTheme.navy.opacity(0.08), radius: 12, y: 5)
-                    .padding(.trailing, 10)
-                    .padding(.bottom, 12)
-            }
-        }
-        .frame(minHeight: 178)
-        .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-    }
-
-    private func xpProgressCard(_ progress: RewardProgress) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(session.t(.rewardLevel, progress.currentLevel))
-                .font(.system(.headline, design: .rounded).weight(.heavy))
-                .foregroundStyle(CheckMedTheme.ink)
-                .textCase(.uppercase)
-            Text(session.t(.rewardTotalXP, progress.totalXP))
-                .font(.system(.title2, design: .rounded).weight(.black))
-                .foregroundStyle(CheckMedTheme.ink)
-            if progress.isMaxDefinedLevel {
-                Text(session.t(.rewardMaxLevel))
-                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                Text(session.t(.progressKeepGoingShort))
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
-            } else {
-                Text(session.t(.rewardXPToNext, progress.xpNeededForNext, progress.currentLevel + 1))
-                    .font(.system(.caption, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-            }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(CheckMedTheme.hairline)
-                    Capsule()
-                        .fill(CheckMedTheme.primary)
-                        .frame(width: max(8, geo.size.width * CGFloat(progress.progressFraction)))
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(CheckMedTheme.hairline)
+                        Capsule()
+                            .fill(CheckMedTheme.flowDot)
+                            .frame(width: max(8, geo.size.width * CGFloat(progress.progressFraction)))
+                    }
                 }
+                .frame(height: 8)
+                .accessibilityHidden(true)
+                Text(xpMeterText(progress))
+                    .font(.system(.caption, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.muted)
             }
-            .frame(height: 10)
-            .accessibilityHidden(true)
+            Spacer(minLength: 0)
+            PhilDoctor2DImage(size: 148)
+                .offset(x: 10, y: 8)
         }
-        .padding(16)
+        .padding(.leading, 16)
+        .padding(.vertical, 10)
+        .padding(.trailing, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CheckMedTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -1465,92 +1425,191 @@ struct ProgressDashboardScreen: View {
         .accessibilityLabel(xpProgressAccessibility(progress))
     }
 
+    private func xpMeterText(_ progress: RewardProgress) -> String {
+        if progress.isMaxDefinedLevel {
+            return session.t(.rewardTotalXP, progress.totalXP)
+        }
+        if let next = progress.xpAtNextLevel {
+            return session.t(.rewardXPMeter, progress.totalXP, next)
+        }
+        return session.t(.rewardTotalXP, progress.totalXP)
+    }
+
     private func xpProgressAccessibility(_ progress: RewardProgress) -> String {
         let level = session.t(.rewardLevel, progress.currentLevel)
-        let xp = session.t(.rewardTotalXP, progress.totalXP)
+        let xp = xpMeterText(progress)
         if progress.isMaxDefinedLevel {
             return "\(level). \(xp). \(session.t(.rewardMaxLevel))"
         }
-        return "\(level). \(xp). \(session.t(.rewardXPToNext, progress.xpNeededForNext, progress.currentLevel + 1))"
+        return "\(level). \(xp). \(session.t(.progressKeepGoingShort))"
     }
 
-    private var weekCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.t(.progressWeekTitle))
+    private func statsRow(gallery: [RewardCatalog.AchievementGalleryItem]) -> some View {
+        HStack(spacing: 8) {
+            progressStat(
+                icon: "flame.fill",
+                tint: CheckMedTheme.streak,
+                value: "\(stats.streakDays)",
+                label: session.t(.progressStatDayStreak)
+            )
+            progressStat(
+                icon: "checkmark.circle.fill",
+                tint: CheckMedTheme.primaryShadow,
+                value: "\(stats.takenCount)",
+                label: session.t(.progressStatDosesTaken)
+            )
+            progressStat(
+                icon: "star.fill",
+                tint: CheckMedTheme.current,
+                value: "\(gallery.filter(\.isUnlocked).count)",
+                label: session.t(.progressStatBadges)
+            )
+        }
+    }
+
+    private func progressStat(icon: String, tint: Color, value: String, label: String) -> some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(tint)
+                Text(value)
+                    .font(.system(.title3, design: .rounded).weight(.black))
+                    .foregroundStyle(CheckMedTheme.ink)
+            }
+            Text(label)
+                .font(.system(.caption2, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.8)
+                .lineLimit(2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) \(label)")
+    }
+
+    private var weeklyChallengeRow: some View {
+        let weekly = treatments.weeklyMedicationProgress()
+        return Button(action: { go(.adherence) }) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "target")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.danger)
+                        .frame(width: 26, height: 26)
+                        .background(Color(hex: 0xFFE4E0), in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.t(.weeklyChallengeTitle))
+                            .font(.system(.headline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.ink)
+                        if weekly.applicableDays > 0 {
+                            Text(session.t(.weeklyDaysComplete, weekly.completedDays, weekly.applicableDays))
+                                .font(.system(.caption, design: .rounded).weight(.semibold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                        } else {
+                            Text(session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned))
+                                .font(.system(.caption, design: .rounded).weight(.semibold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                }
+                if !weekly.days.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(weekly.days.enumerated()), id: \.offset) { _, day in
+                            Circle()
+                                .fill(weeklyDotFill(day.status))
+                                .frame(width: 11, height: 11)
+                                .overlay(
+                                    Circle().stroke(
+                                        day.isToday ? CheckMedTheme.primaryShadow : Color.clear,
+                                        lineWidth: 2
+                                    )
+                                )
+                                .frame(maxWidth: .infinity)
+                                .accessibilityLabel(weeklyDotLabel(day))
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CheckMedTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+            )
+            .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(session.t(.progressCalendarHint))
+    }
+
+    private func weeklyDotFill(_ status: DoseLoop.WeeklyDayStatus) -> Color {
+        switch status {
+        case .complete: CheckMedTheme.flowDot
+        case .incomplete: CheckMedTheme.hairline
+        case .future, .notApplicable, .noScheduledDoses: CheckMedTheme.hairline.opacity(0.7)
+        }
+    }
+
+    private func weeklyDotLabel(_ day: DoseLoop.WeeklyDaySnapshot) -> String {
+        switch day.status {
+        case .complete: session.t(.weeklyDayComplete)
+        case .incomplete: session.t(.weeklyDayMissed)
+        case .future: session.t(.weeklyDayUpcoming)
+        case .notApplicable: session.t(.weeklyDayNotApplicable)
+        case .noScheduledDoses: session.t(.weeklyDayNoDoses)
+        }
+    }
+
+    private var journeyReportRow: some View {
+        Button(action: { go(.journeyReport) }) {
+            HStack(spacing: 10) {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.flowDot)
+                    .frame(width: 26, height: 26)
+                    .background(CheckMedTheme.blueWash, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.t(.journeyTitle))
                         .font(.system(.headline, design: .rounded).weight(.heavy))
-                    Text(session.t(.progressKeepGoing))
+                        .foregroundStyle(CheckMedTheme.ink)
+                    Text(session.t(.journeyReportRowHint))
                         .font(.system(.caption, design: .rounded).weight(.semibold))
                         .foregroundStyle(CheckMedTheme.muted)
                 }
-                Spacer()
-                HStack(spacing: 4) {
-                    Text("🔥")
-                    Text("\(stats.streakDays) \(session.t(.homeStreak))")
-                        .font(.system(.caption2, design: .rounded).weight(.heavy))
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(CheckMedTheme.belly, in: Capsule())
-            }
-            HStack(alignment: .center, spacing: 16) {
-                ZStack {
-                    Circle()
-                        .stroke(CheckMedTheme.hairline, lineWidth: 10)
-                    Circle()
-                        .trim(from: 0, to: weekFraction)
-                        .stroke(CheckMedTheme.primary, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                        .rotationEffect(.degrees(-90))
-                    Text("\(stats.weekPercent ?? 0)%")
-                        .font(.system(.title2, design: .rounded).weight(.black))
-                }
-                .frame(width: 92, height: 92)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(session.t(.progressDosesTaken, stats.weekTaken, stats.weekPlanned))
-                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                    HStack(spacing: 6) {
-                        Image(systemName: "pills.fill")
-                            .font(.system(size: 11, weight: .bold))
-                        Text(hasUpcomingScheduledDose ? session.t(.progressNextSoon) : session.t(.todayNothing))
-                            .font(.system(.caption2, design: .rounded).weight(.bold))
-                    }
-                    .foregroundStyle(CheckMedTheme.primaryShadow)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(CheckMedTheme.belly, in: Capsule())
-                }
                 Spacer(minLength: 0)
-                Button { go(.treatmentOverview) } label: {
-                    VStack(spacing: 6) {
-                        Image(systemName: "pills.fill")
-                            .foregroundStyle(CheckMedTheme.primaryShadow)
-                        Text("\(stats.treatmentCount)")
-                            .font(.system(.title3, design: .rounded).weight(.black))
-                        Text(session.t(.progressTreatmentsLabel))
-                            .font(.system(.caption2, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                            .multilineTextAlignment(.center)
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                    }
-                    .padding(10)
-                    .frame(width: 88)
-                    .background(CheckMedTheme.background)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                }
-                .buttonStyle(.plain)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.muted)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(CheckMedTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+            )
+            .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
         }
-        .padding(16)
-        .background(CheckMedTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-        )
-        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+        .buttonStyle(.plain)
+        .accessibilityHint(session.t(.progressJourneyHint))
     }
 
     private var quickActions: some View {
