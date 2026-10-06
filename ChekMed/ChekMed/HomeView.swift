@@ -220,7 +220,7 @@ struct HomeView: View {
         NavigationStack(path: $navPath) {
             ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
                     let stats = progressStats
                     let nodes = challengeNodes
                     let game = Gamification.snapshot(
@@ -247,14 +247,16 @@ struct HomeView: View {
                     SafetyCaption()
                         .frame(maxWidth: .infinity)
                 }
-                .padding(16)
+                .padding(.horizontal, 14)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
             }
             .background(CheckMedTheme.background)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(navPath.isEmpty ? .hidden : .automatic, for: .navigationBar)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // Tab bar + floating + must not cover Scan / Calendar / Progress.
-                Color.clear.frame(height: ProgressOverlayGeometry.bottomClearance + 24)
+                Color.clear.frame(height: ProgressOverlayGeometry.bottomClearance)
             }
             .navigationDestination(for: AppRoute.self) { route in
                 AppRouteView(route: route, path: $navPath)
@@ -437,7 +439,7 @@ struct HomeView: View {
             nodes: nodes,
             planSurfaceReady: true
         )
-        return VStack(alignment: .leading, spacing: 16) {
+        return VStack(alignment: .leading, spacing: 8) {
             HomeTodayProgressCard(
                 snapshot: game,
                 highlightedDoseId: highlightedNotificationLogId,
@@ -494,43 +496,46 @@ struct HomeView: View {
                     )
                 )
 
-            HStack(alignment: .bottom, spacing: 0) {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(alignment: .top, spacing: 6) {
-                        Text(session.t(.homeGreetingFormat, greetingWord, greetingName))
-                            .font(.system(size: 30, weight: .black, design: .rounded))
-                            .foregroundStyle(CheckMedTheme.ink)
-                            .minimumScaleFactor(0.78)
-                        Image(systemName: greetingSunSymbol)
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(CheckMedTheme.current)
-                            .padding(.top, 8)
-                    }
-                    Text(session.t(.homeCareToday))
-                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if family.isViewingExtra, let extra = family.extra {
-                        Text(session.t(.familyLookingAt, extra.name))
-                            .font(.system(.caption, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.superAccent)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                VStack(spacing: 6) {
-                    Text(session.t(.homeCooperCheer))
-                        .font(.system(.caption, design: .rounded).weight(.heavy))
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 6) {
+                    Text(session.t(.homeGreetingFormat, greetingWord, greetingName))
+                        .font(.system(size: 30, weight: .black, design: .rounded))
                         .foregroundStyle(CheckMedTheme.ink)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(CheckMedTheme.surface, in: Capsule())
-                    PhilDoctor2DImage(size: 108)
+                        .minimumScaleFactor(0.76)
+                    Image(systemName: greetingSunSymbol)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.current)
+                        .padding(.top, 8)
+                }
+                Text(session.t(.homeCareToday))
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .lineLimit(2)
+                if family.isViewingExtra, let extra = family.extra {
+                    Text(session.t(.familyLookingAt, extra.name))
+                        .font(.system(.caption, design: .rounded).weight(.bold))
+                        .foregroundStyle(CheckMedTheme.superAccent)
                 }
             }
+            .frame(maxWidth: 210, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(.leading, 16)
-            .padding(.trailing, 8)
-            .padding(.vertical, 14)
-            .padding(.top, 28)
+            .padding(.bottom, 16)
+
+            PhilDoctor2DImage(size: 118)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, 8)
+                .padding(.bottom, 2)
+
+            Text(session.t(.homeCooperCheer))
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(CheckMedTheme.ink)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(CheckMedTheme.surface.opacity(0.96), in: Capsule())
+                .padding(.top, 48)
+                .padding(.trailing, 94)
 
             HStack(spacing: 8) {
                 headerCircleButton(symbol: "bell.fill", label: session.t(.profileNotifs)) {
@@ -542,6 +547,7 @@ struct HomeView: View {
             }
             .padding(10)
         }
+        .frame(height: 150)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 

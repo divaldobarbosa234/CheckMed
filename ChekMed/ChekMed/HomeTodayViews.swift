@@ -34,7 +34,7 @@ struct ConnyWeekStrip: View {
     var onSelectDay: ((DoseLoop.WeeklyDaySnapshot) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 2) {
             ForEach(Array(days.enumerated()), id: \.offset) { _, day in
                 Button {
                     onSelectDay?(day)
@@ -46,8 +46,7 @@ struct ConnyWeekStrip: View {
                             .font(.system(.subheadline, design: .rounded).weight(.heavy))
                     }
                     .foregroundStyle(day.isToday && emphasizesToday ? CheckMedTheme.onPrimary : CheckMedTheme.ink)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, minHeight: 58)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
                             .fill(day.isToday && emphasizesToday ? CheckMedTheme.flowDot : CheckMedTheme.surface)
@@ -58,6 +57,10 @@ struct ConnyWeekStrip: View {
                 .disabled(onSelectDay == nil)
             }
         }
+        .padding(4)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .shadow(color: CheckMedTheme.navy.opacity(0.05), radius: 10, y: 4)
     }
 
     private func weekdayLabel(_ date: Date) -> String {
@@ -116,7 +119,7 @@ struct HomeTodayProgressCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(session.t(.homeTodayTitle))
                     .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -125,7 +128,7 @@ struct HomeTodayProgressCard: View {
                     .font(.system(.caption, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.muted)
             }
-            HStack(alignment: .center, spacing: 16) {
+            HStack(alignment: .center, spacing: 10) {
                 ZStack {
                     Circle()
                         .stroke(CheckMedTheme.hairline, lineWidth: 10)
@@ -143,11 +146,11 @@ struct HomeTodayProgressCard: View {
                     }
                     .frame(width: 88)
                 }
-                .frame(width: 108, height: 108)
+                .frame(width: 92, height: 92)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(session.t(.challengeProgress, snapshot.takenCount, snapshot.requiredCount))
 
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(snapshot.lines) { line in
                         doseRow(line)
                     }
@@ -155,7 +158,7 @@ struct HomeTodayProgressCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(16)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CheckMedTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -175,19 +178,20 @@ struct HomeTodayProgressCard: View {
                 Image(systemName: rowSymbol(line))
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(rowTint(line))
-                    .frame(width: 22)
+                    .frame(width: 18)
                 Text(line.time)
                     .font(.system(.caption, design: .rounded).weight(.heavy))
                     .foregroundStyle(CheckMedTheme.muted)
-                    .frame(width: 44, alignment: .leading)
+                    .frame(width: 40, alignment: .leading)
                 Text(line.medicine)
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(CheckMedTheme.ink)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .padding(.horizontal, 2)
             .background {
                 if line.id == highlightedDoseId {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -230,28 +234,38 @@ struct HomeNextDoseCard: View {
         Button(action: onOpen) {
             HStack(spacing: 12) {
                 Image(systemName: "clock.fill")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(CheckMedTheme.onPrimary)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 46, height: 46)
                     .background(CheckMedTheme.flowDot, in: Circle())
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.t(.homeNextDose))
                         .font(.system(.caption, design: .rounded).weight(.bold))
                         .foregroundStyle(CheckMedTheme.muted)
-                    Text(line.time)
-                        .font(.system(.title3, design: .rounded).weight(.black))
-                    Text("\(line.medicine) · \(line.detail)")
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(line.time)
+                            .font(.system(.title3, design: .rounded).weight(.black))
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(line.medicine)
+                            Text(line.detail)
+                        }
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(CheckMedTheme.muted)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    }
                 }
                 Spacer(minLength: 0)
                 HomeCapsuleMark()
+                    .frame(width: 62, height: 62)
+                    .background(CheckMedTheme.flowDot.opacity(0.08), in: Circle())
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(CheckMedTheme.muted)
             }
-            .padding(14)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(minHeight: 90)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(CheckMedTheme.blueWash.opacity(0.65))
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -263,19 +277,15 @@ struct HomeNextDoseCard: View {
 /// Decorative two-tone medicine capsule — not achievement artwork, not a toggle.
 private struct HomeCapsuleMark: View {
     var body: some View {
-        Capsule()
-            .fill(Color.white)
-            .frame(width: 36, height: 18)
-            .overlay {
-                HStack(spacing: 0) {
-                    CheckMedTheme.flowDot
-                    Color.white
-                }
-                .clipShape(Capsule())
-            }
-            .overlay(
-                Capsule().stroke(CheckMedTheme.flowDot.opacity(0.35), lineWidth: 1)
-            )
+        HStack(spacing: 0) {
+            CheckMedTheme.flowDot
+            Color.white
+        }
+        .frame(width: 42, height: 20)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(CheckMedTheme.flowDot.opacity(0.35), lineWidth: 1))
+        .rotationEffect(.degrees(-45))
+        .shadow(color: CheckMedTheme.flowDot.opacity(0.2), radius: 4, y: 2)
             .accessibilityHidden(true)
     }
 }
@@ -290,8 +300,8 @@ struct HomeEncouragementCard: View {
         Button {
             onOpen?()
         } label: {
-            HStack(alignment: .center, spacing: 12) {
-                PhilDoctor2DImage(size: 72)
+            HStack(alignment: .center, spacing: 10) {
+                PhilDoctor2DImage(size: 76)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(headline)
                         .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -299,14 +309,17 @@ struct HomeEncouragementCard: View {
                     Text(bodyLine)
                         .font(.system(.subheadline, design: .rounded).weight(.semibold))
                         .foregroundStyle(CheckMedTheme.muted)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.9)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(CheckMedTheme.muted)
             }
-            .padding(14)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .frame(minHeight: 88)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 LinearGradient(
@@ -322,17 +335,12 @@ struct HomeEncouragementCard: View {
     }
 
     private var headline: String {
-        if snapshot.coach == .needsAttention { return session.t(.philBackOnTrack) }
+        if snapshot.coach == .needsAttention { return session.t(.homeCooperCheer) }
         if snapshot.isComplete { return session.t(.youDidIt) }
         return session.t(.homeYoureDoingWell)
     }
 
     private var bodyLine: String {
-        if snapshot.coach == .needsAttention {
-            return snapshot.skippedCount <= 1
-                ? session.t(.philMissedOne)
-                : session.t(.philMissedSeveral, snapshot.skippedCount)
-        }
         if snapshot.isComplete { return session.t(.philDayDosesComplete) }
         if remaining == 1 { return session.t(.philDoingWellOne) }
         if remaining > 1 { return session.t(.philDoingWellMany, remaining) }
@@ -347,10 +355,10 @@ struct HomePrimaryActionsRow: View {
     var onProgress: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(session.t(.homePrimaryActions))
                 .font(.system(.headline, design: .rounded).weight(.heavy))
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 tile(title: session.t(.homeScan), icon: "camera.fill", wash: CheckMedTheme.mintWash, tint: Color(hex: 0x5FA86B), action: onScan)
                 tile(title: session.t(.progressCalendar), icon: "calendar", wash: CheckMedTheme.lavenderWash, tint: Color(hex: 0x9B7ED9), action: onCalendar)
                 tile(title: session.t(.myProgress), icon: "chart.bar.fill", wash: CheckMedTheme.sunshineWash, tint: CheckMedTheme.current, action: onProgress)
@@ -360,28 +368,30 @@ struct HomePrimaryActionsRow: View {
 
     private func tile(title: String, icon: String, wash: Color, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(tint)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 34, height: 34)
                     .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                HStack {
-                    Text(title)
-                        .font(.system(.caption, design: .rounded).weight(.heavy))
-                        .foregroundStyle(CheckMedTheme.ink)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                }
+                Text(title)
+                    .font(.system(.caption, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
+            .padding(8)
+            .frame(maxWidth: .infinity, minHeight: 70, alignment: .topLeading)
             .background(wash.opacity(0.85))
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .padding(10)
+            }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)

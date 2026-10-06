@@ -246,7 +246,7 @@ struct VerifyPrescriptionScreen: View {
         ) {
             Text("Is this correct?")
                 .font(.system(.title3, design: .rounded).weight(.heavy))
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("From the prescription record")
                     .font(.system(.caption, design: .rounded).weight(.bold))
                     .textCase(.uppercase)
@@ -1318,6 +1318,7 @@ struct NoTreatmentInProgressScreen: View {
 
 struct ProgressDashboardScreen: View {
     var go: (AppRoute) -> Void
+    @Environment(\.dismiss) private var dismiss
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
 
@@ -1328,39 +1329,54 @@ struct ProgressDashboardScreen: View {
         let gallery = treatments.achievementGallery()
         let weekly = treatments.weeklyMedicationProgress()
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
                 progressHeroHeader
                 levelMeter(xpProgress)
                 thisWeekCard(weekly)
                 progressSummaryRow(weekly: weekly)
                 BadgesPreviewCard(items: gallery) { go(.badges) }
-                journeyBanner
+                journeyBanner(tree: treatments.journeyTreeSnapshot())
                 SafetyCaption()
                     .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, 14)
+            .padding(.top, -4)
         }
         .background(CheckMedTheme.background)
         .navigationTitle("")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: ProgressOverlayGeometry.bottomClearance)
         }
     }
 
     private var progressHeroHeader: some View {
-        HStack(alignment: .top) {
+        ZStack(alignment: .topTrailing) {
+            LinearGradient(
+                colors: [CheckMedTheme.blueWash.opacity(0.85), CheckMedTheme.surface],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+
             VStack(alignment: .leading, spacing: 6) {
                 Text(session.t(.progressHeadline))
-                    .font(.system(.title, design: .rounded).weight(.black))
+                    .font(.system(size: 28, weight: .black, design: .rounded))
                 Text(session.t(.progressSubhead))
                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 8)
-            PhilDoctor2DImage(size: 92)
+            .frame(maxWidth: 235, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.leading, 48)
+            .padding(.top, 18)
+
+            PhilDoctor2DImage(size: 112)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                .padding(.trailing, 8)
+
             Button { go(.settings) } label: {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 14, weight: .semibold))
@@ -1370,29 +1386,35 @@ struct ProgressDashboardScreen: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(session.t(.profileSettings))
+            .padding(8)
+
+            Button { dismiss() } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .frame(width: 36, height: 36)
+                    .background(CheckMedTheme.surface.opacity(0.96), in: Circle())
+                    .shadow(color: CheckMedTheme.navy.opacity(0.08), radius: 8, y: 3)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(session.t(.back))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(8)
         }
+        .frame(height: 100)
     }
 
     private func levelMeter(_ progress: RewardProgress) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
                 Text(session.t(.rewardLevel, progress.currentLevel).uppercased())
                     .font(.system(.caption, design: .rounded).weight(.heavy))
                     .foregroundStyle(CheckMedTheme.flowDot)
                 Text(session.t(.rewardTotalXP, progress.totalXP))
-                    .font(.system(.title, design: .rounded).weight(.black))
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(CheckMedTheme.hairline)
-                        Capsule()
-                            .fill(CheckMedTheme.primary)
-                            .frame(width: max(8, geo.size.width * CGFloat(progress.progressFraction)))
-                    }
+                    .font(.system(size: 30, weight: .black, design: .rounded))
                 }
-                .frame(height: 8)
-            }
-            Spacer(minLength: 8)
-            VStack(spacing: 6) {
+                Spacer(minLength: 8)
                 if progress.isMaxDefinedLevel {
                     Text(session.t(.rewardMaxLevel))
                         .font(.system(.caption, design: .rounded).weight(.bold))
@@ -1411,8 +1433,18 @@ struct ProgressDashboardScreen: View {
                     .frame(width: 40, height: 40)
                     .background(CheckMedTheme.sunshineWash, in: Circle())
             }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(CheckMedTheme.hairline)
+                    Capsule()
+                        .fill(CheckMedTheme.primary)
+                        .frame(width: max(8, geo.size.width * CGFloat(progress.progressFraction)))
+                }
+            }
+            .frame(height: 9)
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(CheckMedTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -1423,7 +1455,7 @@ struct ProgressDashboardScreen: View {
 
     private func thisWeekCard(_ weekly: DoseLoop.WeeklyMedicationProgressSnapshot) -> some View {
         let days = ConnyWeekStrip.days(from: weekly, calendar: session.foundationCalendar)
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text(session.t(.progressThisWeek))
                     .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -1435,33 +1467,32 @@ struct ProgressDashboardScreen: View {
                 }
                 .buttonStyle(.plain)
             }
-            HStack(spacing: 8) {
+            HStack(spacing: 2) {
                 ForEach(Array(days.enumerated()), id: \.offset) { _, day in
-                    VStack(spacing: 6) {
+                    VStack(spacing: 3) {
                         Image(systemName: weekSymbol(day))
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(weekTint(day))
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle().fill(day.isToday ? CheckMedTheme.flowDot.opacity(0.18) : CheckMedTheme.background)
-                            )
-                            .overlay(
-                                Circle().stroke(day.isToday ? CheckMedTheme.flowDot : Color.clear, lineWidth: 2)
-                            )
+                            .font(.system(size: 15, weight: .bold))
                         Text(shortWeekday(day.date))
-                            .font(.system(.caption2, design: .rounded).weight(.bold))
-                            .foregroundStyle(CheckMedTheme.muted)
+                            .font(.system(size: 10, weight: .bold, design: .rounded))
+                        Text(dayNumber(day.date))
+                            .font(.system(.caption2, design: .rounded).weight(.heavy))
                     }
+                    .foregroundStyle(day.isToday ? CheckMedTheme.onPrimary : weekTint(day))
                     .frame(maxWidth: .infinity)
+                    .frame(height: 64)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(day.isToday ? CheckMedTheme.flowDot : Color.clear)
+                    )
                     .accessibilityLabel(weeklyDotLabel(day))
                 }
             }
+            .padding(4)
+            .background(CheckMedTheme.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: CheckMedTheme.navy.opacity(0.05), radius: 10, y: 4)
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CheckMedTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
     }
 
     private func weekSymbol(_ day: DoseLoop.WeeklyDaySnapshot) -> String {
@@ -1489,33 +1520,98 @@ struct ProgressDashboardScreen: View {
         return formatter.string(from: date)
     }
 
+    private func dayNumber(_ date: Date) -> String {
+        "\(session.foundationCalendar.component(.day, from: date))"
+    }
+
     private func progressSummaryRow(weekly: DoseLoop.WeeklyMedicationProgressSnapshot) -> some View {
         let percent = weekly.adherencePercentage ?? stats.weekPercent ?? 0
         return HStack(spacing: 8) {
-            progressStat(
+            summaryMetric(
                 icon: "flame.fill",
                 tint: CheckMedTheme.streak,
                 value: "\(stats.streakDays)",
-                label: session.t(.progressStatDayStreak)
+                label: session.t(.progressStatDayStreak),
+                wash: Color(hex: 0xFFF0EC)
             )
-            progressStat(
+            summaryMetric(
                 icon: "circle.dotted",
                 tint: CheckMedTheme.primaryShadow,
                 value: "\(percent)%",
-                label: session.t(.progressWeekPercentStat)
+                label: session.t(.progressWeekPercentStat),
+                wash: CheckMedTheme.mintWash,
+                ringFraction: Double(percent) / 100
             )
-            progressStat(
+            summaryMetric(
                 icon: "calendar",
                 tint: CheckMedTheme.flowDot,
                 value: "\(weekly.completedDays)",
-                label: session.t(.progressDaysCompletedStat)
+                label: session.t(.progressDaysCompletedStat),
+                wash: CheckMedTheme.blueWash
             )
         }
     }
 
-    private var journeyBanner: some View {
-        Button(action: { go(.journeyReport) }) {
-            HStack(spacing: 12) {
+    private func summaryMetric(
+        icon: String,
+        tint: Color,
+        value: String,
+        label: String,
+        wash: Color,
+        ringFraction: Double? = nil
+    ) -> some View {
+        VStack(spacing: 3) {
+            ZStack {
+                if let ringFraction {
+                    Circle().stroke(Color.white.opacity(0.8), lineWidth: 6)
+                    Circle()
+                        .trim(from: 0, to: max(0.02, ringFraction))
+                        .stroke(tint, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                } else {
+                    Circle().fill(tint.opacity(0.13))
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(tint)
+                }
+            }
+            .frame(width: 43, height: 43)
+            .overlay {
+                if ringFraction != nil {
+                    Text(value)
+                        .font(.system(.caption, design: .rounded).weight(.black))
+                        .foregroundStyle(CheckMedTheme.ink)
+                }
+            }
+            if ringFraction == nil {
+                Text(value)
+                    .font(.system(.title3, design: .rounded).weight(.black))
+                    .foregroundStyle(CheckMedTheme.ink)
+            }
+            Text(label)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(CheckMedTheme.ink)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity, minHeight: 64)
+        .padding(.vertical, 3)
+        .background(wash.opacity(0.85), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(value) \(label)")
+    }
+
+    private func journeyBanner(tree: CheckMedStore.JourneyTreeSnapshot) -> some View {
+        let completed = min(3, tree.past.count)
+        let hasCurrent = !tree.current.isEmpty
+        return Button(action: { go(.journeyReport) }) {
+            ZStack(alignment: .bottomTrailing) {
+                LinearGradient(
+                    colors: [CheckMedTheme.blueWash, CheckMedTheme.surface],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
                 VStack(alignment: .leading, spacing: 6) {
                     Text(session.t(.progressJourneyBannerTitle))
                         .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -1524,16 +1620,35 @@ struct ProgressDashboardScreen: View {
                         .font(.system(.caption, design: .rounded).weight(.semibold))
                         .foregroundStyle(CheckMedTheme.muted)
                         .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 0) {
+                        ForEach(0..<5, id: \.self) { index in
+                            Circle()
+                                .fill(index < completed ? CheckMedTheme.primary : (index == completed && hasCurrent ? CheckMedTheme.flowDot : CheckMedTheme.surface))
+                                .overlay(Circle().stroke(index <= completed ? CheckMedTheme.flowDot : CheckMedTheme.hairline, lineWidth: 2))
+                                .frame(width: 18, height: 18)
+                            if index < 4 {
+                                Rectangle()
+                                    .fill(index < completed ? CheckMedTheme.primary : CheckMedTheme.hairline)
+                                    .frame(height: 3)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: 245)
                 }
-                Spacer(minLength: 0)
-                PhilDoctor2DImage(size: 72)
+                .frame(maxWidth: 280, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                PhilDoctor2DImage(size: 76)
+                    .padding(.trailing, 34)
+                    .padding(.bottom, 2)
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(CheckMedTheme.muted)
+                    .frame(width: 32, height: 32)
+                    .background(CheckMedTheme.surface, in: Circle())
+                    .padding(10)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(CheckMedTheme.blueWash.opacity(0.7))
+            .frame(maxWidth: .infinity, minHeight: 112, alignment: .leading)
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)

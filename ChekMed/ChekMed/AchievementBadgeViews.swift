@@ -413,10 +413,16 @@ struct BadgesPreviewCard: View {
 
     private var unlockedCount: Int { items.filter(\.isUnlocked).count }
     private var preview: [RewardCatalog.AchievementGalleryItem] { Array(items.prefix(8)) }
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 6), count: 4)
+    private let washes: [Color] = [
+        CheckMedTheme.mintWash,
+        CheckMedTheme.sunshineWash,
+        Color(hex: 0xFFF0EC),
+        CheckMedTheme.blueWash,
+    ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text(session.t(.badgesTitle))
                     .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -430,38 +436,56 @@ struct BadgesPreviewCard: View {
                 .buttonStyle(.plain)
                 .accessibilityHint(session.t(.badgesOpenHint))
             }
-            LazyVGrid(columns: columns, spacing: 10) {
-                ForEach(preview) { item in
+            LazyVGrid(columns: columns, spacing: 7) {
+                ForEach(Array(preview.enumerated()), id: \.element.id) { index, item in
                     Button(action: onOpen) {
-                        VStack(spacing: 6) {
+                        VStack(spacing: 3) {
                             AchievementBadgeArt(
                                 achievement: item.achievement,
                                 unlocked: item.isUnlocked,
-                                size: 64
+                                size: 48
                             )
                             Text(session.t(AchievementArtwork.titleKey(for: item.achievement)))
-                                .font(.system(.caption2, design: .rounded).weight(.bold))
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
                                 .foregroundStyle(item.isUnlocked ? CheckMedTheme.ink : CheckMedTheme.muted)
                                 .multilineTextAlignment(.center)
                                 .lineLimit(2)
-                                .minimumScaleFactor(0.8)
+                                .minimumScaleFactor(0.74)
+                            if let unlockedAt = item.unlockedAt {
+                                Text(shortDate(unlockedAt))
+                                    .font(.system(size: 8, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(CheckMedTheme.muted)
+                                    .lineLimit(1)
+                            }
                         }
-                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 3)
+                        .padding(.vertical, 5)
+                        .frame(maxWidth: .infinity, minHeight: 86, alignment: .top)
+                        .background(
+                            item.isUnlocked
+                                ? washes[index % washes.count].opacity(0.72)
+                                : CheckMedTheme.hairline.opacity(0.55),
+                            in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        )
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(session.t(AchievementArtwork.titleKey(for: item.achievement)))
                 }
             }
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CheckMedTheme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(
             "\(session.t(.badgesTitle)). \(session.t(.badgesCollected, unlockedCount, AchievementArtwork.totalCount))"
         )
+    }
+
+    private func shortDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = session.locale.foundationLocale
+        formatter.calendar = session.foundationCalendar
+        formatter.dateStyle = .short
+        return formatter.string(from: date)
     }
 }
 

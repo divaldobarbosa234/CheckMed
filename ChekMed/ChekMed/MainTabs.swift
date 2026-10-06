@@ -740,7 +740,7 @@ struct PlusMenuDestinationHost: View {
             }
         }
         .overlay(alignment: .topLeading) {
-            if destination != .scanPrescription {
+            if destination != .scanPrescription, destination != .progress {
                 Button {
                     dismiss()
                 } label: {
@@ -793,10 +793,12 @@ struct MainTabView: View {
         }
         .tint(CheckMedTheme.primaryShadow)
         .overlay(alignment: .bottomTrailing) {
-            FloatingPlusMenu()
-                .allowsHitTesting(
-                    !(showUnfinishedPrompt && session.needsUnfinishedPlan(treatments: treatments))
-                )
+            if session.selectedMainTab != .home {
+                FloatingPlusMenu()
+                    .allowsHitTesting(
+                        !(showUnfinishedPrompt && session.needsUnfinishedPlan(treatments: treatments))
+                    )
+            }
         }
         .overlay {
             if showUnfinishedPrompt, session.needsUnfinishedPlan(treatments: treatments) {
