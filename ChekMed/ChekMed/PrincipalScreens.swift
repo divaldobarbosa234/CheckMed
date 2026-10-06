@@ -1338,6 +1338,7 @@ struct ProgressDashboardScreen: View {
                 journeyBanner(tree: treatments.journeyTreeSnapshot())
                 SafetyCaption()
                     .frame(maxWidth: .infinity)
+                    .padding(.bottom, 16)
             }
             .padding(.horizontal, 14)
             .padding(.top, -4)
