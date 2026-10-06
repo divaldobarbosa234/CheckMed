@@ -541,10 +541,20 @@ final class SessionStore {
     }
 
     var displayName: String {
-        if kind == .authenticated, localDisplayName == "there" {
-            return auth.displayName
+        let name = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isEligiblePreferredName(name) {
+            return name
         }
-        return localDisplayName
+        return "there"
+    }
+
+    /// Public share cards only. First token of the canonical Preferred name.
+    var shareCardFirstName: String? {
+        guard hasPreferredName else { return nil }
+        let trimmed = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let first = trimmed.split { $0.isWhitespace || $0 == "," }.first.map(String.init) ?? trimmed
+        let value = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
     }
 
     var companionName: String {
@@ -586,15 +596,33 @@ final class SessionStore {
     }
 
     var hasPreferredName: Bool {
-        let name = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !name.isEmpty && name != "there" && name != "friend"
+        isEligiblePreferredName(localDisplayName)
     }
 
-    /// Google/email metadata is not a saved profile. Prefill only.
+    /// Call You prefill only. Never an email local-part. Never written as Preferred name automatically.
     var inferredPreferredName: String? {
-        let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !inferred.isEmpty, inferred != "there", inferred != "friend" else { return nil }
-        return inferred
+        switch auth.displayNameInference {
+        case .friend, .emailLocalPart:
+            return nil
+        case .providerMetadata, .appleFullName:
+            let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return isEligiblePreferredName(inferred) ? inferred : nil
+        }
+    }
+
+    /// Exact match to the auth email-prefix seed. Not a word blacklist.
+    private func isAuthEmailLocalPart(_ raw: String) -> Bool {
+        guard let prefix = auth.emailLocalPartLabel else { return false }
+        return raw == prefix
+    }
+
+    private func isEligiblePreferredName(_ raw: String?) -> Bool {
+        guard let raw else { return false }
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty || name == "there" || name == "friend" { return false }
+        if name.contains("@") { return false }
+        if isAuthEmailLocalPart(name) { return false }
+        return true
     }
 
     var needsCallYouScreen: Bool { !hasPreferredName || localBirthDate == nil }
@@ -659,7 +687,7 @@ final class SessionStore {
         let name = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         ProfileSetupKeychain.markComplete(
             userId: auth.userId,
-            displayName: (name.isEmpty || name == "there" || name == "friend") ? nil : name,
+            displayName: isEligiblePreferredName(name) ? name : nil,
             birthStamp: localBirthDate.map(BirthDateWheels.stamp),
             pronouns: localPronouns.nilIfEmpty,
             gender: localGender.nilIfEmpty
@@ -1421,12 +1449,6 @@ final class SessionStore {
             ProfileSetupKeychain.associateUserIfNeeded(userId)
             hydrateIdentityFromKeychainIfNeeded(userId: userId)
         }
-        if !hasPreferredName {
-            let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !inferred.isEmpty, inferred != "friend", inferred != "there" {
-                setDisplayName(inferred)
-            }
-        }
         if hasRawIdentityFields {
             markProfileSetupComplete()
         }
@@ -1498,12 +1520,6 @@ final class SessionStore {
         if let userId = auth.userId {
             ProfileSetupKeychain.associateUserIfNeeded(userId)
             hydrateIdentityFromKeychainIfNeeded(userId: userId)
-        }
-        if !hasPreferredName {
-            let inferred = auth.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !inferred.isEmpty, inferred != "friend", inferred != "there" {
-                setDisplayName(inferred)
-            }
         }
         if remote == nil, pending {
             Task { await pushProfile() }
@@ -1804,7 +1820,7 @@ final class SessionStore {
             guard ProfileSetupKeychain.isComplete(for: userId) else { return }
         }
 
-        if !hasPreferredName, let name = snap.displayName?.nilIfEmpty {
+        if !hasPreferredName, let name = snap.displayName, isEligiblePreferredName(name) {
             localDisplayName = name
             UserDefaults.standard.set(name, forKey: Keys.display)
         }
@@ -1835,9 +1851,11 @@ final class SessionStore {
         let protectIdentity = ProfileSetupKeychain.isComplete(for: auth.userId) || hasRawIdentityFields
         let wipeEmpty = overwriteEmpty && !protectIdentity
 
-        if let name = profile?.displayName?.nilIfEmpty {
+        if let name = profile?.displayName, isEligiblePreferredName(name) {
             localDisplayName = name
             UserDefaults.standard.set(name, forKey: Keys.display)
+        } else if isEligiblePreferredName(localDisplayName) {
+            // Keep an explicit Preferred name. Polluted remote email-prefix must not overwrite it.
         } else if wipeEmpty {
             localDisplayName = "there"
             UserDefaults.standard.removeObject(forKey: Keys.display)
@@ -1884,7 +1902,7 @@ final class SessionStore {
     private func remoteNeedsPush(_ profile: CheckMedProfile?) -> Bool {
         guard hasCompleteIdentityProfile else { return false }
         guard let profile else { return true }
-        let nameMissing = profile.displayName?.nilIfEmpty == nil
+        let nameMissing = !isEligiblePreferredName(profile.displayName)
         let dobMissing = profile.dateOfBirth?.nilIfEmpty == nil
         let pronounsMissing = profile.pronouns?.nilIfEmpty == nil
         let genderMissing = profile.gender?.nilIfEmpty == nil
@@ -1897,7 +1915,7 @@ final class SessionStore {
             return
         }
         let savedName = localDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = (savedName.isEmpty || savedName == "there" || savedName == "friend") ? nil : savedName
+        let name = isEligiblePreferredName(savedName) ? savedName : nil
         let profile = CheckMedProfile(
             id: profileId,
             ownerId: userId,

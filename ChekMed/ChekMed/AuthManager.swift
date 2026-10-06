@@ -69,6 +69,25 @@ final class AuthManager {
     var isGoogleConfigured: Bool { AuthConfig.isGoogleConfigured }
     var userId: UUID? { client?.auth.currentUser?.id }
 
+    /// How `displayName` was inferred from the auth session. Not the Conny Cooper Preferred name.
+    /// Profile fetch/upsert may later change `displayName` without changing this provenance.
+    enum DisplayNameInference: Equatable {
+        case friend
+        case emailLocalPart
+        case providerMetadata
+        case appleFullName
+    }
+
+    private(set) var displayNameInference: DisplayNameInference = .friend
+
+    /// Exact local-part used by the email fallback in `inferredDisplayName`. Nil if unsigned or no email.
+    var emailLocalPartLabel: String? {
+        guard let email, let prefix = email.split(separator: "@").first, !prefix.isEmpty else {
+            return nil
+        }
+        return String(prefix)
+    }
+
     /// Report only. SessionStore decides restore / navigation after this.
     @ObservationIgnored
     var onAuthenticated: ((_ isRestore: Bool) async -> Void)?
@@ -497,13 +516,17 @@ final class AuthManager {
             LaunchLog.auth("Session created user=\(session?.user.id.uuidString ?? "nil")")
         }
         if let user = session?.user {
-            displayName = Self.inferredDisplayName(from: user)
+            let inferred = Self.inferredDisplayName(from: user)
+            displayName = inferred.value
+            displayNameInference = inferred.source
             if displayName == "friend", let pending = pendingAppleDisplayName, !pending.isEmpty {
                 displayName = pending
+                displayNameInference = .appleFullName
             }
             hasAppleIdentity = Self.userHasAppleIdentity(user)
         } else {
             displayName = "friend"
+            displayNameInference = .friend
             companionName = "Phil"
             pendingAppleDisplayName = nil
             hasAppleIdentity = false
@@ -585,13 +608,17 @@ final class AuthManager {
         return false
     }
 
-    private static func inferredDisplayName(from user: User) -> String {
-        if let name = user.userMetadata["full_name"]?.stringValue?.nilIfEmpty { return name }
-        if let name = user.userMetadata["name"]?.stringValue?.nilIfEmpty { return name }
-        if let email = user.email, let prefix = email.split(separator: "@").first, !prefix.isEmpty {
-            return String(prefix)
+    private static func inferredDisplayName(from user: User) -> (value: String, source: DisplayNameInference) {
+        if let name = user.userMetadata["full_name"]?.stringValue?.nilIfEmpty {
+            return (name, .providerMetadata)
         }
-        return "friend"
+        if let name = user.userMetadata["name"]?.stringValue?.nilIfEmpty {
+            return (name, .providerMetadata)
+        }
+        if let email = user.email, let prefix = email.split(separator: "@").first, !prefix.isEmpty {
+            return (String(prefix), .emailLocalPart)
+        }
+        return ("friend", .friend)
     }
 
     private static func message(for error: Error) -> String {
