@@ -8,7 +8,7 @@ enum OnboardingAddMethod {
 
 /// Later-add intake only. First plan (`storedMedicineCount == 0`) always seeds a new treatment.
 enum LaterAddTreatmentIntent: Equatable {
-    /// Append this confirmation to `activeTreatments().first`.
+    /// Append this confirmation to the CURRENT treatment.
     case addToCurrent
     /// Complete the active plan, then seed a new TreatmentRecord for this confirmation.
     case startNewTreatment
@@ -23,9 +23,9 @@ enum LaterAddPersistTarget: Equatable {
 enum LaterAddPersist {
     static func target(
         intent: LaterAddTreatmentIntent,
-        activeMedicineCount: Int
+        hasCurrentTreatment: Bool
     ) -> LaterAddPersistTarget {
-        guard activeMedicineCount > 0 else { return .seed }
+        guard hasCurrentTreatment else { return .seed }
         switch intent {
         case .addToCurrent: return .addToActive
         case .startNewTreatment: return .completeThenSeed
@@ -37,16 +37,16 @@ enum LaterAddPersist {
 enum LaterAddPersistContractChecks {
     static func failures() -> [String] {
         var failures: [String] = []
-        if LaterAddPersist.target(intent: .addToCurrent, activeMedicineCount: 0) != .seed {
-            failures.append("later-add: empty store must seed, not add")
+        if LaterAddPersist.target(intent: .addToCurrent, hasCurrentTreatment: false) != .seed {
+            failures.append("later-add: no current treatment must seed, not add")
         }
-        if LaterAddPersist.target(intent: .startNewTreatment, activeMedicineCount: 0) != .seed {
-            failures.append("later-add: empty store must seed even if start-new is selected")
+        if LaterAddPersist.target(intent: .startNewTreatment, hasCurrentTreatment: false) != .seed {
+            failures.append("later-add: no current treatment must seed even if start-new is selected")
         }
-        if LaterAddPersist.target(intent: .addToCurrent, activeMedicineCount: 1) != .addToActive {
-            failures.append("later-add: add-to-current must append onto the active treatment")
+        if LaterAddPersist.target(intent: .addToCurrent, hasCurrentTreatment: true) != .addToActive {
+            failures.append("later-add: add-to-current must append onto the current treatment")
         }
-        if LaterAddPersist.target(intent: .startNewTreatment, activeMedicineCount: 1) != .completeThenSeed {
+        if LaterAddPersist.target(intent: .startNewTreatment, hasCurrentTreatment: true) != .completeThenSeed {
             failures.append("later-add: start-new must complete then seed")
         }
         return failures

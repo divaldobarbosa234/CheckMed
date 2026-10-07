@@ -174,7 +174,7 @@ struct AddPrescriptionIntakeHost: View {
     private var liveExistingCount: Int { treatments.storedMedicineCount }
 
     private var asksLaterAddTreatmentIntent: Bool {
-        treatments.storedMedicineCount > 0 && treatments.hasActivePlan
+        treatments.hasCurrentTreatment
     }
 
     private func start(_ next: OnboardingAddMethod, proceed: () -> Void) {
@@ -264,7 +264,7 @@ struct AddPrescriptionIntakeHost: View {
         let liveCount = treatments.storedMedicineCount
         let persistTarget = LaterAddPersist.target(
             intent: laterAddIntent,
-            activeMedicineCount: liveCount
+            hasCurrentTreatment: treatments.hasCurrentTreatment
         )
         let capBase = persistTarget == .completeThenSeed
             ? 0
@@ -292,7 +292,7 @@ struct AddPrescriptionIntakeHost: View {
         let liveCount = treatments.storedMedicineCount
         let persistTarget = LaterAddPersist.target(
             intent: laterAddIntent,
-            activeMedicineCount: liveCount
+            hasCurrentTreatment: treatments.hasCurrentTreatment
         )
         let capBase = persistTarget == .completeThenSeed
             ? 0

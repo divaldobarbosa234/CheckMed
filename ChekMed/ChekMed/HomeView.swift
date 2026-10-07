@@ -194,12 +194,12 @@ struct HomeView: View {
 
     private var hasActivePlan: Bool { treatments.activeMedicineCount > 0 }
 
-    /// Loading is not empty. Existing active rows that are not yet visible must
-    /// not render "Escanear receita".
+    /// Loading is not empty. Existing CURRENT rows that are not yet visible must
+    /// not render "Escanear receita". PAST-by-date stored-active rows are not pending.
     private var isPlanVisibilityPending: Bool {
         !session.restorationComplete
             || !session.isPlanSurfaceReady
-            || (treatments.hasActivePlan && treatments.activeMedicineCount == 0)
+            || (treatments.hasCurrentTreatment && treatments.activeMedicineCount == 0)
     }
 
     var body: some View {

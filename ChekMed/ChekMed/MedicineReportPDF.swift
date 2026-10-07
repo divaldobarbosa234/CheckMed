@@ -325,7 +325,7 @@ struct MedicineReportScreen: View {
             let medicines = treatments.reportMedicineSummaries()
             return ReportSnapshot(
                 medicines: medicines,
-                currentMedicines: medicines.filter { $0.treatmentStatus == "active" },
+                currentMedicines: medicines.filter { treatments.isCurrentOnJourneyHistory(treatmentId: $0.treatmentId) },
                 history: treatments.reportPrescriptionHistory(),
                 sources: treatments.reportPrescriptionSources(),
                 adherence: treatments.adherence()

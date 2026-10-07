@@ -32,9 +32,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let prescriptionDateFailures = PrescriptionDateContractChecks.failures()
             let laterAddFailures = LaterAddPersistContractChecks.failures()
             let journeyTreeFailures = TreatmentJourneyClassificationContractChecks.failures()
+            let lifecycleFailures = await MainActor.run { TreatmentLifecycleContractChecks.failures() }
             let clockFailures = CheckMedClockContractChecks.failures()
             let rewardFailures = RewardEngineContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + clockFailures + rewardFailures
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + clockFailures + rewardFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -44,6 +45,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("PrescriptionDate failures:", prescriptionDateFailures)
             print("LaterAddPersist failures:", laterAddFailures)
             print("JourneyTree failures:", journeyTreeFailures)
+            print("TreatmentLifecycle failures:", lifecycleFailures)
             print("TestClock failures:", clockFailures)
             print("RewardEngine failures:", rewardFailures)
             let report = [
@@ -56,6 +58,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "PrescriptionDate failures: \(prescriptionDateFailures)",
                 "LaterAddPersist failures: \(laterAddFailures)",
                 "JourneyTree failures: \(journeyTreeFailures)",
+                "TreatmentLifecycle failures: \(lifecycleFailures)",
                 "TestClock failures: \(clockFailures)",
                 "RewardEngine failures: \(rewardFailures)",
                 "allEmpty: \(failures.isEmpty)",
@@ -78,6 +81,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     philFailures.isEmpty ? nil : "PHIL COACH FAILURE: \(philFailures.joined(separator: "; "))",
                     prescriptionDateFailures.isEmpty ? nil : "PRESCRIPTION DATE FAILURE: \(prescriptionDateFailures.joined(separator: "; "))",
                     laterAddFailures.isEmpty ? nil : "LATER ADD PERSIST FAILURE: \(laterAddFailures.joined(separator: "; "))",
+                    lifecycleFailures.isEmpty ? nil : "TREATMENT LIFECYCLE FAILURE: \(lifecycleFailures.joined(separator: "; "))",
                     clockFailures.isEmpty ? nil : "TEST CLOCK FAILURE: \(clockFailures.joined(separator: "; "))",
                     journeyTreeFailures.isEmpty ? nil : "JOURNEY TREE FAILURE: \(journeyTreeFailures.joined(separator: "; "))",
                     rewardFailures.isEmpty ? nil : "REWARD ENGINE FAILURE: \(rewardFailures.joined(separator: "; "))",

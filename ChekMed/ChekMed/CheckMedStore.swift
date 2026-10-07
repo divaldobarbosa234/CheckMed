@@ -323,13 +323,20 @@ final class CheckMedStore {
         return count
     }
 
-    /// Active-plan medicine count for free-plan caps / scan gates.
+    /// Live-plan medicine count for free-plan caps / scan gates.
     /// Ungated from `surfacesPlan` (unfinished plans still consume slots).
-    /// Completed / soft-deleted treatments never count — they must not block Scan.
+    /// Occupancy is CURRENT + FUTURE. PAST-by-date and completed treatments
+    /// never count — they must not block Scan.
     var storedMedicineCount: Int {
         _ = revision
-        let activeIds = Set(activeTreatments().map(\.id))
-        return medicines().filter { activeIds.contains($0.treatmentId) }.count
+        let liveIds = Set(liveTreatments().map(\.id))
+        return medicines().filter { liveIds.contains($0.treatmentId) }.count
+    }
+
+    /// Journey CURRENT treatment exists. Derived classification only — not stored status.
+    var hasCurrentTreatment: Bool {
+        _ = revision
+        return !currentTreatments().isEmpty
     }
 
     func deleteMedicine(id: UUID) {
@@ -353,7 +360,7 @@ final class CheckMedStore {
         _ = revision
         guard surfacesPlan else { return nil }
         let today = calendar.startOfDay(for: Date())
-        let ends = activeTreatments().compactMap(\.endDate).map { calendar.startOfDay(for: $0) }
+        let ends = currentTreatments().compactMap(\.endDate).map { calendar.startOfDay(for: $0) }
         guard let soonest = ends.min() else { return nil }
         return calendar.dateComponents([.day], from: today, to: soonest).day
     }
@@ -389,7 +396,7 @@ final class CheckMedStore {
     }
 
     func medicineSummaries() -> [MedicineSummary] {
-        summaries(treatments: activeTreatments(), requireSurfacesPlan: true)
+        summaries(treatments: currentTreatments(), requireSurfacesPlan: true)
     }
 
     /// Report reads the same medicine/treatment rows as Home / Journey / Plan.
@@ -403,7 +410,7 @@ final class CheckMedStore {
 
     func reportCurrentMedicines() -> [MedicineSummary] {
         ReportPerf.measure("store.reportCurrentMedicines") {
-            reportMedicineSummaries().filter { $0.treatmentStatus == "active" }
+            reportMedicineSummaries().filter { isCurrentOnJourneyHistory(treatmentId: $0.treatmentId) }
         }
     }
 
@@ -704,7 +711,7 @@ final class CheckMedStore {
             ownerId: ownerId,
             profileId: profileId,
             replacingFirst: replacePlan,
-            ontoTreatment: replacePlan ? nil : activeTreatments().first
+            ontoTreatment: replacePlan ? nil : currentTreatments().first
         ) else {
             return nil
         }
@@ -1604,7 +1611,7 @@ final class CheckMedStore {
         _ = revision
         guard surfacesPlan else { return [] }
         var drafts: [ReminderDraft] = []
-        for treatment in activeTreatments() {
+        for treatment in currentTreatments() {
             guard let end = treatment.endDate else { continue }
             let fire = calendar.date(byAdding: .day, value: -2, to: calendar.startOfDay(for: end)) ?? end
             guard fire > now.addingTimeInterval(8) else { continue }
@@ -1876,7 +1883,7 @@ final class CheckMedStore {
     func todayNodes() -> [DoseNode] {
         _ = revision
         guard surfacesPlan else { return [] }
-        let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        let activeTreatmentIds = currentTreatmentIds()
         guard !activeTreatmentIds.isEmpty else { return [] }
         let dayLogs = todayLogs().sorted { $0.scheduledAt < $1.scheduledAt }
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
@@ -2043,7 +2050,7 @@ final class CheckMedStore {
     private func todayChallengeProbes() -> [DoseLoop.DoseSummaryProbe] {
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
-        let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        let activeTreatmentIds = currentTreatmentIds()
         return todayLogs().compactMap { log in
             guard let schedule = schedulesById[log.scheduleId],
                   let medicine = medicinesById[schedule.medicineId],
@@ -2146,7 +2153,7 @@ final class CheckMedStore {
 
     func reminderDrafts(now: Date = Date()) -> [ReminderDraft] {
         guard surfacesPlan else { return [] }
-        let activeTreatmentIds = Set(activeTreatments().map(\.id))
+        let activeTreatmentIds = currentTreatmentIds()
         guard !activeTreatmentIds.isEmpty else { return [] }
         let medicinesById = Dictionary(uniqueKeysWithValues: medicines().map { ($0.id, $0) })
         let schedulesById = Dictionary(uniqueKeysWithValues: schedules().map { ($0.id, $0) })
@@ -2350,6 +2357,37 @@ final class CheckMedStore {
         )
     }
 
+    /// Single lifecycle authority: `TreatmentJourneyClassification`. Read-only.
+    private func lifecycleKind(for treatment: TreatmentRecord, now: Date = Date()) -> TreatmentJourneyKind? {
+        TreatmentJourneyClassification.classify(
+            deletedAt: treatment.deletedAt,
+            status: treatment.status,
+            startDate: treatment.startDate,
+            endDate: treatment.endDate,
+            now: now,
+            calendar: calendar
+        )
+    }
+
+    /// Stored `status == active` treatments that are CURRENT on the calendar.
+    private func currentTreatments(now: Date = Date()) -> [TreatmentRecord] {
+        treatments()
+            .filter { lifecycleKind(for: $0, now: now) == .current }
+            .sorted { $0.startDate > $1.startDate }
+    }
+
+    private func currentTreatmentIds(now: Date = Date()) -> Set<UUID> {
+        Set(currentTreatments(now: now).map(\.id))
+    }
+
+    /// Slot occupancy: CURRENT + FUTURE. Excludes PAST-by-date and completed.
+    private func liveTreatments(now: Date = Date()) -> [TreatmentRecord] {
+        treatments().filter { treatment in
+            let lifecycle = lifecycleKind(for: treatment, now: now)
+            return lifecycle == .current || lifecycle == .future
+        }
+    }
+
     func isCurrentOnJourneyHistory(status: String, startDate: Date, endDate: Date?, now: Date = Date()) -> Bool {
         journeyKind(status: status, startDate: startDate, endDate: endDate, now: now) == .current
     }
@@ -2430,18 +2468,7 @@ final class CheckMedStore {
 
     /// Today's Challenge / Home path: current Journey treatments only. Does not seed logs.
     private func currentJourneyTreatmentIds(now: Date = Date()) -> Set<UUID> {
-        Set(
-            treatments().compactMap { treatment in
-                TreatmentJourneyClassification.classify(
-                    deletedAt: treatment.deletedAt,
-                    status: treatment.status,
-                    startDate: treatment.startDate,
-                    endDate: treatment.endDate,
-                    now: now,
-                    calendar: calendar
-                ) == .current ? treatment.id : nil
-            }
-        )
+        currentTreatmentIds(now: now)
     }
 
     private func finishedTreatments() -> [TreatmentRecord] {
@@ -3182,6 +3209,126 @@ final class CheckMedStore {
         cachedWeeklyDay = nil
         lastChallengeDiag = nil
         lastWeeklyDiag = nil
+    }
+
+    /// Isolated SwiftData container. Does not replace the live app store.
+    init(isolatedInMemoryForContracts: Bool) {
+        let schema = Schema([
+            TreatmentRecord.self,
+            MedicineRecord.self,
+            DoseScheduleRecord.self,
+            DoseLogRecord.self,
+            FeelingRecord.self,
+            RewardGrant.self,
+            CommunityCommentRecord.self,
+        ])
+        let memory = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        container = try! ModelContainer(for: schema, configurations: [memory])
+        context = ModelContext(container)
+        context.autosaveEnabled = false
+        var gmt = Calendar(identifier: .gregorian)
+        gmt.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        calendar = gmt
+        _ = isolatedInMemoryForContracts
+    }
+
+    func debugContractBind(ownerId: UUID, profileId: UUID) {
+        self.ownerId = ownerId
+        stampProfileId = profileId
+        scopeProfileId = profileId
+        includeUnscoped = true
+        setSurfacesPlan(true)
+        invalidateCache()
+    }
+
+    @discardableResult
+    func debugInsertPlan(
+        title: String,
+        status: String,
+        startDate: Date,
+        endDate: Date?,
+        medicineName: String,
+        ownerId: UUID,
+        profileId: UUID,
+        scheduleTime: String = "08:00",
+        logStatus: String? = nil,
+        logScheduledAt: Date? = nil
+    ) -> (treatmentId: UUID, medicineId: UUID, logId: UUID?) {
+        let now = Date()
+        let treatment = TreatmentRecord(
+            ownerId: ownerId,
+            profileId: profileId,
+            title: title,
+            status: status,
+            startDate: startDate,
+            endDate: endDate,
+            updatedAt: now
+        )
+        context.insert(treatment)
+        stamp(treatment)
+        let medicine = MedicineRecord(
+            treatmentId: treatment.id,
+            ownerId: ownerId,
+            profileId: profileId,
+            name: medicineName,
+            doseLabel: "1 tablet",
+            frequency: "1x daily",
+            duration: "7 days",
+            updatedAt: now
+        )
+        context.insert(medicine)
+        stamp(medicine)
+        let schedule = DoseScheduleRecord(
+            medicineId: medicine.id,
+            ownerId: ownerId,
+            profileId: profileId,
+            timeOfDay: scheduleTime,
+            period: "morning",
+            updatedAt: now
+        )
+        context.insert(schedule)
+        stamp(schedule)
+        var logId: UUID?
+        if let logStatus, let logScheduledAt {
+            let log = DoseLogRecord(
+                scheduleId: schedule.id,
+                ownerId: ownerId,
+                profileId: profileId,
+                scheduledAt: logScheduledAt,
+                status: logStatus,
+                updatedAt: now
+            )
+            context.insert(log)
+            stamp(log)
+            logId = log.id
+        }
+        save()
+        return (treatment.id, medicine.id, logId)
+    }
+
+    func debugActiveTreatmentIds() -> [UUID] {
+        activeTreatments().map(\.id)
+    }
+
+    func debugCurrentTreatmentIds() -> [UUID] {
+        currentTreatments().map(\.id)
+    }
+
+    func debugLifecycleKind(treatmentId: UUID) -> TreatmentJourneyKind? {
+        guard let treatment = treatments().first(where: { $0.id == treatmentId }) else { return nil }
+        return lifecycleKind(for: treatment)
+    }
+
+    func debugTreatmentStatus(_ treatmentId: UUID) -> String? {
+        treatments().first(where: { $0.id == treatmentId })?.status
+    }
+
+    func debugRewardGrantCount() -> Int {
+        allRewardGrants().count
+    }
+
+    func debugTreatmentCompleteGrantCount() -> Int {
+        allRewardGrants().filter { $0.kind == RewardCatalog.XPEvent.treatmentComplete.rawValue }.count
     }
     #endif
 
