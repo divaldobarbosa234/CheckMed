@@ -1190,18 +1190,33 @@ struct MissedDoseList: View {
     var onConfirmedTaken: ((UUID, Bool) -> Void)? = nil
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
         if doses.isEmpty {
             Text(session.t(.todayNothing))
                 .font(.system(.body, design: .rounded).weight(.bold))
         } else {
             ForEach(doses) { dose in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("\(dose.medicine) · \(dose.doseLabel)")
-                        .font(.system(.body, design: .rounded).weight(.heavy))
-                    Text(dose.time)
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                    HStack {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top, spacing: 12) {
+                        MedicationLibraryImage(form: missedForm(for: dose), size: 52)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(dose.medicine)
+                                .font(.system(.headline, design: .rounded).weight(.heavy))
+                                .foregroundStyle(CheckMedTheme.ink)
+                            Text(dose.doseLabel)
+                                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                                .foregroundStyle(CheckMedTheme.muted)
+                            HStack(spacing: 6) {
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text(dose.time)
+                                    .font(.system(.subheadline, design: .rounded).weight(.bold))
+                            }
+                            .foregroundStyle(CheckMedTheme.muted)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    VStack(spacing: 10) {
                         CheckMedButton(title: session.t(.missedTookItLater)) {
                             let wasMissedLike = dose.status.isMissedLike
                             let revisionBefore = treatments.revision
@@ -1223,16 +1238,31 @@ struct MissedDoseList: View {
                         }
                     }
                 }
-                .padding(12)
-                .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .padding(16)
+                .background(CheckMedTheme.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .shadow(color: CheckMedTheme.ink.opacity(0.06), radius: 10, y: 4)
             }
         }
-        Text(session.t(.missedDoseDisclaimer))
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(CheckMedTheme.current)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 6) {
+                Text(session.t(.missedDoseDisclaimer))
+                Text(session.t(.missedNeverDouble))
+            }
             .font(.system(.caption, design: .rounded).weight(.bold))
             .foregroundStyle(CheckMedTheme.safety)
-        Text(session.t(.missedNeverDouble))
-            .font(.system(.caption, design: .rounded).weight(.bold))
-            .foregroundStyle(CheckMedTheme.safety)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.sunshineWash.opacity(0.55), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    private func missedForm(for dose: CheckMedStore.UnresolvedDose) -> MedicineForm {
+        MedicineForm.infer(from: dose.doseLabel, medicineName: dose.medicine)
     }
 }
 

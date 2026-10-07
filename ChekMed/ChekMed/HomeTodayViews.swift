@@ -256,9 +256,10 @@ struct HomeNextDoseCard: View {
                     }
                 }
                 Spacer(minLength: 0)
-                HomeCapsuleMark()
-                    .frame(width: 62, height: 62)
-                    .background(CheckMedTheme.flowDot.opacity(0.08), in: Circle())
+                MedicationLibraryImage(
+                    form: MedicineForm.infer(from: line.detail, medicineName: line.medicine),
+                    size: 58
+                )
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(CheckMedTheme.muted)
@@ -274,22 +275,6 @@ struct HomeNextDoseCard: View {
     }
 }
 
-/// Decorative two-tone medicine capsule — not achievement artwork, not a toggle.
-private struct HomeCapsuleMark: View {
-    var body: some View {
-        HStack(spacing: 0) {
-            CheckMedTheme.flowDot
-            Color.white
-        }
-        .frame(width: 42, height: 20)
-        .clipShape(Capsule())
-        .overlay(Capsule().stroke(CheckMedTheme.flowDot.opacity(0.35), lineWidth: 1))
-        .rotationEffect(.degrees(-45))
-        .shadow(color: CheckMedTheme.flowDot.opacity(0.2), radius: 4, y: 2)
-            .accessibilityHidden(true)
-    }
-}
-
 struct HomeEncouragementCard: View {
     @Environment(SessionStore.self) private var session
     let snapshot: GamificationSnapshot
@@ -301,7 +286,7 @@ struct HomeEncouragementCard: View {
             onOpen?()
         } label: {
             HStack(alignment: .center, spacing: 10) {
-                PhilDoctor2DImage(size: 76)
+                CooperLibraryImage(asset: cooperAsset, size: 76)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(headline)
                         .font(.system(.headline, design: .rounded).weight(.heavy))
@@ -334,6 +319,12 @@ struct HomeEncouragementCard: View {
         .disabled(onOpen == nil)
     }
 
+    private var cooperAsset: String {
+        if snapshot.coach == .needsAttention { return "phil_alert" }
+        if snapshot.isComplete { return "phil_heart" }
+        return "phil_wink"
+    }
+
     private var headline: String {
         if snapshot.coach == .needsAttention { return session.t(.homeCooperCheer) }
         if snapshot.isComplete { return session.t(.youDidIt) }
@@ -342,8 +333,8 @@ struct HomeEncouragementCard: View {
 
     private var bodyLine: String {
         if snapshot.isComplete { return session.t(.philDayDosesComplete) }
-        if remaining == 1 { return session.t(.philDoingWellOne) }
-        if remaining > 1 { return session.t(.philDoingWellMany, remaining) }
+        if remaining == 1 { return session.t(.homeFinishDayOne) }
+        if remaining > 1 { return session.t(.homeFinishDayMany, remaining) }
         return session.t(.philReadyNext)
     }
 }

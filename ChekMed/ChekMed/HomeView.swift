@@ -243,7 +243,7 @@ struct HomeView: View {
                             navPath.append(AppRoute.adherence)
                         }
                     }
-                    homeOccupancyContent(game: game, nodes: nodes, proxy: proxy)
+                    homeOccupancyContent(game: game, nodes: nodes)
                     SafetyCaption()
                         .frame(maxWidth: .infinity)
                 }
@@ -376,8 +376,7 @@ struct HomeView: View {
     @ViewBuilder
     private func homeOccupancyContent(
         game: GamificationSnapshot,
-        nodes: [DoseNode],
-        proxy: ScrollViewProxy
+        nodes: [DoseNode]
     ) -> some View {
         let occupancy = HomePlanPresentationMapper.occupancy(
             planReady: !isPlanVisibilityPending,
@@ -420,7 +419,7 @@ struct HomeView: View {
                 secondaryAction: { navPath.append(AppRoute.progressDashboard) }
             )
         case .activeToday:
-            activeTodayStack(game: game, nodes: nodes, proxy: proxy)
+            activeTodayStack(game: game, nodes: nodes)
         }
         HomePrimaryActionsRow(
             onScan: openScan,
@@ -431,8 +430,7 @@ struct HomeView: View {
 
     private func activeTodayStack(
         game: GamificationSnapshot,
-        nodes: [DoseNode],
-        proxy: ScrollViewProxy
+        nodes: [DoseNode]
     ) -> some View {
         let journey = DailyMedicationJourney.snapshot(
             from: game,
@@ -462,7 +460,7 @@ struct HomeView: View {
 
             if let next = journey?.nextDose {
                 HomeNextDoseCard(line: next) {
-                    proxy.scrollTo(next.id, anchor: .center)
+                    openNextDoseMedicine(line: next, nodes: nodes)
                 }
             }
 
@@ -470,7 +468,7 @@ struct HomeView: View {
                 snapshot: game,
                 remaining: journey?.remaining ?? game.remainingCount
             ) {
-                proxy.scrollTo("todays-challenge", anchor: .top)
+                navPath.append(AppRoute.progressDashboard)
             }
         }
     }
@@ -485,59 +483,21 @@ struct HomeView: View {
         }
     }
 
+    /// Navigates by the path node's canonical `medicineId`, never by medicine name.
+    private func openNextDoseMedicine(line: ChallengeDoseLine, nodes: [DoseNode]) {
+        guard let medicineId = nodes.first(where: { $0.id == line.id })?.medicineId else {
+            #if DEBUG
+            print("[HOME-NAV] next-dose missing medicineId node=\(line.id)")
+            #endif
+            return
+        }
+        navPath.append(AppRoute.medicationDetail(medicineId))
+    }
+
     private var header: some View {
-        ZStack(alignment: .topTrailing) {
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [CheckMedTheme.blueWash, CheckMedTheme.surface],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top, spacing: 6) {
-                    Text(session.t(.homeGreetingFormat, greetingWord, greetingName))
-                        .font(.system(size: 30, weight: .black, design: .rounded))
-                        .foregroundStyle(CheckMedTheme.ink)
-                        .minimumScaleFactor(0.76)
-                    Image(systemName: greetingSunSymbol)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.current)
-                        .padding(.top, 8)
-                }
-                Text(session.t(.homeCareToday))
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .lineLimit(2)
-                if family.isViewingExtra, let extra = family.extra {
-                    Text(session.t(.familyLookingAt, extra.name))
-                        .font(.system(.caption, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.superAccent)
-                }
-            }
-            .frame(maxWidth: 210, alignment: .leading)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            .padding(.leading, 16)
-            .padding(.bottom, 16)
-
-            PhilDoctor2DImage(size: 118)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(.trailing, 8)
-                .padding(.bottom, 2)
-
-            Text(session.t(.homeCooperCheer))
-                .font(.system(size: 11, weight: .heavy, design: .rounded))
-                .foregroundStyle(CheckMedTheme.ink)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(CheckMedTheme.surface.opacity(0.96), in: Capsule())
-                .padding(.top, 48)
-                .padding(.trailing, 94)
-
+        VStack(spacing: 0) {
             HStack(spacing: 8) {
+                Spacer(minLength: 0)
                 headerCircleButton(symbol: "bell.fill", label: session.t(.profileNotifs)) {
                     navPath.append(AppRoute.notificationPrefs)
                 }
@@ -545,9 +505,59 @@ struct HomeView: View {
                     navPath.append(AppRoute.settings)
                 }
             }
-            .padding(10)
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+
+            HStack(alignment: .bottom, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(session.t(.homeGreetingFormat, greetingWord, greetingName))
+                            .font(.system(size: 28, weight: .black, design: .rounded))
+                            .foregroundStyle(CheckMedTheme.ink)
+                            .minimumScaleFactor(0.62)
+                            .lineLimit(2)
+                        Image(systemName: greetingSunSymbol)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(CheckMedTheme.current)
+                            .padding(.top, 6)
+                    }
+                    Text(session.t(.homeCareToday))
+                        .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .lineLimit(3)
+                        .minimumScaleFactor(0.85)
+                    if family.isViewingExtra, let extra = family.extra {
+                        Text(session.t(.familyLookingAt, extra.name))
+                            .font(.system(.caption, design: .rounded).weight(.bold))
+                            .foregroundStyle(CheckMedTheme.superAccent)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                ZStack(alignment: .topLeading) {
+                    PhilDoctor2DImage(size: 118)
+                    Text(session.t(.homeCooperCheer))
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(CheckMedTheme.surface.opacity(0.96), in: Capsule())
+                        .shadow(color: CheckMedTheme.ink.opacity(0.08), radius: 6, y: 2)
+                        .offset(x: -18, y: 2)
+                }
+                .padding(.trailing, 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
         }
-        .frame(height: 150)
+        .background(
+            LinearGradient(
+                colors: [CheckMedTheme.blueWash, CheckMedTheme.surface],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        )
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 

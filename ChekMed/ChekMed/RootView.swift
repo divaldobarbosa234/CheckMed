@@ -73,6 +73,8 @@ struct RootView: View {
                 }
             }
             .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
         }
         .environment(\.locale, session.locale.foundationLocale)
         .preferredColorScheme(.light)
@@ -240,9 +242,22 @@ private struct MissedDoseSummarySheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(doses.count > 1 ? session.t(.missedYouMissedSeveral) : session.t(.missedYouMissedOne))
-                    .font(.system(.title2, design: .rounded).weight(.black))
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(session.t(.missedUnconfirmedTitle))
+                            .font(.system(size: 26, weight: .black, design: .rounded))
+                            .foregroundStyle(CheckMedTheme.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(session.t(.missedUnconfirmedSubtitle))
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
+                    CooperLibraryImage(asset: "phil_alert", size: 92)
+                }
+
                 MissedDoseList(doses: doses) {
                     path.reload()
                     if treatments.unresolvedDosesForSummary().isEmpty {
@@ -255,13 +270,29 @@ private struct MissedDoseSummarySheet: View {
                     path.holdPhilForMissedSheet(id: id.uuidString, wasMissedLike: wasMissedLike)
                 }
             }
-            .padding(20)
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 28)
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HStack {
+                Spacer()
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.ink)
+                        .frame(width: 34, height: 34)
+                        .background(CheckMedTheme.surface, in: Circle())
+                        .shadow(color: CheckMedTheme.ink.opacity(0.08), radius: 6, y: 2)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(session.t(.done))
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
         }
         .background(CheckMedTheme.background)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button(session.t(.done)) { onClose() }
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)
     }
 }

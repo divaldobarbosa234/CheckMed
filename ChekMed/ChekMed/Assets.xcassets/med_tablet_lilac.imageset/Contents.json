@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "med_tablet_lilac.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

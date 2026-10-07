@@ -277,13 +277,14 @@ enum L10n {
         case notificationNudge5Title, notificationNudge5Body
         case notificationNudge30Title, notificationNudge30Body
         case missedDoseDisclaimer, missedYouMissedOne, missedYouMissedSeveral
+        case missedUnconfirmedTitle, missedUnconfirmedSubtitle
         case missedTookItLater, missedDidNotTake
         case refillIncomplete, refillRunningLow, refillApproxRemaining
         case homeStatusPending, homeStatusUpcoming, homeTakenLate, homeTakenLateHint
         case prefsGraceMinutes, prefsSnoozeMinutes
         case adherenceRecordNote, adherenceTakenLate, adherenceMissedCount
         case homeCareToday, homeCooperCheer, homeTodayTitle, homeDosesOfTotal
-        case homePrimaryActions, homeYoureDoingWell
+        case homePrimaryActions, homeYoureDoingWell, homeFinishDayOne, homeFinishDayMany
         case homeTreatmentCompleteTitle, homeTreatmentCompleteBody
         case homeActiveNoDosesToday, homeFutureTreatmentBody
         case progressThisWeek, progressSeeDetails, progressDaysCompletedStat, progressWeekPercentStat
@@ -594,6 +595,8 @@ enum L10n {
         .homeDosesOfTotal: "%d of %d doses",
         .homePrimaryActions: "Main actions",
         .homeYoureDoingWell: "You’re doing well!",
+        .homeFinishDayOne: "1 dose left to finish the day.",
+        .homeFinishDayMany: "%d doses left to finish the day.",
         .homeTreatmentCompleteTitle: "Treatment completed",
         .homeTreatmentCompleteBody: "Beautiful work. You can view your report or add another prescription when you’re ready.",
         .homeActiveNoDosesToday: "Nothing is scheduled for today. Your treatment is still active.",
@@ -1284,6 +1287,8 @@ enum L10n {
         .missedDoseDisclaimer: "This dose wasn't confirmed. Check your prescription or doctor's instructions if you're unsure what to do.",
         .missedYouMissedOne: "You missed a medicine",
         .missedYouMissedSeveral: "You have missed doses",
+        .missedUnconfirmedTitle: "You have unconfirmed doses",
+        .missedUnconfirmedSubtitle: "These are today's doses that have not been confirmed yet.",
         .missedTookItLater: "I took it later",
         .missedDidNotTake: "I didn't take it",
         .refillIncomplete: "Refill information incomplete",
@@ -1514,6 +1519,8 @@ enum L10n {
         .homeDosesOfTotal: "%d de %d doses",
         .homePrimaryActions: "Ações principais",
         .homeYoureDoingWell: "Você está indo bem!",
+        .homeFinishDayOne: "Falta 1 dose para terminar o dia.",
+        .homeFinishDayMany: "Faltam %d doses para terminar o dia.",
         .homeTreatmentCompleteTitle: "Tratamento concluído",
         .homeTreatmentCompleteBody: "Lindo trabalho. Você pode ver o relatório ou adicionar outra receita quando estiver pronto.",
         .homeActiveNoDosesToday: "Nada está agendado para hoje. Seu tratamento continua ativo.",
@@ -2204,6 +2211,8 @@ enum L10n {
         .missedDoseDisclaimer: "Esta dose não foi confirmada. Consulte a receita ou as instruções do médico se não souber o que fazer.",
         .missedYouMissedOne: "Você esqueceu um medicamento",
         .missedYouMissedSeveral: "Você tem doses não confirmadas",
+        .missedUnconfirmedTitle: "Você tem doses não confirmadas",
+        .missedUnconfirmedSubtitle: "Estas são as doses de hoje que ainda não foram confirmadas.",
         .missedTookItLater: "Tomei mais tarde",
         .missedDidNotTake: "Não tomei",
         .refillIncomplete: "Informação de reposição incompleta",
@@ -2434,6 +2443,8 @@ enum L10n {
         .homeDosesOfTotal: "%d de %d dosis",
         .homePrimaryActions: "Acciones principales",
         .homeYoureDoingWell: "¡Lo estás haciendo bien!",
+        .homeFinishDayOne: "Falta 1 dosis para terminar el día.",
+        .homeFinishDayMany: "Faltan %d dosis para terminar el día.",
         .homeTreatmentCompleteTitle: "Tratamiento completado",
         .homeTreatmentCompleteBody: "Hermoso trabajo. Puedes ver tu informe o añadir otra receta cuando quieras.",
         .homeActiveNoDosesToday: "Hoy no hay dosis programadas. Tu tratamiento sigue activo.",
@@ -3124,6 +3135,8 @@ enum L10n {
         .missedDoseDisclaimer: "Esta dosis no se confirmó. Consulta la receta o las indicaciones de tu médico si no sabes qué hacer.",
         .missedYouMissedOne: "Te faltó un medicamento",
         .missedYouMissedSeveral: "Tienes dosis no confirmadas",
+        .missedUnconfirmedTitle: "Tienes dosis no confirmadas",
+        .missedUnconfirmedSubtitle: "Estas son las dosis de hoy que todavía no se confirmaron.",
         .missedTookItLater: "Lo tomé más tarde",
         .missedDidNotTake: "No lo tomé",
         .refillIncomplete: "Información de reposición incompleta",
@@ -3354,6 +3367,8 @@ enum L10n {
         .homeDosesOfTotal: "%d doses sur %d",
         .homePrimaryActions: "Actions principales",
         .homeYoureDoingWell: "Vous y arrivez très bien !",
+        .homeFinishDayOne: "Il reste 1 dose pour terminer la journée.",
+        .homeFinishDayMany: "Il reste %d doses pour terminer la journée.",
         .homeTreatmentCompleteTitle: "Traitement terminé",
         .homeTreatmentCompleteBody: "Beau travail. Vous pouvez voir le rapport ou ajouter une autre ordonnance quand vous serez prêt.",
         .homeActiveNoDosesToday: "Rien n’est prévu aujourd’hui. Votre traitement reste actif.",
@@ -4044,6 +4059,8 @@ enum L10n {
         .missedDoseDisclaimer: "Cette prise n’a pas été confirmée. Consultez l’ordonnance ou les consignes de votre médecin si vous ne savez pas quoi faire.",
         .missedYouMissedOne: "Vous avez manqué un médicament",
         .missedYouMissedSeveral: "Vous avez des prises non confirmées",
+        .missedUnconfirmedTitle: "Vous avez des prises non confirmées",
+        .missedUnconfirmedSubtitle: "Voici les doses d’aujourd’hui qui n’ont pas encore été confirmées.",
         .missedTookItLater: "Je l’ai pris plus tard",
         .missedDidNotTake: "Je ne l’ai pas pris",
         .refillIncomplete: "Informations de renouvellement incomplètes",

@@ -35,15 +35,48 @@ struct PhilView: View {
 struct PhilLibraryImage: View {
     let asset: String
     var size: CGFloat
+    var clips = true
 
     var body: some View {
-        Image(asset)
+        let image = Image(asset)
             .resizable()
             .interpolation(.high)
             .renderingMode(.original)
             .scaledToFit()
             .frame(width: size, height: size)
-            .clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
+        Group {
+            if clips {
+                image.clipShape(RoundedRectangle(cornerRadius: size * 0.2, style: .continuous))
+            } else {
+                image
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Unclipped library Cooper for Home / sheets. Does not crop character artwork.
+struct CooperLibraryImage: View {
+    let asset: String
+    var size: CGFloat
+
+    var body: some View {
+        PhilLibraryImage(asset: asset, size: size, clips: false)
+    }
+}
+
+/// Form-based medication artwork. Presentation only; color is not medicine identity.
+struct MedicationLibraryImage: View {
+    var form: MedicineForm
+    var size: CGFloat = 52
+
+    var body: some View {
+        Image(form.libraryArtwork)
+            .resizable()
+            .interpolation(.high)
+            .renderingMode(.original)
+            .scaledToFit()
+            .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
 }

@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "med_capsule_red_white.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

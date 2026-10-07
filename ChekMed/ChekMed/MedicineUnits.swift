@@ -16,6 +16,17 @@ enum MedicineForm: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Presentation catalog name by form only. Does not encode medicine identity or color meaning.
+    var libraryArtwork: String {
+        switch self {
+        case .tablet: "med_tablet_lilac"
+        case .capsule: "med_capsule_blue"
+        case .syrup, .drops: "med_gel_green"
+        case .powder: "med_tablet_yellow"
+        case .other: "med_capsule_tablet"
+        }
+    }
+
     static func infer(from doseLabel: String, medicineName: String = "") -> MedicineForm {
         let raw = "\(doseLabel) \(medicineName)".lowercased()
         if raw.contains("syrup") || raw.contains("xarope") || raw.contains("jarabe") || raw.contains("sirop")
