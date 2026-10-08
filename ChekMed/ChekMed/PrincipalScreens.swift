@@ -292,368 +292,14 @@ struct PrescriptionSavedScreen: View {
 
 struct TreatmentOverviewScreen: View {
     var go: (AppRoute) -> Void
-    @Environment(CheckMedStore.self) private var treatments
-    @Environment(SessionStore.self) private var session
-    @Environment(EntitlementStore.self) private var entitlements
-    @Environment(TodayPathStore.self) private var path
-    @State private var showFinishConfirm = false
-    @State private var pendingDeleteMedicine: CheckMedStore.MedicineSummary?
-
-    private var medicines: [CheckMedStore.MedicineSummary] { treatments.medicineSummaries() }
-    private var medicineCount: Int { treatments.storedMedicineCount }
-    private var remainingSlots: Int {
-        entitlements.freeMedicineSlotsRemaining(existingCount: medicineCount)
-    }
-    private var incompleteMedicineNames: [String] {
-        treatments.incompleteMedicineNamesForActivePlan()
-    }
-
-    private let pillTints: [Color] = [
-        CheckMedTheme.flowDot,
-        CheckMedTheme.cheek,
-        Color(hex: 0x5FA86B),
-        Color(hex: 0x9B7ED9),
-        CheckMedTheme.current,
-    ]
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                philBanner
-                if medicines.isEmpty {
-                    Text(session.t(.noTreatmentInProgressHeadline))
-                        .font(.system(.body, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                } else {
-                    LazyVStack(spacing: 12) {
-                        ForEach(Array(medicines.enumerated()), id: \.element.id) { index, med in
-                            medicineCard(med, tint: pillTints[index % pillTints.count])
-                        }
-                    }
-                }
-                if !entitlements.isSuper, medicineCount > 0 {
-                    freeSlotsBanner
-                }
-                CheckMedButton(title: session.t(.homeScan), action: attemptAdd)
-                    .padding(.top, 2)
-                moreSection
-                if !medicines.isEmpty {
-                    CheckMedButton(title: session.t(.completeTreatment), style: .ghost) {
-                        showFinishConfirm = true
-                    }
-                }
-                SafetyCaption()
-                    .frame(maxWidth: .infinity)
-            }
-            .padding(16)
-            .padding(.bottom, 12)
-        }
-        .background(CheckMedTheme.background)
-        .navigationTitle(session.t(.tabTreatments))
-        .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
-        }
-        .sheet(isPresented: $showFinishConfirm) {
-            FinishTreatmentConfirmSheet(
-                missingMedicineNames: incompleteMedicineNames,
-                onScanNew: {
-                    finishTreatment(then: .addPrescription)
-                },
-                onSeeReport: {
-                    finishTreatment(then: .journeyReport)
-                },
-                onCancel: {
-                    showFinishConfirm = false
-                }
-            )
-            .environment(session)
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
-        }
-        .confirmationDialog(
-            session.t(.deleteRecipeConfirm),
-            isPresented: Binding(
-                get: { pendingDeleteMedicine != nil },
-                set: { if !$0 { pendingDeleteMedicine = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            Button(session.t(.deleteRecipeYes), role: .destructive) {
-                if let med = pendingDeleteMedicine {
-                    confirmDeleteRecipe(med)
-                }
-            }
-            Button(session.t(.cancel), role: .cancel) {
-                pendingDeleteMedicine = nil
-            }
-        }
-    }
-
-    private func finishTreatment(then route: AppRoute) {
-        // Mark completed — keep medicines/logs for journey history. Never soft-delete here.
-        treatments.completeAllActiveTreatments()
-        path.reload()
-        ReminderScheduler.shared.reschedule()
-        showFinishConfirm = false
-        // Defer navigation so the sheet can dismiss before pushing the report / scan route.
-        DispatchQueue.main.async {
-            go(route)
-        }
-    }
-
-    private var freeSlotsBanner: some View {
-        let text: String = remainingSlots > 0
-            ? session.t(.treatmentsSlotsLeft, medicineCount, remainingSlots)
-            : session.t(.treatmentsSlotsFull)
-        return HStack(alignment: .top, spacing: 11) {
-            Image(systemName: remainingSlots > 0 ? "checkmark.circle.fill" : "sparkles")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(CheckMedTheme.primaryShadow)
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(text)
-                    .font(.system(.caption, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                if remainingSlots == 0 {
-                    Button(session.t(.treatmentsTrySuper)) {
-                        entitlements.presentPaywall()
-                    }
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
-                    .foregroundStyle(CheckMedTheme.primaryShadow)
-                }
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CheckMedTheme.mintWash)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(CheckMedTheme.primary.opacity(0.18), lineWidth: 1)
-        )
-    }
-
-    private func attemptAdd() {
-        if !entitlements.isSuper, remainingSlots <= 0 {
-            entitlements.presentPaywall()
-            return
-        }
-        go(.addPrescription)
-    }
-
-    private var header: some View {
-        HStack(alignment: .top) {
-            Image(systemName: "pills.fill")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(CheckMedTheme.onPrimary)
-                .frame(width: 36, height: 36)
-                .background(CheckMedTheme.primary, in: Circle())
-            VStack(alignment: .leading, spacing: 4) {
-                Text(session.t(.tabTreatments))
-                    .font(.system(.title, design: .rounded).weight(.black))
-                Text(session.t(.treatmentsSubhead))
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-            }
-            Spacer()
-            Button { go(.settings) } label: {
-                Image(systemName: "gearshape.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .frame(width: 36, height: 36)
-                    .background(CheckMedTheme.surface, in: Circle())
-                    .overlay(Circle().stroke(CheckMedTheme.hairline, lineWidth: 1.5))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(session.t(.profileSettings))
-        }
-    }
-
-    private var philBanner: some View {
-        ZStack {
-            LinearGradient(
-                colors: [CheckMedTheme.mintWash, CheckMedTheme.primary.opacity(0.13)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            HStack(alignment: .bottom, spacing: 8) {
-                PhilDoctor2DImage(size: 112)
-                    .offset(y: 6)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Cooper")
-                        .font(.system(.caption, design: .rounded).weight(.heavy))
-                        .foregroundStyle(CheckMedTheme.primaryShadow)
-                    Text(session.t(.treatmentsPhilBubble))
-                        .font(.system(.subheadline, design: .rounded).weight(.bold))
-                        .foregroundStyle(CheckMedTheme.ink)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(CheckMedTheme.surface.opacity(0.94))
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-        }
-        .frame(minHeight: 138)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-    }
-
-    private func medicineCard(_ med: CheckMedStore.MedicineSummary, tint: Color) -> some View {
-        ZStack(alignment: .topTrailing) {
-            Button {
-                go(.medicationDetail(med.id))
-            } label: {
-                VStack(alignment: .leading, spacing: 13) {
-                    HStack(spacing: 12) {
-                        Image(systemName: "pills.fill")
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(tint)
-                            .frame(width: 50, height: 50)
-                            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-                        Text(med.name)
-                            .font(.system(.headline, design: .rounded).weight(.heavy))
-                            .foregroundStyle(CheckMedTheme.ink)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(2)
-                        Spacer(minLength: 44)
-                    }
-                    Rectangle()
-                        .fill(CheckMedTheme.hairline)
-                        .frame(height: 1)
-                    HStack(spacing: 4) {
-                        meta(icon: "pills", text: med.doseLabel)
-                        meta(icon: "sun.max.fill", text: session.t(.timesPerDayFormat, med.timesPerDay))
-                        meta(icon: "clock.fill", text: med.frequency)
-                        meta(icon: "calendar", text: med.duration)
-                    }
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    LinearGradient(
-                        colors: [CheckMedTheme.surface, tint.opacity(0.055)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(CheckMedTheme.hairline, lineWidth: 1.25)
-                )
-                .shadow(color: CheckMedTheme.navy.opacity(0.045), radius: 10, y: 4)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(med.name)
-
-            Menu {
-                Button(role: .destructive) {
-                    pendingDeleteMedicine = med
-                } label: {
-                    Label(session.t(.deleteRecipe), systemImage: "trash")
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .frame(width: 36, height: 36)
-                    .background(CheckMedTheme.surface.opacity(0.94), in: Circle())
-            }
-            .padding(10)
-            .accessibilityLabel(session.t(.deleteRecipe))
-        }
-        .contextMenu {
-            Button(role: .destructive) {
-                pendingDeleteMedicine = med
-            } label: {
-                Label(session.t(.deleteRecipe), systemImage: "trash")
-            }
-        }
-    }
-
-    /// Confirmed delete of *this* recipe only, then Scan. Other actives stay until the user deletes them.
-    private func confirmDeleteRecipe(_ med: CheckMedStore.MedicineSummary) {
-        pendingDeleteMedicine = nil
-        treatments.deleteMedicine(id: med.id)
-        path.reload()
-        go(.addPrescription)
-    }
-
-    private func meta(icon: String, text: String) -> some View {
-        VStack(spacing: 2) {
-            Image(systemName: icon)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(CheckMedTheme.muted)
-            Text(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "—" : text)
-                .font(.system(.caption2, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.muted)
-                .lineLimit(1)
-                .minimumScaleFactor(0.62)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var moreSection: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Rectangle()
-                    .fill(CheckMedTheme.hairline)
-                    .frame(height: 1)
-                Text(session.t(.treatmentsYourMeds))
-                    .font(.system(.caption, design: .rounded).weight(.heavy))
-                    .foregroundStyle(CheckMedTheme.muted)
-                    .fixedSize()
-                Rectangle()
-                    .fill(CheckMedTheme.hairline)
-                    .frame(height: 1)
-            }
-            Button(action: attemptAdd) {
-                HStack(spacing: 12) {
-                    Image(systemName: "pills.fill")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.primaryShadow)
-                        .frame(width: 42, height: 42)
-                        .background(CheckMedTheme.mintWash, in: Circle())
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(session.t(.treatmentsNeedMore))
-                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
-                            .foregroundStyle(CheckMedTheme.ink)
-                        Text(session.t(.treatmentsNeedMoreBody))
-                            .font(.system(.caption, design: .rounded).weight(.semibold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                            .multilineTextAlignment(.leading)
-                    }
-                    Spacer(minLength: 4)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                }
-                .padding(14)
-                .background(
-                    LinearGradient(
-                        colors: [CheckMedTheme.surface, CheckMedTheme.mintWash],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
-                )
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(session.t(.treatmentsNeedMore))
-        }
+        TreatmentsRootScreen(go: go)
     }
 }
 
-private struct FinishTreatmentConfirmSheet: View {
+
+struct FinishTreatmentConfirmSheet: View {
     @Environment(SessionStore.self) private var session
     let missingMedicineNames: [String]
     let onScanNew: () -> Void
@@ -759,62 +405,29 @@ struct MedicationListScreen: View {
 struct MedicationDetailScreen: View {
     var go: (AppRoute) -> Void
     var medicineId: UUID? = nil
-    @Environment(CheckMedStore.self) private var treatments
     @Environment(SessionStore.self) private var session
-    @Environment(TodayPathStore.self) private var path
-    @State private var showDeleteRecipeConfirm = false
-
-    private var medicine: CheckMedStore.MedicineSummary? {
-        let all = treatments.medicineSummaries()
-        if let medicineId { return all.first { $0.id == medicineId } }
-        return all.first
-    }
 
     var body: some View {
-        ScreenScaffold(
-            title: session.t(.profileMedicines),
-            bubble: session.t(.planOnlyBubble)
-        ) {
-            if let medicine {
-                Text(medicine.name)
-                    .font(.system(.title2, design: .rounded).weight(.heavy))
-                FactBlock(label: session.t(.manualDose), value: medicine.doseLabel)
-                FactBlock(label: session.t(.manualFrequency), value: medicine.frequency)
-                FactBlock(label: session.t(.manualDuration), value: medicine.duration)
-                CheckMedButton(title: session.t(.deleteRecipe), style: .ghost) {
-                    showDeleteRecipeConfirm = true
-                }
-            } else {
-                Text(session.t(.todayNothing))
-                    .font(.system(.body, design: .rounded).weight(.bold))
-            }
-            Text(session.t(.planOnlyDisclaimer))
-                .font(.system(.caption, design: .rounded).weight(.bold))
-                .foregroundStyle(CheckMedTheme.safety)
-            CheckMedButton(title: session.t(.howYouTakeIt)) { go(.howToTake) }
-        }
-        .confirmationDialog(
-            session.t(.deleteRecipeConfirm),
-            isPresented: $showDeleteRecipeConfirm,
-            titleVisibility: .visible
-        ) {
-            Button(session.t(.deleteRecipeYes), role: .destructive) {
-                guard let medicine else { return }
-                treatments.deleteMedicine(id: medicine.id)
-                path.reload()
-                go(.addPrescription)
-            }
-            Button(session.t(.cancel), role: .cancel) {}
+        if let medicineId {
+            TreatmentsMedicationDetailScreen(go: go, medicineId: medicineId)
+        } else {
+            Text(session.t(.todayNothing))
+                .font(.system(.body, design: .rounded).weight(.bold))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(CheckMedTheme.background)
         }
     }
 }
 
 struct HowToTakeScreen: View {
     var go: (AppRoute) -> Void
+    var medicineId: UUID
     @Environment(CheckMedStore.self) private var treatments
     @Environment(SessionStore.self) private var session
 
-    private var medicine: CheckMedStore.MedicineSummary? { treatments.medicineSummaries().first }
+    private var medicine: CheckMedStore.MedicineSummary? {
+        treatments.reportMedicineSummaries().first { $0.id == medicineId }
+    }
 
     var body: some View {
         ScreenScaffold(
@@ -1188,14 +801,21 @@ struct MissedDoseList: View {
     var doses: [CheckMedStore.UnresolvedDose]
     var onChanged: () -> Void
     var onConfirmedTaken: ((UUID, Bool) -> Void)? = nil
+    @State private var locallyResolvedIds: Set<UUID> = []
+
+    private var visibleDoses: [CheckMedStore.UnresolvedDose] {
+        doses.filter { dose in
+            !locallyResolvedIds.contains(dose.id) && !MissedDoseAcknowledgement.contains(dose.id)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-        if doses.isEmpty {
+        if visibleDoses.isEmpty {
             Text(session.t(.todayNothing))
                 .font(.system(.body, design: .rounded).weight(.bold))
         } else {
-            ForEach(doses) { dose in
+            ForEach(visibleDoses) { dose in
                 VStack(alignment: .leading, spacing: 14) {
                     HStack(alignment: .top, spacing: 12) {
                         MedicationLibraryImage(form: missedForm(for: dose), size: 52)
@@ -1222,6 +842,7 @@ struct MissedDoseList: View {
                             let revisionBefore = treatments.revision
                             treatments.applyDoseAction(id: dose.id, action: .confirmTaken)
                             MissedDoseAcknowledgement.acknowledge(dose.id)
+                            locallyResolvedIds.insert(dose.id)
                             ReminderScheduler.shared.handleTakenSideEffects(logId: dose.id)
                             let succeeded = treatments.revision != revisionBefore
                             onChanged()
@@ -1233,6 +854,7 @@ struct MissedDoseList: View {
                         CheckMedButton(title: session.t(.missedDidNotTake), style: .secondary) {
                             treatments.applyDoseAction(id: dose.id, action: .didNotTake)
                             MissedDoseAcknowledgement.acknowledge(dose.id)
+                            locallyResolvedIds.insert(dose.id)
                             ReminderScheduler.shared.reschedule()
                             onChanged()
                         }

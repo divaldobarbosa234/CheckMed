@@ -105,3 +105,48 @@ extension Color {
         )
     }
 }
+
+extension View {
+    /// Custom tab roots hide the system nav bar. Keep titles below the status bar
+    /// without per-screen magic offsets. Cream still fills behind the island.
+    func checkMedStatusBarSafeContent() -> some View {
+        modifier(CheckMedStatusBarSafeContent())
+    }
+}
+
+private struct CheckMedStatusBarSafeContent: ViewModifier {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var topInset: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.top, resolvedInset)
+            .background(CheckMedTheme.background.ignoresSafeArea(edges: .top))
+            .onAppear { refresh() }
+            .onChange(of: scenePhase) { _, _ in refresh() }
+    }
+
+    private var resolvedInset: CGFloat {
+        topInset > 0 ? topInset : Self.readWindowTopInset()
+    }
+
+    private func refresh() {
+        let next = Self.readWindowTopInset()
+        if abs(next - topInset) > 0.5 {
+            topInset = next
+        }
+    }
+
+    /// `GeometryReader.safeAreaInsets` is 0 after `.ignoresSafeArea`. Prefer the
+    /// foreground key window; fall back to the largest live inset on rotation.
+    private static func readWindowTopInset() -> CGFloat {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap(\.windows)
+        let foreground = scenes.first(where: { $0.activationState == .foregroundActive })
+        let preferred = foreground?.windows.first(where: \.isKeyWindow)
+            ?? windows.first(where: \.isKeyWindow)
+            ?? windows.max(by: { $0.safeAreaInsets.top < $1.safeAreaInsets.top })
+        let top = preferred?.safeAreaInsets.top ?? 0
+        return top > 0 ? top : 59
+    }
+}

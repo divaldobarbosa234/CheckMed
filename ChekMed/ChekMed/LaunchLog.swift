@@ -163,6 +163,33 @@ enum ReportPerf {
     }
 }
 
+/// DEBUG-only previous-treatment navigation timing. No production behavior.
+enum TreatmentNavPerf {
+    private static let clock = ContinuousClock()
+    private static var tapAt: ContinuousClock.Instant?
+
+    static func tap(treatmentId: UUID) {
+        #if DEBUG
+        tapAt = clock.now
+        NSLog("[TREATMENT-NAV] TAP id=%@ main=%@", treatmentId.uuidString, Thread.isMainThread ? "1" : "0")
+        #endif
+    }
+
+    static func mark(_ message: String) {
+        #if DEBUG
+        let since: String
+        if let tapAt {
+            let parts = (clock.now - tapAt).components
+            let ms = Int(parts.seconds * 1000) + Int(parts.attoseconds / 1_000_000_000_000_000)
+            since = "+\(ms)ms"
+        } else {
+            since = "+?ms"
+        }
+        NSLog("[TREATMENT-NAV] %@ %@ main=%@", since, message, Thread.isMainThread ? "1" : "0")
+        #endif
+    }
+}
+
 enum NetworkTimeoutError: Error, Sendable {
     case timedOut(TimeInterval)
 }

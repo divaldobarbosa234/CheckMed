@@ -780,7 +780,9 @@ final class CheckMedStore {
         if let ontoTreatment {
             treatment = ontoTreatment
         } else if replacingFirst, let existing = activeTreatments().first {
-            existing.title = medicineName
+            if existing.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                existing.title = medicineName
+            }
             existing.updatedAt = now
             existing.deletedAt = nil
             existing.status = "active"
@@ -963,6 +965,13 @@ final class CheckMedStore {
             now: now,
             grace: ReminderPreferences.confirmationGraceInterval
         )
+        #if DEBUG
+        if action == .didNotTake, previous == next {
+            print(
+                "[MISSED-DIAG] didNotTake NO-OP doseID=\(id.uuidString) status=\(previous.rawValue) — canonical already missed/skipped; hide via acknowledgement"
+            )
+        }
+        #endif
         applyDoseAction(id: id, next: next, now: now)
     }
 
@@ -1299,6 +1308,23 @@ final class CheckMedStore {
                 treatmentId: medicine.treatmentId
             )
         }
+    }
+
+    /// Canonical treatment name. Insert still seeds from the first medicine; later
+    /// medicine add/replace must not rewrite a non-empty title.
+    @discardableResult
+    func setTreatmentTitle(id: UUID, title: String) -> Bool {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard let treatment = allTreatments().first(where: { $0.id == id && $0.deletedAt == nil }) else { return false }
+        if treatment.title == trimmed { return true }
+        treatment.title = trimmed
+        treatment.updatedAt = Date()
+        stamp(treatment)
+        save()
+        notify()
+        requestSync()
+        return true
     }
 
     func completeTreatment(id: UUID) {
@@ -2300,6 +2326,12 @@ final class CheckMedStore {
         return reports
     }
 
+    func journeyReport(treatmentId: UUID) -> JourneyReport? {
+        _ = revision
+        guard let treatment = treatments().first(where: { $0.id == treatmentId }) else { return nil }
+        return journeyReport(for: treatment)
+    }
+
     func finishedJourneyReports() -> [JourneyReport] {
         _ = revision
         return finishedTreatments().compactMap { journeyReport(for: $0) }
@@ -3252,7 +3284,8 @@ final class CheckMedStore {
         profileId: UUID,
         scheduleTime: String = "08:00",
         logStatus: String? = nil,
-        logScheduledAt: Date? = nil
+        logScheduledAt: Date? = nil,
+        logId: UUID? = nil
     ) -> (treatmentId: UUID, medicineId: UUID, logId: UUID?) {
         let now = Date()
         let treatment = TreatmentRecord(
@@ -3288,9 +3321,10 @@ final class CheckMedStore {
         )
         context.insert(schedule)
         stamp(schedule)
-        var logId: UUID?
+        var insertedLogId: UUID?
         if let logStatus, let logScheduledAt {
             let log = DoseLogRecord(
+                id: logId ?? UUID(),
                 scheduleId: schedule.id,
                 ownerId: ownerId,
                 profileId: profileId,
@@ -3300,10 +3334,10 @@ final class CheckMedStore {
             )
             context.insert(log)
             stamp(log)
-            logId = log.id
+            insertedLogId = log.id
         }
         save()
-        return (treatment.id, medicine.id, logId)
+        return (treatment.id, medicine.id, insertedLogId)
     }
 
     func debugActiveTreatmentIds() -> [UUID] {
@@ -3321,6 +3355,14 @@ final class CheckMedStore {
 
     func debugTreatmentStatus(_ treatmentId: UUID) -> String? {
         treatments().first(where: { $0.id == treatmentId })?.status
+    }
+
+    func debugTreatmentTitle(_ treatmentId: UUID) -> String? {
+        treatments().first(where: { $0.id == treatmentId })?.title
+    }
+
+    func debugDoseStatus(_ logId: UUID) -> String? {
+        allLogs().first(where: { $0.id == logId && $0.deletedAt == nil })?.status
     }
 
     func debugRewardGrantCount() -> Int {

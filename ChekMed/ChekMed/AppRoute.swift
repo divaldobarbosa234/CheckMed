@@ -13,9 +13,12 @@ enum AppRoute: Hashable {
     case verifyPrescription
     case prescriptionSaved
     case treatmentOverview
+    case treatmentDetail(UUID)
+    case treatmentCompleted(UUID)
     case medicationList
     case medicationDetail(UUID)
-    case howToTake
+    case medicationSchedule(UUID)
+    case howToTake(UUID)
     case treatmentTimeline
     case editTreatment
     case nextDose
@@ -38,11 +41,23 @@ enum AppRoute: Hashable {
     case termsOfUse
     case paywall
     case family
+    case familyAdd
+    case familyDetail(UUID)
+    case personalInformation
+    case settingsPrivacy
+    case appearance
+    case privacyData
+    case securityAccount
+    case helpSupport
     case journeyTree
     case journeyReport
     case community
     case pharmacySearch(query: String = "")
     case refillStock
+    case medicationStock(UUID)
+    case updateStock(UUID)
+    case refillReminders(UUID)
+    case lowStock(UUID)
     case medicineReport
     case medicineReportEdit
     case reportsHub
@@ -145,9 +160,15 @@ struct AppRouteView: View {
         case .verifyPrescription: VerifyPrescriptionScreen(go: nav.go)
         case .prescriptionSaved: PrescriptionSavedScreen(go: nav.go)
         case .treatmentOverview: TreatmentOverviewScreen(go: nav.go)
+        case .treatmentDetail(let id): TreatmentDetailScreen(go: nav.go, treatmentId: id)
+        case .treatmentCompleted(let id):
+            TreatmentCompletedScreen(go: nav.go, treatmentId: id)
+                .accessibilityIdentifier("treatment-completed-\(id.uuidString)")
+                .onAppear { TreatmentNavPerf.mark("AppRouteView treatmentCompleted") }
         case .medicationList: MedicationListScreen(go: nav.go)
         case .medicationDetail(let id): MedicationDetailScreen(go: nav.go, medicineId: id)
-        case .howToTake: HowToTakeScreen(go: nav.go)
+        case .medicationSchedule(let id): MedicationScheduleScreen(go: nav.go, medicineId: id)
+        case .howToTake(let id): HowToTakeScreen(go: nav.go, medicineId: id)
         case .treatmentTimeline: TreatmentTimelineScreen(go: nav.go)
         case .editTreatment: EditTreatmentScreen(go: nav.go)
         case .nextDose: NextDoseScreen(go: nav.go)
@@ -163,18 +184,30 @@ struct AppRouteView: View {
         case .treatmentComplete: TreatmentCompleteScreen(go: nav.go)
         case .myMedicines: MyMedicinesScreen(go: nav.go)
         case .medicineHistory: MedicineHistoryScreen()
-        case .notificationPrefs: NotificationPrefsScreen()
+        case .notificationPrefs: ProfileNotificationsScreen()
         case .settings: SettingsScreen(go: nav.go)
         case .privacySettings: PrivacySettingsView()
         case .privacyPolicy: LegalDocumentView(kind: .privacyPolicy)
         case .termsOfUse: LegalDocumentView(kind: .termsOfUse)
         case .paywall: PaywallView()
-        case .family: FamilyView()
+        case .family: FamilyProfilesScreen(go: nav.go)
+        case .familyAdd: FamilyAddScreen()
+        case .familyDetail(let id): FamilyDetailScreen(memberId: id)
+        case .personalInformation: PersonalInformationScreen()
+        case .settingsPrivacy: SettingsPrivacyScreen(go: nav.go)
+        case .appearance: AppearanceScreen()
+        case .privacyData: PrivacyDataScreen(go: nav.go)
+        case .securityAccount: SecurityAccountScreen()
+        case .helpSupport: HelpSupportScreen(go: nav.go)
         case .journeyTree: JourneyTreeScreen(go: nav.go)
         case .journeyReport: JourneyReportScreen(go: nav.go)
         case .community: CommunityScreen()
         case .pharmacySearch(let query): PharmacySearchScreen(initialQuery: query)
         case .refillStock: RefillStockScreen(go: nav.go)
+        case .medicationStock(let id): MedicationStockDetailScreen(go: nav.go, medicineId: id)
+        case .updateStock(let id): UpdateStockScreen(go: nav.go, medicineId: id)
+        case .refillReminders(let id): RefillRemindersScreen(go: nav.go, medicineId: id)
+        case .lowStock(let id): LowStockScreen(go: nav.go, medicineId: id)
         case .medicineReport: MedicineReportScreen(go: nav.go)
         case .medicineReportEdit: MedicineReportEditScreen()
         case .reportsHub: ReportsHubScreen(go: nav.go)

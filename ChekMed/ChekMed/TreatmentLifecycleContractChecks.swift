@@ -264,4 +264,216 @@ enum TreatmentLifecycleContractChecks {
         return failures
     }
 }
+
+enum TreatmentTitleContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let start = calendar.date(byAdding: .day, value: -3, to: now)!
+        let end = calendar.date(byAdding: .day, value: 20, to: now)
+        let owner = UUID()
+        let profile = UUID()
+        let store = CheckMedStore(isolatedInMemoryForContracts: true)
+        store.debugContractBind(ownerId: owner, profileId: profile)
+
+        let plan = store.debugInsertPlan(
+            title: "Amoxicilina 500mg",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "Amoxicilina 500mg",
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(store.debugTreatmentTitle(plan.treatmentId) == "Amoxicilina 500mg", "title: insert keeps seed title")
+        expect(store.setTreatmentTitle(id: plan.treatmentId, title: "   ") == false, "title: empty rename rejected")
+        expect(store.debugTreatmentTitle(plan.treatmentId) == "Amoxicilina 500mg", "title: empty rename does not write")
+        expect(store.setTreatmentTitle(id: plan.treatmentId, title: "  Curso inverno  "), "title: trimmed rename succeeds")
+        expect(store.debugTreatmentTitle(plan.treatmentId) == "Curso inverno", "title: canonical value trimmed")
+
+        _ = store.addFromDrafts(
+            [
+                OnboardingPrescriptionDraft(
+                    medicine: "Paracetamol 1000mg",
+                    dose: "1 tablet",
+                    frequency: "1x",
+                    duration: "5 days",
+                    timesPerDay: "1",
+                    doseTimes: ["09:00"]
+                )
+            ],
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(store.debugTreatmentTitle(plan.treatmentId) == "Curso inverno", "title: later add does not overwrite")
+        expect(
+            store.journeyTreeSnapshot(now: now).current.contains(where: { $0.id == plan.treatmentId && $0.title == "Curso inverno" }),
+            "title: current tree uses canonical name"
+        )
+
+        _ = store.seedFromDrafts(
+            [
+                OnboardingPrescriptionDraft(
+                    medicine: "Ibuprofeno",
+                    dose: "1 tablet",
+                    frequency: "1x",
+                    duration: "5 days",
+                    timesPerDay: "1",
+                    doseTimes: ["09:00"]
+                )
+            ],
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(store.debugTreatmentTitle(plan.treatmentId) == "Curso inverno", "title: replace-plan seed does not overwrite user title")
+        expect(
+            store.journeyReport(treatmentId: plan.treatmentId)?.title == "Curso inverno",
+            "title: report uses canonical name"
+        )
+
+        let history = CheckMedStore(isolatedInMemoryForContracts: true)
+        history.debugContractBind(ownerId: owner, profileId: profile)
+        let past = history.debugInsertPlan(
+            title: "Old course",
+            status: "completed",
+            startDate: calendar.date(byAdding: .day, value: -20, to: now)!,
+            endDate: calendar.date(byAdding: .day, value: -5, to: now),
+            medicineName: "OldMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(history.setTreatmentTitle(id: past.treatmentId, title: "Arquivo 2025"), "title: historical rename succeeds")
+        expect(
+            history.journeyTreeSnapshot(now: now).past.contains(where: { $0.id == past.treatmentId && $0.title == "Arquivo 2025" }),
+            "title: history tree uses renamed title"
+        )
+        return failures
+    }
+}
+
+enum MissedDosePresentationContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+
+        let owner = UUID()
+        let profile = UUID()
+        let missedA = UUID()
+        let missedB = UUID()
+        let now = Date()
+        let twoHoursAgo = now.addingTimeInterval(-2 * 3600)
+        let start = now.addingTimeInterval(-7 * 24 * 3600)
+        let end = now.addingTimeInterval(14 * 24 * 3600)
+
+        let store = CheckMedStore(isolatedInMemoryForContracts: true)
+        store.debugContractBind(ownerId: owner, profileId: profile)
+        _ = store.debugInsertPlan(
+            title: "Missed A",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "DoseA",
+            ownerId: owner,
+            profileId: profile,
+            logStatus: DoseLogStatus.missed.rawValue,
+            logScheduledAt: twoHoursAgo,
+            logId: missedA
+        )
+        _ = store.debugInsertPlan(
+            title: "Missed B",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "DoseB",
+            ownerId: owner,
+            profileId: profile,
+            logStatus: DoseLogStatus.missed.rawValue,
+            logScheduledAt: twoHoursAgo.addingTimeInterval(-600),
+            logId: missedB
+        )
+
+        let before = store.adherence()
+        let listed = store.unresolvedDosesForSummary(now: now).map(\.id)
+        expect(listed.contains(missedA), "missed: fixture A listed")
+        expect(listed.contains(missedB), "missed: fixture B listed")
+
+        store.applyDoseAction(id: missedA, action: .didNotTake, now: now)
+        MissedDoseAcknowledgement.acknowledge(missedA)
+        let afterTap = store.unresolvedDosesForSummary(now: now).map(\.id)
+        expect(!afterTap.contains(missedA), "missed: A hidden immediately after Não tomei path")
+        expect(afterTap.contains(missedB), "missed: B still listed")
+        expect(store.debugDoseStatus(missedA) == DoseLogStatus.missed.rawValue, "missed: A stays canonical missed")
+        let after = store.adherence()
+        expect(before.percent == after.percent, "missed: adherence percent unchanged")
+        expect(before.streakDays == after.streakDays, "missed: streak unchanged")
+        expect(before.missedCount == after.missedCount, "missed: missed count unchanged")
+
+        let reopened = store.unresolvedDosesForSummary(now: now).map(\.id)
+        expect(!reopened.contains(missedA) && reopened.contains(missedB), "missed: reopen still hides only A")
+
+        let relaunched = CheckMedStore(isolatedInMemoryForContracts: true)
+        relaunched.debugContractBind(ownerId: owner, profileId: profile)
+        _ = relaunched.debugInsertPlan(
+            title: "Missed A",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "DoseA",
+            ownerId: owner,
+            profileId: profile,
+            logStatus: DoseLogStatus.missed.rawValue,
+            logScheduledAt: twoHoursAgo,
+            logId: missedA
+        )
+        expect(MissedDoseAcknowledgement.contains(missedA), "missed: acknowledgement persists after new isolated store")
+        expect(
+            !relaunched.unresolvedDosesForSummary(now: now).map(\.id).contains(missedA),
+            "missed: relaunched context still hides acknowledged A"
+        )
+        expect(relaunched.debugDoseStatus(missedA) == DoseLogStatus.missed.rawValue, "missed: relaunched log remains missed")
+        return failures
+    }
+}
+
+enum CompletedSkippedLabelContractChecks {
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func formatted(count: Int, locale: AppLocale) -> String {
+            count == 1
+                ? L10n.string(.journeySkippedOne, locale: locale)
+                : L10n.string(.journeySkipped, locale: locale, args: [count])
+        }
+        for locale in AppLocale.allCases {
+            for count in [0, 1, 9] {
+                let text = formatted(count: count, locale: locale)
+                expect(!text.contains("%"), "skipped \(locale.rawValue) count=\(count) leaked placeholder: \(text)")
+                expect(text.contains("\(count)"), "skipped \(locale.rawValue) count=\(count) missing digit: \(text)")
+            }
+        }
+        expect(formatted(count: 0, locale: .english) == "0 skipped", "en zero")
+        expect(formatted(count: 1, locale: .english) == "1 skipped", "en singular")
+        expect(formatted(count: 9, locale: .english) == "9 skipped", "en plural")
+        expect(formatted(count: 0, locale: .portuguese) == "0 puladas", "pt zero")
+        expect(formatted(count: 1, locale: .portuguese) == "1 pulada", "pt singular")
+        expect(formatted(count: 9, locale: .portuguese) == "9 puladas", "pt plural")
+        expect(formatted(count: 1, locale: .spanish) == "1 omitida", "es singular")
+        expect(formatted(count: 9, locale: .spanish) == "9 omitidas", "es plural")
+        expect(formatted(count: 1, locale: .french) == "1 passée", "fr singular")
+        expect(formatted(count: 9, locale: .french) == "9 passées", "fr plural")
+        return failures
+    }
+}
 #endif
