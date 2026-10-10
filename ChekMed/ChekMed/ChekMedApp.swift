@@ -36,9 +36,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let titleFailures = await MainActor.run { TreatmentTitleContractChecks.failures() }
             let missedAckFailures = await MainActor.run { MissedDosePresentationContractChecks.failures() }
             let skippedLabelFailures = CompletedSkippedLabelContractChecks.failures()
+            let welcomeFailures = OnboardingWelcomeContractChecks.failures()
             let clockFailures = CheckMedClockContractChecks.failures()
             let rewardFailures = RewardEngineContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + titleFailures + missedAckFailures + skippedLabelFailures + clockFailures + rewardFailures
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + clockFailures + rewardFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -52,6 +53,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("TreatmentTitle failures:", titleFailures)
             print("MissedDosePresentation failures:", missedAckFailures)
             print("CompletedSkippedLabel failures:", skippedLabelFailures)
+            print("OnboardingWelcome failures:", welcomeFailures)
             print("TestClock failures:", clockFailures)
             print("RewardEngine failures:", rewardFailures)
             let report = [
@@ -68,6 +70,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "TreatmentTitle failures: \(titleFailures)",
                 "MissedDosePresentation failures: \(missedAckFailures)",
                 "CompletedSkippedLabel failures: \(skippedLabelFailures)",
+                "OnboardingWelcome failures: \(welcomeFailures)",
                 "TestClock failures: \(clockFailures)",
                 "RewardEngine failures: \(rewardFailures)",
                 "allEmpty: \(failures.isEmpty)",
@@ -94,6 +97,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     titleFailures.isEmpty ? nil : "TREATMENT TITLE FAILURE: \(titleFailures.joined(separator: "; "))",
                     missedAckFailures.isEmpty ? nil : "MISSED DOSE PRESENTATION FAILURE: \(missedAckFailures.joined(separator: "; "))",
                     skippedLabelFailures.isEmpty ? nil : "COMPLETED SKIPPED LABEL FAILURE: \(skippedLabelFailures.joined(separator: "; "))",
+                    welcomeFailures.isEmpty ? nil : "ONBOARDING WELCOME FAILURE: \(welcomeFailures.joined(separator: "; "))",
                     clockFailures.isEmpty ? nil : "TEST CLOCK FAILURE: \(clockFailures.joined(separator: "; "))",
                     journeyTreeFailures.isEmpty ? nil : "JOURNEY TREE FAILURE: \(journeyTreeFailures.joined(separator: "; "))",
                     rewardFailures.isEmpty ? nil : "REWARD ENGINE FAILURE: \(rewardFailures.joined(separator: "; "))",

@@ -69,6 +69,8 @@ enum CheckMedTheme {
     static let lavenderWash = Color(hex: 0xF1EAFF)
     static let sunshineWash = Color(hex: 0xFFF4B8)
     static let navy = Color(hex: 0x092B50)
+    /// Welcome canvas (O1). Do not use this to restyle Home.
+    static let welcomeCream = Color(hex: 0xFFF8EE)
 }
 
 enum AppearanceMode: String, CaseIterable, Identifiable {

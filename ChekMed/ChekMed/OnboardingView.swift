@@ -25,7 +25,7 @@ enum FirstTimePhase: String, Equatable {
 
     var requiresAuth: Bool {
         switch self {
-        case .splash, .language, .howItWorks, .privacy, .signIn:
+        case .splash, .language, .privacy, .signIn:
             false
         default:
             true
@@ -58,6 +58,7 @@ struct FirstTimeOnboardingView: View {
     @State private var didNeedSlotGate = false
     @State private var oldPrescriptionWarningDate: Date? = nil
     @State private var didCommitPlan = false
+    @State private var didFinishWelcome = false
 
     var body: some View {
         ZStack {
@@ -80,14 +81,14 @@ struct FirstTimeOnboardingView: View {
             case .language:
                 LanguageOnboardingView {
                     session.markLanguageChosen()
-                    advance(to: .howItWorks)
+                    advance(to: .privacy)
                 }
                 .transition(insert)
             case .howItWorks:
-                HowItWorksView(onGetStarted: {
-                    session.markHowItWorksSeen()
-                    advance(to: .privacy)
-                })
+                HowItWorksView(
+                    onContinue: { finishWelcome() },
+                    onSkip: { finishWelcome() }
+                )
                 .transition(insert)
             case .privacy:
                 PrivacyConsentView(onAccept: {
@@ -311,7 +312,7 @@ struct FirstTimeOnboardingView: View {
                 didBootstrapPhase = false
                 advance(to: .splash, persist: false)
             } else if session.isSessionUnlocked {
-                // Stay on language / how it works / privacy / sign-in until this-install Sign-in completes.
+                // Stay on language / privacy / sign-in until this-install Sign-in completes.
                 afterSplash = destinationAfterSplash()
                 if phase == .signIn, session.hasCompletedSignInThisInstall {
                     routeAfterAuthIfNeeded()
@@ -346,8 +347,47 @@ struct FirstTimeOnboardingView: View {
         if session.hasCompletedOnboarding || session.postAuthKind == .returning { return }
         if session.kind == .authenticated, session.postAuthKind != .newAccount { return }
         guard phase == .signIn else { return }
-        let next: FirstTimePhase = session.needsIdentityProfile ? .profile : .addMedication
-        advance(to: next)
+        advance(to: firstTimePhaseAfterSignIn())
+    }
+
+    /// Skip and Continue on Welcome both land here exactly once.
+    private func finishWelcome() {
+        guard OnboardingWelcomeRouting.consumeWelcomeAdvance(alreadyFinished: didFinishWelcome) else { return }
+        didFinishWelcome = true
+        session.markHowItWorksSeen()
+        advance(to: firstTimePhaseAfterWelcome())
+    }
+
+    private func firstTimePhaseAfterWelcome() -> FirstTimePhase {
+        switch OnboardingWelcomeRouting.afterWelcome(needsIdentityProfile: session.needsIdentityProfile) {
+        case .profile: return .profile
+        case .addMedication: return .addMedication
+        default: return session.needsIdentityProfile ? .profile : .addMedication
+        }
+    }
+
+    private func firstTimePhaseAfterSignIn() -> FirstTimePhase {
+        let input = welcomeRoutingInput()
+        switch OnboardingWelcomeRouting.hostPhase(input) {
+        case .welcome: return .howItWorks
+        case .profile: return .profile
+        case .addMedication: return .addMedication
+        default: return firstTimePhaseAfterWelcome()
+        }
+    }
+
+    private func welcomeRoutingInput() -> OnboardingWelcomeRouting.Input {
+        OnboardingWelcomeRouting.Input(
+            hasChosenLanguage: session.hasChosenLanguage,
+            hasAcknowledgedPrivacy: session.hasAcknowledgedPrivacy,
+            hasCompletedSignInThisInstall: session.hasCompletedSignInThisInstall,
+            isSessionUnlocked: session.isSessionUnlocked,
+            hasSeenWelcome: session.hasSeenHowItWorks,
+            hasCompletedOnboarding: session.hasCompletedOnboarding,
+            isReturningAuthenticated: session.postAuthKind == .returning || session.hasCompletedOnboarding,
+            needsIdentityProfile: session.needsIdentityProfile,
+            userDataSettled: session.restorationComplete && session.userDataLoadState.isSettled
+        )
     }
 
     private var insert: AnyTransition {
@@ -562,12 +602,19 @@ struct FirstTimeOnboardingView: View {
         }
     }
 
-    /// Resume the earliest unfinished pre-auth step (language → how it works → privacy → sign-in).
+    /// Resume the earliest unfinished first-time step
+    /// (language → privacy → sign-in → Welcome).
     private func nextPreAuthPhase(saved: FirstTimePhase) -> FirstTimePhase {
-        if !session.hasChosenLanguage { return .language }
-        if !session.hasSeenHowItWorks { return .howItWorks }
-        if !session.hasAcknowledgedPrivacy { return .privacy }
-        if !session.hasCompletedSignInThisInstall { return .signIn }
+        switch OnboardingWelcomeRouting.hostPhase(welcomeRoutingInput()) {
+        case .language: return .language
+        case .privacy: return .privacy
+        case .signIn: return .signIn
+        case .welcome: return .howItWorks
+        case .profile: return .profile
+        case .addMedication: return .addMedication
+        case .home, .restoring:
+            break
+        }
         _ = saved
         return .signIn
     }
@@ -682,63 +729,108 @@ struct LanguageOnboardingView: View {
 
 struct HowItWorksView: View {
     @Environment(SessionStore.self) private var session
-    var onGetStarted: () -> Void
+    var onContinue: () -> Void
+    var onSkip: () -> Void
 
     @State private var playback = HowItWorksPlayback()
-    @State private var appeared = false
+    @State private var didFinish = false
 
     private var beats: [L10n.FlowBeat] { L10n.onboardingFlowBeats(session.locale) }
+    private var points: [L10n.Key] {
+        [.welcomePointOrganize, .welcomePointRemind, .welcomePointProgress]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 8)
-            mediaCentered
-                .frame(maxWidth: 340)
-                .aspectRatio(1, contentMode: .fit)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
-                .onTapGesture { playback.advance(beatCount: beats.count) }
-                .gesture(
-                    DragGesture(minimumDistance: 24).onEnded { value in
-                        if value.translation.width < -20 { playback.advance(beatCount: beats.count) }
-                        if value.translation.width > 20 { playback.retreat(beatCount: beats.count) }
+            HStack {
+                Spacer()
+                Button(session.t(.skip)) { finish(onSkip) }
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                    .foregroundStyle(CheckMedTheme.navy)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
+                    .accessibilityLabel(session.t(.skip))
+                    .accessibilityIdentifier("welcome-skip")
+            }
+            .padding(.horizontal, 16)
+
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 14) {
+                    mediaCentered
+                        .frame(maxWidth: 280)
+                        .aspectRatio(1, contentMode: .fit)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+
+                    VStack(spacing: 8) {
+                        Text(session.t(.welcomeCooperTitle))
+                            .font(.system(size: 26, weight: .black, design: .rounded))
+                            .foregroundStyle(CheckMedTheme.navy)
+                            .multilineTextAlignment(.center)
+                        Text(session.t(.welcomeCooperLead))
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                            .multilineTextAlignment(.center)
                     }
-                )
-            Spacer(minLength: 8)
-            VStack(spacing: 14) {
-                captionText
-                beatDots
-                CheckMedButton(title: session.t(.letsGetStarted), action: onGetStarted)
+                    .padding(.horizontal, 8)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(Array(points.enumerated()), id: \.offset) { _, key in
+                            HStack(alignment: .top, spacing: 10) {
+                                Circle()
+                                    .fill(CheckMedTheme.primary.opacity(0.18))
+                                    .frame(width: 10, height: 10)
+                                    .padding(.top, 6)
+                                Text(session.t(key))
+                                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                                    .foregroundStyle(CheckMedTheme.navy)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+            }
+
+            VStack(spacing: 10) {
+                Text(session.t(.welcomeNotMedical))
+                    .font(.system(.caption2, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 8)
+                CheckMedButton(title: session.t(.continueButton), action: { finish(onContinue) })
+                    .accessibilityIdentifier("welcome-continue")
             }
             .padding(.horizontal, 24)
-            .padding(.top, 12)
-            .padding(.bottom, 24)
-            .frame(maxWidth: .infinity)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
         }
+        .safeAreaPadding(.bottom, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CheckMedTheme.philFlowCanvas.ignoresSafeArea())
-        .accessibilityLabel(session.t(.howTitle))
-        .onAppear {
-            playEntrance()
-            playback.start(beatCount: beats.count)
-        }
+        .background(CheckMedTheme.welcomeCream.ignoresSafeArea())
+        .accessibilityLabel(session.t(.welcomeCooperTitle))
+        .onAppear { playback.start(beatCount: max(beats.count, 1)) }
         .onDisappear { playback.stop() }
-        .onChange(of: playback.beat) { _, _ in playEntrance() }
-        .task(id: playback.beat) {
-            guard playback.player == nil else { return }
-            try? await Task.sleep(nanoseconds: 2_800_000_000)
-            guard !Task.isCancelled else { return }
-            playback.advance(beatCount: beats.count, seekVideo: false)
-        }
+    }
+
+    private func finish(_ action: () -> Void) {
+        guard OnboardingWelcomeRouting.consumeWelcomeAdvance(alreadyFinished: didFinish) else { return }
+        didFinish = true
+        action()
     }
 
     @ViewBuilder
     private var mediaCentered: some View {
-        Group {
+        ZStack {
+            Image("phil_onboarding_01_intro")
+                .resizable()
+                .scaledToFit()
             if let player = playback.player {
                 OnboardingFlowPlayerLayer(player: player, rate: HowItWorksPlayback.playbackRate)
-            } else if playback.hasBundledVideo {
-                CheckMedTheme.philFlowCanvas
             } else if beats.indices.contains(playback.beat) {
                 Image(beats[playback.beat].imageName)
                     .resizable()
@@ -747,42 +839,8 @@ struct HowItWorksView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.welcomeCream)
         .accessibilityHidden(true)
-    }
-
-    @ViewBuilder
-    private var captionText: some View {
-        if beats.indices.contains(playback.beat) {
-            Text(beats[playback.beat].caption)
-                .font(.system(.title2, design: .rounded).weight(.heavy))
-                .multilineTextAlignment(.center)
-                .foregroundStyle(CheckMedTheme.onPrimary)
-                .padding(.horizontal, 12)
-                .id(playback.beat)
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 10)
-                .accessibilityAddTraits(.isHeader)
-        }
-    }
-
-    private var beatDots: some View {
-        HStack(spacing: 8) {
-            ForEach(beats.indices, id: \.self) { index in
-                Capsule()
-                    .fill(index == playback.beat ? CheckMedTheme.flowDot : CheckMedTheme.flowDotIdle)
-                    .frame(width: index == playback.beat ? 22 : 8, height: 8)
-                    .animation(.spring(duration: 0.35), value: playback.beat)
-                    .accessibilityHidden(true)
-            }
-        }
-        .padding(.top, 4)
-    }
-
-    private func playEntrance() {
-        appeared = false
-        withAnimation(.spring(duration: 0.55, bounce: 0.28)) {
-            appeared = true
-        }
     }
 }
 
@@ -791,11 +849,12 @@ struct HowItWorksView: View {
 private final class HowItWorksPlayback {
     /// Cropped clip length after last-frame hold (ffprobe).
     static let convertedDuration = 8.25
-    static let playbackRate: Float = 0.58
+    static let playbackRate: Float = 1.0
     static let videoResource = "phil_onboarding_flow"
 
     var beat = 0
     var player: AVPlayer?
+    var didReachEnd = false
     var hasBundledVideo: Bool {
         Bundle.main.url(forResource: Self.videoResource, withExtension: "mp4") != nil
     }
@@ -808,6 +867,7 @@ private final class HowItWorksPlayback {
 
     func start(beatCount: Int) {
         self.beatCount = max(1, beatCount)
+        didReachEnd = false
         guard player == nil else { return }
         guard let url = Bundle.main.url(forResource: Self.videoResource, withExtension: "mp4") else { return }
         let item = AVPlayerItem(url: url)
@@ -829,11 +889,8 @@ private final class HowItWorksPlayback {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.player?.seek(to: .zero) { _ in
-                    Task { @MainActor in
-                        self?.playSlow()
-                    }
-                }
+                self?.didReachEnd = true
+                self?.player?.pause()
             }
         }
         player = avPlayer
@@ -918,8 +975,8 @@ private struct OnboardingFlowPlayerLayer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> PlayerView {
         let view = PlayerView()
-        view.backgroundColor = CheckMedTheme.philFlowCanvasUIColor
-        view.playerLayer.backgroundColor = CheckMedTheme.philFlowCanvasUIColor.cgColor
+        view.backgroundColor = .clear
+        view.playerLayer.backgroundColor = UIColor.clear.cgColor
         view.playerLayer.player = player
         view.playerLayer.videoGravity = .resizeAspect
         view.isUserInteractionEnabled = false
@@ -928,11 +985,13 @@ private struct OnboardingFlowPlayerLayer: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PlayerView, context: Context) {
-        uiView.backgroundColor = CheckMedTheme.philFlowCanvasUIColor
-        uiView.playerLayer.backgroundColor = CheckMedTheme.philFlowCanvasUIColor.cgColor
+        uiView.backgroundColor = .clear
+        uiView.playerLayer.backgroundColor = UIColor.clear.cgColor
         uiView.playerLayer.player = player
         uiView.playerLayer.videoGravity = .resizeAspect
-        if player.timeControlStatus != .playing || abs(player.rate - rate) > 0.02 {
+        let duration = player.currentItem?.duration.seconds ?? 0
+        let atEnd = duration.isFinite && player.currentTime().seconds + 0.05 >= duration
+        if player.timeControlStatus != .playing, duration.isFinite, !atEnd {
             player.playImmediately(atRate: rate)
         }
     }

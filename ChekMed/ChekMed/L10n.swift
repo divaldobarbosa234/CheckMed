@@ -73,6 +73,9 @@ enum L10n {
         case howRemindTitle, howRemindShort, howRemindBody
         case howListenTitle, howListenShort, howListenBody
         case flowIntroCaption, flowPhotoCaption, flowReadCaption, flowPlanCaption, flowHealthyCaption
+        case welcomeCooperTitle, welcomeCooperLead
+        case welcomePointOrganize, welcomePointRemind, welcomePointProgress
+        case welcomeNotMedical
         case setupTitle, setupIntro, setupPhoto
         case notifsTitle, notifsHeadline, notifsMeds, notifsTreatment, notifsImportant, notifsEnable
         case organizeHeadline, organizeBody
@@ -348,14 +351,12 @@ enum L10n {
         var id: String { imageName }
     }
 
-    /// Localized How it Works captions, overlaid on the silent onboarding video (PNG names remain as fallback).
+    /// Welcome stills behind the silent onboarding video (PNG names remain as fallback).
     static func onboardingFlowBeats(_ locale: AppLocale) -> [FlowBeat] {
         [
-            FlowBeat(imageName: "phil_onboarding_01_intro", caption: string(.flowIntroCaption, locale: locale)),
-            FlowBeat(imageName: "phil_onboarding_02_photo", caption: string(.flowPhotoCaption, locale: locale)),
-            FlowBeat(imageName: "phil_onboarding_03_read", caption: string(.flowReadCaption, locale: locale)),
-            FlowBeat(imageName: "phil_onboarding_04_plan", caption: string(.flowPlanCaption, locale: locale)),
-            FlowBeat(imageName: "phil_onboarding_05_healthy", caption: string(.flowHealthyCaption, locale: locale)),
+            FlowBeat(imageName: "phil_onboarding_01_intro", caption: string(.welcomePointOrganize, locale: locale)),
+            FlowBeat(imageName: "phil_onboarding_04_plan", caption: string(.welcomePointRemind, locale: locale)),
+            FlowBeat(imageName: "phil_onboarding_05_healthy", caption: string(.welcomePointProgress, locale: locale)),
         ]
     }
 
@@ -536,6 +537,12 @@ enum L10n {
         .flowReadCaption: "I'll read and understand it",
         .flowPlanCaption: "And create your personal health plan",
         .flowHealthyCaption: "Let's keep you healthy!",
+        .welcomeCooperTitle: "Meet Dr. Cooper",
+        .welcomeCooperLead: "A friendly companion for your medication routine.",
+        .welcomePointOrganize: "Organize prescriptions and schedules in one place.",
+        .welcomePointRemind: "Get reminders and track each dose as you take it.",
+        .welcomePointProgress: "Build a routine and see your progress over time.",
+        .welcomeNotMedical: "Conny Cooper does not recommend medicines, diagnose conditions, or guarantee that you will take every dose.",
         .setupTitle: "Personal setup",
         .setupIntro: "Let's set things up for you.",
         .setupPhoto: "Profile photo is optional — Cooper can sit beside you later.",
@@ -1598,6 +1605,12 @@ enum L10n {
         .flowReadCaption: "Eu vou ler e entender",
         .flowPlanCaption: "E criar seu plano de saúde pessoal",
         .flowHealthyCaption: "Vamos cuidar da sua saúde!",
+        .welcomeCooperTitle: "Conheça o Dr. Cooper",
+        .welcomeCooperLead: "Um companheiro amigável para a sua rotina de medicamentos.",
+        .welcomePointOrganize: "Organize receitas e horários num só lugar.",
+        .welcomePointRemind: "Receba lembretes e acompanhe cada dose à medida que toma.",
+        .welcomePointProgress: "Crie uma rotina e veja o seu progresso ao longo do tempo.",
+        .welcomeNotMedical: "O Conny Cooper não recomenda medicamentos, não diagnostica condições nem garante que vai tomar todas as doses.",
         .setupTitle: "Configuração pessoal",
         .setupIntro: "Vamos deixar tudo pronto para você.",
         .setupPhoto: "A foto de perfil é opcional — o Cooper pode ficar ao seu lado depois.",
@@ -2660,6 +2673,12 @@ enum L10n {
         .flowReadCaption: "La leeré y la entenderé",
         .flowPlanCaption: "Y crearé tu plan de salud personal",
         .flowHealthyCaption: "¡Cuidemos de tu salud!",
+        .welcomeCooperTitle: "Conoce al Dr. Cooper",
+        .welcomeCooperLead: "Un compañero amable para tu rutina de medicación.",
+        .welcomePointOrganize: "Organiza recetas y horarios en un solo lugar.",
+        .welcomePointRemind: "Recibe recordatorios y registra cada dosis cuando la tomas.",
+        .welcomePointProgress: "Crea una rutina y ve tu progreso con el tiempo.",
+        .welcomeNotMedical: "Conny Cooper no recomienda medicamentos, no diagnostica enfermedades ni garantiza que tomes cada dosis.",
         .setupTitle: "Configuración personal",
         .setupIntro: "Vamos a dejarlo listo para ti.",
         .setupPhoto: "La foto de perfil es opcional — Cooper puede quedarse a tu lado después.",
@@ -3722,6 +3741,12 @@ enum L10n {
         .flowReadCaption: "Je vais la lire et la comprendre",
         .flowPlanCaption: "Et créer votre plan de santé personnel",
         .flowHealthyCaption: "Prenons soin de votre santé !",
+        .welcomeCooperTitle: "Rencontrez le Dr Cooper",
+        .welcomeCooperLead: "Un compagnon bienveillant pour votre routine de médicaments.",
+        .welcomePointOrganize: "Organisez ordonnances et horaires au même endroit.",
+        .welcomePointRemind: "Recevez des rappels et suivez chaque prise au moment voulu.",
+        .welcomePointProgress: "Installez une routine et voyez vos progrès dans le temps.",
+        .welcomeNotMedical: "Conny Cooper ne recommande pas de médicaments, ne pose pas de diagnostic et ne garantit pas que vous prendrez chaque dose.",
         .setupTitle: "Réglages personnels",
         .setupIntro: "On prépare tout pour vous.",
         .setupPhoto: "La photo de profil est facultative — Cooper pourra s'asseoir à vos côtés plus tard.",

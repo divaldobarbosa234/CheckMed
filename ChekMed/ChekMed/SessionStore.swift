@@ -240,8 +240,12 @@ final class SessionStore {
         if defaults.bool(forKey: Keys.onboardingComplete) { return true }
         let phase = FirstTimePhase(rawValue: defaults.string(forKey: Keys.firstTimePhase) ?? "") ?? .language
         switch phase {
-        case .splash, .language, .howItWorks, .privacy, .signIn:
+        case .splash, .language, .privacy, .signIn:
             return false
+        case .howItWorks:
+            // Welcome is after sign-in. A leftover pre-auth How it Works
+            // (privacy not accepted yet) must not skip Sign-in.
+            return defaults.bool(forKey: Keys.privacyAcknowledged)
         default:
             return true
         }
@@ -319,7 +323,7 @@ final class SessionStore {
     ///
     /// Priority (highest first):
     /// 1. launch session unknown only (never after `markLaunchSessionKnown`)
-    /// 2. pre-auth funnel incomplete (UserDefaults: language→howItWorks→privacy→**sign-in**)
+    /// 2. pre-auth funnel incomplete (UserDefaults: language→privacy→**sign-in**; Welcome is post-sign-in)
     /// 3. unlocked + active post-journey / resume setup (incomplete plan, after restore)
     /// 4. unlocked + showReturningWelcome (never from Google sign-in)
     /// 5. unlocked + needsIdentityProfile
@@ -514,7 +518,9 @@ final class SessionStore {
         return id
     }
 
-    /// Language → how-it-works → privacy Accept. UserDefaults; wiped on app delete.
+    /// Language + privacy Accept, plus Welcome (`howItWorksSeen`) after sign-in.
+    /// Welcome stays in the first-time host so RootView does not jump to Profile/Home first.
+    /// UserDefaults; wiped on app delete.
     var hasFinishedLegalPreAuth: Bool {
         localLanguageChosen && localHowItWorksSeen && localPrivacyAcknowledged
     }
@@ -535,7 +541,7 @@ final class SessionStore {
         return false
     }
 
-    /// Language → how-it-works → privacy → explicit Sign-in. All UserDefaults; wiped on app delete.
+    /// Language → privacy → explicit Sign-in, then Welcome. All UserDefaults; wiped on app delete.
     var hasFinishedPreAuthFunnel: Bool {
         hasFinishedLegalPreAuth && hasCompletedSignInThisInstall
     }
@@ -785,7 +791,7 @@ final class SessionStore {
         return true
     }
 
-    /// Unsigned users always replay splash → language → how it works → privacy → sign-in.
+    /// Unsigned users always replay splash → language → privacy → sign-in.
     /// Language and appearance stay. Do not call while a provider sheet is in progress.
     func restartPreAuthOnboarding() {
         guard kind != .authenticated, !auth.isRestoring else { return }
