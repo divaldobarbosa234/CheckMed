@@ -443,6 +443,164 @@ enum FeelingMood: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 }
 
+enum SyncMutationEntity: String, CaseIterable, Sendable {
+    case treatment
+    case medicine
+    case schedule
+    case doseLog
+}
+
+enum SyncMutationOperation: String, Sendable {
+    case upsert
+    case delete
+}
+
+enum SyncMutationState: String, Sendable {
+    case pending
+    case acknowledged
+}
+
+/// Durable local intent only. Batch 2B-2 never uploads or acknowledges these rows.
+@Model
+final class SyncMutationRecord {
+    @Attribute(.unique) var id: UUID
+    var ownerId: UUID
+    var subjectProfileId: UUID?
+    var entityType: String
+    var entityId: UUID
+    var operation: String
+    var baseVersion: Int64?
+    var state: String
+    var createdAt: Date
+    var lastChangedAt: Date
+
+    init(
+        id: UUID = UUID(),
+        ownerId: UUID,
+        subjectProfileId: UUID?,
+        entityType: SyncMutationEntity,
+        entityId: UUID,
+        operation: SyncMutationOperation,
+        baseVersion: Int64? = nil,
+        state: SyncMutationState = .pending,
+        createdAt: Date = Date(),
+        lastChangedAt: Date = Date()
+    ) {
+        self.id = id
+        self.ownerId = ownerId
+        self.subjectProfileId = subjectProfileId
+        self.entityType = entityType.rawValue
+        self.entityId = entityId
+        self.operation = operation.rawValue
+        self.baseVersion = baseVersion
+        self.state = state.rawValue
+        self.createdAt = createdAt
+        self.lastChangedAt = lastChangedAt
+    }
+}
+
+protocol SyncOutboxCanonicalRecord: AnyObject {
+    var id: UUID { get }
+    var ownerId: UUID? { get }
+    var profileId: UUID? { get }
+    var deletedAt: Date? { get }
+    var syncMutationEntity: SyncMutationEntity { get }
+}
+
+extension TreatmentRecord: SyncOutboxCanonicalRecord {
+    var syncMutationEntity: SyncMutationEntity { .treatment }
+}
+
+extension MedicineRecord: SyncOutboxCanonicalRecord {
+    var syncMutationEntity: SyncMutationEntity { .medicine }
+}
+
+extension DoseScheduleRecord: SyncOutboxCanonicalRecord {
+    var syncMutationEntity: SyncMutationEntity { .schedule }
+}
+
+extension DoseLogRecord: SyncOutboxCanonicalRecord {
+    var syncMutationEntity: SyncMutationEntity { .doseLog }
+}
+
+@MainActor
+enum SyncMutationOutbox {
+    static let legacyUploaderMayAcknowledge = false
+
+    static func stage(
+        _ records: [any SyncOutboxCanonicalRecord],
+        in context: ModelContext,
+        now: Date = Date()
+    ) throws {
+        for record in records {
+            guard let ownerId = record.ownerId else { continue }
+            let pending = SyncMutationState.pending.rawValue
+            let descriptor = FetchDescriptor<SyncMutationRecord>(
+                predicate: #Predicate { row in
+                    row.ownerId == ownerId && row.state == pending
+                }
+            )
+            let existing = try context.fetch(descriptor).first {
+                $0.entityType == record.syncMutationEntity.rawValue
+                    && $0.entityId == record.id
+            }
+            let operation: SyncMutationOperation = record.deletedAt == nil ? .upsert : .delete
+            if let existing {
+                if existing.subjectProfileId != record.profileId {
+                    existing.subjectProfileId = record.profileId
+                }
+                if existing.operation != operation.rawValue {
+                    existing.operation = operation.rawValue
+                }
+                existing.lastChangedAt = now
+            } else {
+                let mutation = SyncMutationRecord(
+                    ownerId: ownerId,
+                    subjectProfileId: record.profileId,
+                    entityType: record.syncMutationEntity,
+                    entityId: record.id,
+                    operation: operation,
+                    createdAt: now,
+                    lastChangedAt: now
+                )
+                context.insert(mutation)
+            }
+        }
+    }
+
+    static func pending(ownerId: UUID, in context: ModelContext) throws -> [SyncMutationRecord] {
+        let pending = SyncMutationState.pending.rawValue
+        let descriptor = FetchDescriptor<SyncMutationRecord>(
+            predicate: #Predicate { row in
+                row.ownerId == ownerId && row.state == pending
+            },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        return try context.fetch(descriptor)
+    }
+
+    static func removeAll(ownerId: UUID, in context: ModelContext) throws {
+        let descriptor = FetchDescriptor<SyncMutationRecord>(
+            predicate: #Predicate { row in row.ownerId == ownerId }
+        )
+        for row in try context.fetch(descriptor) {
+            context.delete(row)
+        }
+    }
+
+    static func reassignOwner(
+        from previousOwnerId: UUID,
+        to newOwnerId: UUID,
+        in context: ModelContext,
+        now: Date = Date()
+    ) throws {
+        for row in try pending(ownerId: previousOwnerId, in: context) {
+            row.ownerId = newOwnerId
+            row.lastChangedAt = now
+        }
+    }
+}
+
 @Model
 final class FeelingRecord {
     @Attribute(.unique) var id: UUID

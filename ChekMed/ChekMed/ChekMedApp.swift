@@ -42,7 +42,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let clockFailures = CheckMedClockContractChecks.failures()
             let rewardFailures = RewardEngineContractChecks.failures()
             let syncTransportFailures = await SyncTransportContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures
+            let syncOutboxFailures = await SyncOutboxContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -62,6 +63,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("TestClock failures:", clockFailures)
             print("RewardEngine failures:", rewardFailures)
             print("SyncTransport failures:", syncTransportFailures)
+            print("SyncOutbox failures:", syncOutboxFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
                 "Gamification failures: \(gamificationFailures)",
@@ -82,6 +84,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "TestClock failures: \(clockFailures)",
                 "RewardEngine failures: \(rewardFailures)",
                 "SyncTransport failures: \(syncTransportFailures)",
+                "SyncOutbox failures: \(syncOutboxFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -113,6 +116,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     journeyTreeFailures.isEmpty ? nil : "JOURNEY TREE FAILURE: \(journeyTreeFailures.joined(separator: "; "))",
                     rewardFailures.isEmpty ? nil : "REWARD ENGINE FAILURE: \(rewardFailures.joined(separator: "; "))",
                     syncTransportFailures.isEmpty ? nil : "SYNC TRANSPORT FAILURE: \(syncTransportFailures.joined(separator: "; "))",
+                    syncOutboxFailures.isEmpty ? nil : "SYNC OUTBOX FAILURE: \(syncOutboxFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }
@@ -140,6 +144,7 @@ struct ChekMedApp: App {
                 .environment(treatments)
                 .environment(path)
                 .environment(entitlements)
+                .environment(syncEngine)
                 .environment(family)
                 .environment(voice)
                 .environment(\.locale, session.locale.foundationLocale)

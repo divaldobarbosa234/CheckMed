@@ -1,4 +1,5 @@
 import Foundation
+import Network
 import Supabase
 
 private struct ReplicaPhilSnap: Sendable {
@@ -115,6 +116,13 @@ private enum SyncEngineError: LocalizedError {
 @Observable
 @MainActor
 final class SyncEngine {
+    enum PendingInspectionReason: String {
+        case sessionRestore
+        case syncRequest
+        case foreground
+        case networkRecovery
+    }
+
     struct RestoreOutcome {
         var hasTreatments: Bool
         var failed: Bool
@@ -127,6 +135,10 @@ final class SyncEngine {
     @ObservationIgnored
     private weak var family: FamilyStore?
     private var lastSyncSucceeded = true
+    @ObservationIgnored
+    private var networkMonitor: NWPathMonitor?
+    @ObservationIgnored
+    private var networkWasSatisfied = false
     @ObservationIgnored
     private lazy var cycleCoordinator = SyncCycleCoordinator { [weak self] request in
         guard let self else { return false }
@@ -143,6 +155,7 @@ final class SyncEngine {
             guard let self else { return }
             await self.syncIfSignedIn()
         }
+        startNetworkMonitoringIfNeeded()
     }
 
     /// Await the replica pull. Network runs off MainActor; results are applied here.
@@ -167,6 +180,7 @@ final class SyncEngine {
         } else {
             LaunchLog.error("restore pull failed keepLocal=\(has)")
         }
+        inspectPendingOutbox(reason: .sessionRestore)
         return RestoreOutcome(hasTreatments: has, failed: !ok && !has)
     }
 
@@ -174,9 +188,39 @@ final class SyncEngine {
     /// local rows must be kept. Never treat a failed fetch as "no data".
     @discardableResult
     func syncIfSignedIn() async -> Bool {
-        await cycleCoordinator.enqueue(
+        inspectPendingOutbox(reason: .syncRequest)
+        return await cycleCoordinator.enqueue(
             SyncCycleCoordinator.Request(logSince: nil, shouldPush: true)
         ).value
+    }
+
+    func inspectPendingOutbox(reason: PendingInspectionReason) {
+        guard let session,
+              session.kind == .authenticated,
+              let ownerId = session.auth.userId,
+              let store,
+              store.pendingSyncMutationCount(ownerId: ownerId) > 0
+        else { return }
+        // Batch 2B-2 capture is intentionally not consumed by the legacy uploader.
+        LaunchLog.sync("durable local mutations pending reason=\(reason.rawValue)")
+    }
+
+    private func startNetworkMonitoringIfNeeded() {
+        guard networkMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        networkMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let satisfied = path.status == .satisfied
+                let recovered = satisfied && !self.networkWasSatisfied
+                self.networkWasSatisfied = satisfied
+                if recovered {
+                    self.inspectPendingOutbox(reason: .networkRecovery)
+                }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.checkmed.sync-reachability"))
     }
 
     private func runSync(logSince: Date?, shouldPush: Bool) async -> Bool {

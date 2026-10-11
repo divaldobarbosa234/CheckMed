@@ -152,6 +152,7 @@ final class CheckMedStore {
             MedicineRecord.self,
             DoseScheduleRecord.self,
             DoseLogRecord.self,
+            SyncMutationRecord.self,
             FeelingRecord.self,
             RewardGrant.self,
             CommunityCommentRecord.self,
@@ -343,15 +344,21 @@ final class CheckMedStore {
         guard let medicine = medicines().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
         let now = Date()
         removeMedicine(medicine, now: now)
+        var changedRecords: [any SyncOutboxCanonicalRecord] = [medicine]
+        let affectedSchedules = schedules(for: medicine.id)
+        changedRecords.append(contentsOf: affectedSchedules)
+        let affectedScheduleIds = Set(affectedSchedules.map(\.id))
+        changedRecords.append(contentsOf: allLogs().filter { affectedScheduleIds.contains($0.scheduleId) })
         if medicines(for: medicine.treatmentId).isEmpty,
            let treatment = activeTreatments().first(where: { $0.id == medicine.treatmentId }) {
             treatment.deletedAt = now
             treatment.updatedAt = now
             stamp(treatment)
+            changedRecords.append(treatment)
         }
         logsEnsuredDay = nil
         invalidateCache()
-        save()
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         notify()
         requestSync()
     }
@@ -648,34 +655,53 @@ final class CheckMedStore {
         guard previousOwnerId != newOwnerId else { return }
         let now = Date()
         var changed = false
+        var changedRecords: [any SyncOutboxCanonicalRecord] = []
         for treatment in allTreatments() where treatment.ownerId == previousOwnerId {
             treatment.ownerId = newOwnerId
             if let profileId { treatment.profileId = treatment.profileId ?? profileId }
             treatment.updatedAt = now
             changed = true
+            changedRecords.append(treatment)
         }
         for medicine in allMedicines() where medicine.ownerId == previousOwnerId {
             medicine.ownerId = newOwnerId
             if let profileId { medicine.profileId = medicine.profileId ?? profileId }
             medicine.updatedAt = now
             changed = true
+            changedRecords.append(medicine)
         }
         for schedule in allSchedules() where schedule.ownerId == previousOwnerId {
             schedule.ownerId = newOwnerId
             if let profileId { schedule.profileId = schedule.profileId ?? profileId }
             schedule.updatedAt = now
             changed = true
+            changedRecords.append(schedule)
         }
         for log in allLogs() where log.ownerId == previousOwnerId {
             log.ownerId = newOwnerId
             if let profileId { log.profileId = log.profileId ?? profileId }
             log.updatedAt = now
             changed = true
+            changedRecords.append(log)
         }
         guard changed else { return }
         invalidateCache()
         logsEnsuredDay = nil
-        save()
+        do {
+            try SyncMutationOutbox.reassignOwner(
+                from: previousOwnerId,
+                to: newOwnerId,
+                in: context,
+                now: now
+            )
+        } catch {
+            context.rollback()
+            invalidateCache()
+            logsEnsuredDay = nil
+            LaunchLog.error("local owner adoption transaction failed")
+            return
+        }
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         notify()
         #if DEBUG
         print("[CheckMed] adoptOwner \(previousOwnerId) → \(newOwnerId)")
@@ -688,26 +714,31 @@ final class CheckMedStore {
         guard previousProfileId != newProfileId else { return }
         let now = Date()
         var changed = false
+        var changedRecords: [any SyncOutboxCanonicalRecord] = []
         func claim(_ pid: UUID?) -> Bool { pid == nil || pid == previousProfileId }
         for treatment in allTreatments() where matchesBoundOwner(treatment.ownerId) && claim(treatment.profileId) {
             treatment.profileId = newProfileId
             treatment.updatedAt = now
             changed = true
+            changedRecords.append(treatment)
         }
         for medicine in allMedicines() where matchesBoundOwner(medicine.ownerId) && claim(medicine.profileId) {
             medicine.profileId = newProfileId
             medicine.updatedAt = now
             changed = true
+            changedRecords.append(medicine)
         }
         for schedule in allSchedules() where matchesBoundOwner(schedule.ownerId) && claim(schedule.profileId) {
             schedule.profileId = newProfileId
             schedule.updatedAt = now
             changed = true
+            changedRecords.append(schedule)
         }
         for log in allLogs() where matchesBoundOwner(log.ownerId) && claim(log.profileId) {
             log.profileId = newProfileId
             log.updatedAt = now
             changed = true
+            changedRecords.append(log)
         }
         if stampProfileId == nil || stampProfileId == previousProfileId {
             stampProfileId = newProfileId
@@ -718,7 +749,7 @@ final class CheckMedStore {
         guard changed else { return }
         invalidateCache()
         logsEnsuredDay = nil
-        save()
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         notify()
         #if DEBUG
         print("[CheckMed] adoptProfile \(previousProfileId) → \(newProfileId)")
@@ -886,7 +917,9 @@ final class CheckMedStore {
 
         replaceSchedules(for: medicine, times: draft.doseTimes, frequency: draft.scheduleFrequency, now: now)
         logsEnsuredDay = nil
-        save()
+        var changedRecords: [any SyncOutboxCanonicalRecord] = [treatment, medicine]
+        changedRecords.append(contentsOf: schedules(for: medicine.id))
+        guard saveCanonicalMutation(changedRecords, now: now) else { return nil }
         ensureUpcomingLogs()
         notify()
         requestSync()
@@ -931,25 +964,34 @@ final class CheckMedStore {
         reason: String? = nil
     ) {
         guard let medicine = medicines().first(where: { $0.id == id }) else { return }
-        if let stockPercent { medicine.stockPercent = min(100, max(0, stockPercent)) }
-        if let packageAmount { medicine.packageAmount = max(0, packageAmount) }
-        if let packageUnit { medicine.packageUnit = packageUnit.rawValue }
-        if let quantityPerDose { medicine.quantityPerDose = max(0.01, quantityPerDose) }
-        if let doseUnit { medicine.doseUnit = doseUnit.rawValue }
-        if let form { medicine.form = form.rawValue }
-        if let refillRemindEnabled { medicine.refillRemindEnabled = refillRemindEnabled }
-        if let doctorName { medicine.doctorName = doctorName }
-        if let doctorId { medicine.doctorId = doctorId }
-        if let hospitalName { medicine.hospitalName = hospitalName }
-        if let doctorNotes { medicine.doctorNotes = doctorNotes }
-        if let reason { medicine.reason = reason }
-        if markRefilled {
-            medicine.stockPercent = 100
-            medicine.lastRefillAt = Date()
+        var changed = false
+        func assign<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<MedicineRecord, T>) {
+            guard medicine[keyPath: keyPath] != value else { return }
+            medicine[keyPath: keyPath] = value
+            changed = true
         }
-        medicine.updatedAt = Date()
+        if let stockPercent { assign(min(100, max(0, stockPercent)), to: \.stockPercent) }
+        if let packageAmount { assign(max(0, packageAmount), to: \.packageAmount) }
+        if let packageUnit { assign(packageUnit.rawValue, to: \.packageUnit) }
+        if let quantityPerDose { assign(max(0.01, quantityPerDose), to: \.quantityPerDose) }
+        if let doseUnit { assign(doseUnit.rawValue, to: \.doseUnit) }
+        if let form { assign(form.rawValue, to: \.form) }
+        if let refillRemindEnabled { assign(refillRemindEnabled, to: \.refillRemindEnabled) }
+        if let doctorName { assign(doctorName, to: \.doctorName) }
+        if let doctorId { assign(doctorId, to: \.doctorId) }
+        if let hospitalName { assign(hospitalName, to: \.hospitalName) }
+        if let doctorNotes { assign(doctorNotes, to: \.doctorNotes) }
+        if let reason { assign(reason, to: \.reason) }
+        if markRefilled {
+            assign(100.0, to: \.stockPercent)
+            medicine.lastRefillAt = Date()
+            changed = true
+        }
+        guard changed else { return }
+        let now = Date()
+        medicine.updatedAt = now
         stamp(medicine)
-        save()
+        guard saveCanonicalMutation([medicine], now: now) else { return }
         notify()
         requestSync()
     }
@@ -967,37 +1009,47 @@ final class CheckMedStore {
         reason: String? = nil
     ) {
         guard let medicine = medicines().first(where: { $0.id == id }) else { return }
+        var changed = false
+        func assign<T: Equatable>(_ value: T, to keyPath: ReferenceWritableKeyPath<MedicineRecord, T>) {
+            guard medicine[keyPath: keyPath] != value else { return }
+            medicine[keyPath: keyPath] = value
+            changed = true
+        }
         if let name {
             let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { medicine.name = trimmed }
+            if !trimmed.isEmpty { assign(trimmed, to: \.name) }
         }
         if let doseLabel {
             let trimmed = doseLabel.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmed.isEmpty {
-                medicine.doseLabel = trimmed
+                assign(trimmed, to: \.doseLabel)
                 let parsed = MedicineUnits.parseDoseLabel(trimmed)
-                medicine.quantityPerDose = parsed.quantity
-                medicine.doseUnit = parsed.unit.rawValue
+                assign(parsed.quantity, to: \.quantityPerDose)
+                assign(parsed.unit.rawValue, to: \.doseUnit)
             }
         }
         if let frequency {
-            medicine.frequency = PrescriptionParser.intervalOnly(frequency)
+            assign(PrescriptionParser.intervalOnly(frequency), to: \.frequency)
         }
         if let duration {
-            medicine.duration = duration.trimmingCharacters(in: .whitespacesAndNewlines)
+            assign(duration.trimmingCharacters(in: .whitespacesAndNewlines), to: \.duration)
         }
-        if let doctorName { medicine.doctorName = doctorName }
-        if let doctorId { medicine.doctorId = doctorId }
-        if let hospitalName { medicine.hospitalName = hospitalName }
-        if let doctorNotes { medicine.doctorNotes = doctorNotes }
-        if let reason { medicine.reason = reason }
-        medicine.updatedAt = Date()
+        if let doctorName { assign(doctorName, to: \.doctorName) }
+        if let doctorId { assign(doctorId, to: \.doctorId) }
+        if let hospitalName { assign(hospitalName, to: \.hospitalName) }
+        if let doctorNotes { assign(doctorNotes, to: \.doctorNotes) }
+        if let reason { assign(reason, to: \.reason) }
+        guard changed else { return }
+        let now = Date()
+        medicine.updatedAt = now
         stamp(medicine)
+        var changedRecords: [any SyncOutboxCanonicalRecord] = [medicine]
         if let treatment = treatments().first(where: { $0.id == medicine.treatmentId }) {
-            treatment.updatedAt = Date()
+            treatment.updatedAt = now
             stamp(treatment)
+            changedRecords.append(treatment)
         }
-        save()
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         notify()
         requestSync()
     }
@@ -1060,6 +1112,7 @@ final class CheckMedStore {
         log.updatedAt = now
         stamp(log)
         FreezeDiag.log("SWIFTDATA WRITE END source=applyDoseAction")
+        var changedRecords: [any SyncOutboxCanonicalRecord] = [log]
         if DoseLoop.shouldConsumeStock(from: previous, to: next),
            let schedule = schedules().first(where: { $0.id == log.scheduleId }),
            let medicine = medicines().first(where: { $0.id == schedule.medicineId }) {
@@ -1080,8 +1133,9 @@ final class CheckMedStore {
                 medicine.updatedAt = now
                 stamp(medicine)
             }
+            changedRecords.append(medicine)
         }
-        save()
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         recordRewardsAfterDoseConfirm(log: log, previous: previous, next: next, now: now)
         notify()
         requestSync()
@@ -1195,6 +1249,7 @@ final class CheckMedStore {
         let treatmentsById = Dictionary(uniqueKeysWithValues: treatments().map { ($0.id, $0) })
         #endif
         var changed = 0
+        var changedLogs: [DoseLogRecord] = []
         for log in allLogs() where log.deletedAt == nil {
             guard changed < 24 else { break }
             guard log.scheduledAt >= window else { continue }
@@ -1229,6 +1284,7 @@ final class CheckMedStore {
             log.loggedAt = log.loggedAt ?? now
             log.updatedAt = now
             stamp(log)
+            changedLogs.append(log)
             FreezeDiag.log("SWIFTDATA WRITE END source=reconcileExpiredDoseLogs")
             changed += 1
         }
@@ -1239,7 +1295,7 @@ final class CheckMedStore {
             #endif
             return
         }
-        save()
+        guard saveCanonicalMutation(changedLogs, now: now) else { return }
         if !suppressNotify {
             notify()
             requestSync()
@@ -1370,9 +1426,10 @@ final class CheckMedStore {
         guard let treatment = allTreatments().first(where: { $0.id == id && $0.deletedAt == nil }) else { return false }
         if treatment.title == trimmed { return true }
         treatment.title = trimmed
-        treatment.updatedAt = Date()
+        let now = Date()
+        treatment.updatedAt = now
         stamp(treatment)
-        save()
+        guard saveCanonicalMutation([treatment], now: now) else { return false }
         notify()
         requestSync()
         return true
@@ -1382,11 +1439,12 @@ final class CheckMedStore {
         guard let treatment = allTreatments().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
         // Status only — never set deletedAt. Journey report needs finished treatments + medicines.
         treatment.status = "completed"
-        treatment.endDate = treatment.endDate ?? Date()
-        treatment.updatedAt = Date()
+        let now = Date()
+        treatment.endDate = treatment.endDate ?? now
+        treatment.updatedAt = now
         stamp(treatment)
         logsEnsuredDay = nil
-        save()
+        guard saveCanonicalMutation([treatment], now: now) else { return }
         RewardEngine.applyTreatmentComplete(
             context: context,
             ownerId: treatment.ownerId ?? ownerId,
@@ -1533,7 +1591,12 @@ final class CheckMedStore {
         guard changed else { return }
         logsEnsuredDay = nil
         invalidateCache()
-        save()
+        var changedRecords: [any SyncOutboxCanonicalRecord] = []
+        changedRecords.append(contentsOf: allTreatments().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allMedicines().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allSchedules().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allLogs().filter { $0.updatedAt == now })
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         notify()
         requestSync()
     }
@@ -1585,7 +1648,12 @@ final class CheckMedStore {
         }
         invalidateCache()
         logsEnsuredDay = nil
-        save()
+        var changedRecords: [any SyncOutboxCanonicalRecord] = []
+        changedRecords.append(contentsOf: allTreatments().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allMedicines().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allSchedules().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allLogs().filter { $0.updatedAt == now })
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         notify()
         requestSync()
     }
@@ -1604,9 +1672,15 @@ final class CheckMedStore {
         for row in allFeelings() where row.ownerId == ownerId { context.delete(row) }
         for row in allComments() where row.ownerId == ownerId { context.delete(row) }
         for row in allRewardGrants() where row.ownerId == ownerId { context.delete(row) }
+        do {
+            try SyncMutationOutbox.removeAll(ownerId: ownerId, in: context)
+            try context.save()
+        } catch {
+            context.rollback()
+            LaunchLog.error("local account cleanup transaction failed")
+        }
         invalidateCache()
         logsEnsuredDay = nil
-        save()
         notify()
     }
 
@@ -1641,7 +1715,12 @@ final class CheckMedStore {
         guard changed else { return }
         invalidateCache()
         logsEnsuredDay = nil
-        save()
+        var changedRecords: [any SyncOutboxCanonicalRecord] = []
+        changedRecords.append(contentsOf: allTreatments().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allMedicines().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allSchedules().filter { $0.updatedAt == now })
+        changedRecords.append(contentsOf: allLogs().filter { $0.updatedAt == now })
+        guard saveCanonicalMutation(changedRecords, now: now) else { return }
         notify()
         requestSync()
     }
@@ -1857,12 +1936,22 @@ final class CheckMedStore {
             MedicineRecord.self,
             DoseScheduleRecord.self,
             DoseLogRecord.self,
+            SyncMutationRecord.self,
             FeelingRecord.self,
             RewardGrant.self,
             CommunityCommentRecord.self,
         ])
         let disk = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         guard let container = try? ModelContainer(for: schema, configurations: [disk]) else { return }
+        persistDoseAction(id: id, action: action, now: now, container: container)
+    }
+
+    private static func persistDoseAction(
+        id: UUID,
+        action: DoseLoopAction,
+        now: Date,
+        container: ModelContainer
+    ) {
         let context = ModelContext(container)
         let target = id
         let descriptor = FetchDescriptor<DoseLogRecord>(
@@ -1886,6 +1975,7 @@ final class CheckMedStore {
         log.status = next.rawValue
         log.loggedAt = now
         log.updatedAt = now
+        var changedRecords: [any SyncOutboxCanonicalRecord] = [log]
         if DoseLoop.shouldConsumeStock(from: previous, to: next) {
             let scheduleId = log.scheduleId
             let scheduleDesc = FetchDescriptor<DoseScheduleRecord>(
@@ -1912,10 +2002,18 @@ final class CheckMedStore {
                    ) {
                     medicine.stockPercent = stock
                     medicine.updatedAt = now
+                    changedRecords.append(medicine)
                 }
             }
         }
-        try? context.save()
+        do {
+            try SyncMutationOutbox.stage(changedRecords, in: context, now: now)
+            try context.save()
+        } catch {
+            context.rollback()
+            LaunchLog.error("notification mutation transaction failed")
+            return
+        }
         FreezeDiag.log("SWIFTDATA WRITE END source=persistDoseAction")
         if next.isConfirmedTaken, !previous.isConfirmedTaken {
             enqueueOrApplyCanonicalDoseRewards(
@@ -2890,6 +2988,7 @@ final class CheckMedStore {
             }
         }
         var inserted = 0
+        var insertedLogs: [DoseLogRecord] = []
         for offset in 0..<7 {
             guard let slotDay = calendar.date(byAdding: .day, value: offset, to: day),
                   let end = calendar.date(byAdding: .day, value: 1, to: slotDay) else { continue }
@@ -2979,6 +3078,7 @@ final class CheckMedStore {
                 context.insert(log)
                 FreezeDiag.log("SWIFTDATA WRITE END source=ensureUpcomingLogs")
                 inserted += 1
+                insertedLogs.append(log)
                 #if DEBUG
                 let durationBounds = PlanDuration.bounds(from: medicine.duration, calendar: calendar)
                 print(
@@ -3003,7 +3103,7 @@ final class CheckMedStore {
         logsEnsuredSignature = signature
         if inserted > 0 {
             invalidateCache()
-            save()
+            _ = saveCanonicalMutation(insertedLogs, now: now)
         }
         FreezeDiag.context("ensureUpcomingLogs END inserted=\(inserted)", hasChanges: context.hasChanges)
     }
@@ -3190,17 +3290,21 @@ final class CheckMedStore {
             return
         }
         var changed = false
+        var changedRecords: [any SyncOutboxCanonicalRecord] = []
         for treatment in allTreatments() where treatment.profileId == nil && treatment.ownerId == ownerId {
             treatment.profileId = stampProfileId
             changed = true
+            changedRecords.append(treatment)
         }
         for medicine in allMedicines() where medicine.profileId == nil && medicine.ownerId == ownerId {
             medicine.profileId = stampProfileId
             changed = true
+            changedRecords.append(medicine)
         }
         for schedule in allSchedules() where schedule.profileId == nil && schedule.ownerId == ownerId {
             schedule.profileId = stampProfileId
             changed = true
+            changedRecords.append(schedule)
         }
         for log in allLogs() where log.profileId == nil && log.ownerId == ownerId {
             FreezeDiag.log("SWIFTDATA WRITE START source=stampIdentity")
@@ -3210,8 +3314,11 @@ final class CheckMedStore {
             log.profileId = stampProfileId
             FreezeDiag.log("SWIFTDATA WRITE END source=stampIdentity")
             changed = true
+            changedRecords.append(log)
         }
-        if changed { save() }
+        if changed {
+            _ = saveCanonicalMutation(changedRecords)
+        }
         FreezeDiag.context("stampIdentity END changed=\(changed)", hasChanges: context.hasChanges)
     }
 
@@ -3298,6 +3405,7 @@ final class CheckMedStore {
             MedicineRecord.self,
             DoseScheduleRecord.self,
             DoseLogRecord.self,
+            SyncMutationRecord.self,
             FeelingRecord.self,
             RewardGrant.self,
             CommunityCommentRecord.self,
@@ -3310,6 +3418,74 @@ final class CheckMedStore {
         gmt.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
         calendar = gmt
         _ = isolatedInMemoryForContracts
+    }
+
+    init(contractStoreURL: URL, allowsSave: Bool = true) throws {
+        let schema = Schema([
+            TreatmentRecord.self,
+            MedicineRecord.self,
+            DoseScheduleRecord.self,
+            DoseLogRecord.self,
+            SyncMutationRecord.self,
+            FeelingRecord.self,
+            RewardGrant.self,
+            CommunityCommentRecord.self,
+        ])
+        let configuration = ModelConfiguration(
+            "CheckMedOutboxContracts",
+            schema: schema,
+            url: contractStoreURL,
+            allowsSave: allowsSave,
+            cloudKitDatabase: .none
+        )
+        container = try ModelContainer(for: schema, configurations: [configuration])
+        context = ModelContext(container)
+        context.autosaveEnabled = false
+        var gmt = Calendar(identifier: .gregorian)
+        gmt.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        calendar = gmt
+    }
+
+    struct DebugSyncMutation: Equatable {
+        var id: UUID
+        var ownerId: UUID
+        var subjectProfileId: UUID?
+        var entityType: String
+        var entityId: UUID
+        var operation: String
+        var baseVersion: Int64?
+    }
+
+    func debugPendingSyncMutations(ownerId: UUID) -> [DebugSyncMutation] {
+        ((try? SyncMutationOutbox.pending(ownerId: ownerId, in: context)) ?? []).map {
+            DebugSyncMutation(
+                id: $0.id,
+                ownerId: $0.ownerId,
+                subjectProfileId: $0.subjectProfileId,
+                entityType: $0.entityType,
+                entityId: $0.entityId,
+                operation: $0.operation,
+                baseVersion: $0.baseVersion
+            )
+        }
+    }
+
+    func debugSetPendingSyncMutationBaseVersion(
+        ownerId: UUID,
+        entityType: SyncMutationEntity,
+        entityId: UUID,
+        baseVersion: Int64
+    ) {
+        guard let mutation = try? SyncMutationOutbox.pending(ownerId: ownerId, in: context).first(where: {
+            $0.entityType == entityType.rawValue && $0.entityId == entityId
+        }) else { return }
+        mutation.baseVersion = baseVersion
+        try? context.save()
+    }
+
+    func debugPersistDoseAction(id: UUID, action: DoseLoopAction, now: Date = Date()) {
+        Self.persistDoseAction(id: id, action: action, now: now, container: container)
+        invalidateCache()
     }
 
     func debugContractBind(ownerId: UUID, profileId: UUID) {
@@ -3453,6 +3629,31 @@ final class CheckMedStore {
         try? context.save()
         invalidateCache()
         FreezeDiag.context("save() AFTER", hasChanges: context.hasChanges)
+    }
+
+    /// Saves canonical local changes and their durable intent in one SwiftData transaction.
+    /// Remote merge and local-only records must continue to use `save()`.
+    @discardableResult
+    private func saveCanonicalMutation(
+        _ records: [any SyncOutboxCanonicalRecord],
+        now: Date = Date()
+    ) -> Bool {
+        do {
+            try SyncMutationOutbox.stage(records, in: context, now: now)
+            try context.save()
+            invalidateCache()
+            return true
+        } catch {
+            context.rollback()
+            invalidateCache()
+            logsEnsuredDay = nil
+            LaunchLog.error("local mutation transaction failed")
+            return false
+        }
+    }
+
+    func pendingSyncMutationCount(ownerId: UUID) -> Int {
+        (try? SyncMutationOutbox.pending(ownerId: ownerId, in: context).count) ?? 0
     }
 
     private func notify() {

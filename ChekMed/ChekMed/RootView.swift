@@ -5,6 +5,7 @@ struct RootView: View {
     @Environment(EntitlementStore.self) private var entitlements
     @Environment(CheckMedStore.self) private var treatments
     @Environment(TodayPathStore.self) private var path
+    @Environment(SyncEngine.self) private var syncEngine
     @Environment(\.scenePhase) private var scenePhase
     @State private var showMissedSummary = false
     /// iOS resumes as background → inactive → active, so `oldPhase == .background` never matches `.active`.
@@ -124,6 +125,7 @@ struct RootView: View {
             if phase == .active {
                 Engagement.ping()
                 ReminderScheduler.shared.reschedule(force: false)
+                syncEngine.inspectPendingOutbox(reason: .foreground)
                 // inactive → active also fires for sheets, Control Center, and some
                 // SwiftUI animations. Only a real background stay should reopen
                 // the missed-dose dialogue.
