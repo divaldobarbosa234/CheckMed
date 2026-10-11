@@ -7,6 +7,12 @@ enum SuperProductID {
     static var all: Set<String> { [monthly, yearly] }
 }
 
+enum DebugSuperUnlockPolicy {
+    static func restoresPersistedUnlock(_ persisted: Bool, isDebugBuild: Bool) -> Bool {
+        persisted && isDebugBuild
+    }
+}
+
 @MainActor
 @Observable
 final class EntitlementStore {
@@ -85,9 +91,7 @@ final class EntitlementStore {
     }
 
     var allowsDebugUnlock: Bool {
-        #if targetEnvironment(simulator)
-        true
-        #elseif DEBUG
+        #if DEBUG
         true
         #else
         false
@@ -98,8 +102,23 @@ final class EntitlementStore {
         static let debugUnlock = "checkmed.super.debugUnlock"
     }
 
+    private static var isDebugBuild: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
+
     init() {
-        usedDebugUnlock = UserDefaults.standard.bool(forKey: Keys.debugUnlock)
+        let persistedDebugUnlock = UserDefaults.standard.bool(forKey: Keys.debugUnlock)
+        usedDebugUnlock = DebugSuperUnlockPolicy.restoresPersistedUnlock(
+            persistedDebugUnlock,
+            isDebugBuild: Self.isDebugBuild
+        )
+        if persistedDebugUnlock && !usedDebugUnlock {
+            UserDefaults.standard.removeObject(forKey: Keys.debugUnlock)
+        }
         if usedDebugUnlock {
             isSuper = true
             entitlementSettled = true

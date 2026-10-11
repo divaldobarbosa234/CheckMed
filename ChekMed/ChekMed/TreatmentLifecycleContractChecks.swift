@@ -153,7 +153,8 @@ enum TreatmentLifecycleContractChecks {
                 )
             ],
             ownerId: owner,
-            profileId: profile
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
         )
         expect(newId == current.treatmentId, "E/F: append targets CURRENT id, not stored-active .first")
         expect(store.debugTreatmentStatus(past.treatmentId) == "active", "D/E: expired status unchanged by append")
@@ -188,7 +189,8 @@ enum TreatmentLifecycleContractChecks {
                 )
             ],
             ownerId: owner,
-            profileId: profile
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
         )
         expect(seededId != nil && seededId != expiredOnly.treatmentId, "D: PAST-only add seeds a NEW treatment")
         expect(pastOnly.debugTreatmentStatus(expiredOnly.treatmentId) == "active", "D: expired treatment unchanged")
@@ -238,7 +240,8 @@ enum TreatmentLifecycleContractChecks {
                 )
             ],
             ownerId: owner,
-            profileId: profile
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
         )
         expect(futureSeed != nil && futureSeed != futurePlan.treatmentId, "C: FUTURE-only add seeds a new treatment")
         expect(futureOnly.debugTreatmentStatus(futurePlan.treatmentId) == "active", "C: FUTURE treatment unchanged")
@@ -260,6 +263,147 @@ enum TreatmentLifecycleContractChecks {
             reminderCurrent.reminderDrafts(now: now).contains(where: { $0.medicine == "RemindMed" && $0.kind == .dose }),
             "K: CURRENT pending log still produces reminder drafts"
         )
+
+        return failures
+    }
+}
+
+enum MedicationCapacitySafetyContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func draft(_ name: String) -> OnboardingPrescriptionDraft {
+            OnboardingPrescriptionDraft(
+                medicine: name,
+                dose: "1 tablet",
+                frequency: "1x",
+                duration: "30 days",
+                timesPerDay: "1",
+                doseTimes: ["09:00"]
+            )
+        }
+
+        let owner = UUID()
+        let profile = UUID()
+        let free = CheckMedStore(isolatedInMemoryForContracts: true)
+        free.debugContractBind(ownerId: owner, profileId: profile)
+
+        let firstThree = free.addFromDrafts(
+            [draft("Free One"), draft("Free Two"), draft("Free Three")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(firstThree != nil, "capacity: Free persists medicines 1-3")
+        expect(free.storedMedicineCount == 3, "capacity: Free stores exactly three active medicines")
+
+        let beforeFourth = free.debugLiveRecordCounts()
+        let fourth = free.addFromDrafts(
+            [draft("Free Four")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        let afterFourth = free.debugLiveRecordCounts()
+        expect(fourth == nil, "capacity: Free fourth medicine is rejected at persistence boundary")
+        expect(afterFourth.medicines == beforeFourth.medicines, "capacity: rejected fourth inserts no medicine")
+        expect(afterFourth.schedules == beforeFourth.schedules, "capacity: rejected fourth inserts no schedule")
+        expect(afterFourth.logs == beforeFourth.logs, "capacity: rejected fourth inserts no DoseLog")
+
+        if let first = free.medicineSummaries().first {
+            free.updateMedicineDetails(id: first.id, name: "Free One Edited")
+            expect(free.storedMedicineCount == 3, "capacity: editing does not consume a slot")
+            expect(free.debugMedicineName(first.id) == "Free One Edited", "capacity: existing medicine edit persists")
+            free.deleteMedicine(id: first.id)
+            expect(free.storedMedicineCount == 2, "capacity: explicit deletion releases one slot")
+        } else {
+            failures.append("capacity: missing fixture medicine for edit/delete")
+        }
+
+        let replacement = free.addFromDrafts(
+            [draft("Free Replacement")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(replacement != nil, "capacity: deletion makes a new slot available")
+        expect(free.storedMedicineCount == 3, "capacity: replacement returns Free to three")
+        expect(
+            free.debugLiveMedicationRowsMatch(ownerId: owner, profileId: profile),
+            "capacity: Free enforcement preserves owner/profile boundaries"
+        )
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let start = calendar.date(byAdding: .day, value: -1, to: now)!
+        let end = calendar.date(byAdding: .day, value: 30, to: now)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now)!
+        let retained = CheckMedStore(isolatedInMemoryForContracts: true)
+        retained.debugContractBind(ownerId: owner, profileId: profile)
+        for index in 1...SuperLimits.superPrescriptions {
+            _ = retained.debugInsertPlan(
+                title: "Super \(index)",
+                status: "active",
+                startDate: start,
+                endDate: end,
+                medicineName: "Super Medicine \(index)",
+                ownerId: owner,
+                profileId: profile,
+                scheduleTime: String(format: "%02d:00", (index % 12) + 8),
+                logStatus: DoseLogStatus.pending.rawValue,
+                logScheduledAt: tomorrow
+            )
+        }
+        let retainedBefore = retained.debugLiveRecordCounts()
+        let remindersBefore = retained.reminderDrafts(now: now).count
+        retained.removeDuplicateMedicinesIfNeeded()
+        let retainedAfter = retained.debugLiveRecordCounts()
+        expect(retained.storedMedicineCount == SuperLimits.superPrescriptions, "capacity: twelve valid medicines survive cleanup")
+        expect(retainedAfter.treatments == retainedBefore.treatments, "capacity: downgrade-safe cleanup keeps treatments")
+        expect(retainedAfter.medicines == retainedBefore.medicines, "capacity: downgrade-safe cleanup keeps medicines")
+        expect(retainedAfter.schedules == retainedBefore.schedules, "capacity: downgrade-safe cleanup keeps schedules")
+        expect(retainedAfter.logs == retainedBefore.logs, "capacity: downgrade-safe cleanup keeps DoseLogs")
+        expect(retained.reminderDrafts(now: now).count == remindersBefore, "capacity: retained schedules keep reminder drafts")
+
+        let overFreeAttempt = retained.addFromDrafts(
+            [draft("Blocked While Free")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(overFreeAttempt == nil, "capacity: downgraded over-limit user cannot add another medicine")
+        expect(retained.storedMedicineCount == SuperLimits.superPrescriptions, "capacity: rejected add does not prune retained medicines")
+        expect(
+            retained.debugLiveMedicationRowsMatch(ownerId: owner, profileId: profile),
+            "capacity: retention preserves owner/profile boundaries"
+        )
+
+        let duplicates = CheckMedStore(isolatedInMemoryForContracts: true)
+        duplicates.debugContractBind(ownerId: owner, profileId: profile)
+        _ = duplicates.debugInsertPlan(
+            title: "Duplicate A",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "DuplicateMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = duplicates.debugInsertPlan(
+            title: "Duplicate B",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "DuplicateMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        duplicates.removeDuplicateMedicinesIfNeeded()
+        expect(duplicates.storedMedicineCount == 1, "capacity: legitimate duplicate cleanup remains active")
 
         return failures
     }
@@ -310,7 +454,8 @@ enum TreatmentTitleContractChecks {
                 )
             ],
             ownerId: owner,
-            profileId: profile
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
         )
         expect(store.debugTreatmentTitle(plan.treatmentId) == "Curso inverno", "title: later add does not overwrite")
         expect(
@@ -330,7 +475,8 @@ enum TreatmentTitleContractChecks {
                 )
             ],
             ownerId: owner,
-            profileId: profile
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
         )
         expect(store.debugTreatmentTitle(plan.treatmentId) == "Curso inverno", "title: replace-plan seed does not overwrite user title")
         expect(

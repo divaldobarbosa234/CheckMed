@@ -329,7 +329,8 @@ struct AddPrescriptionIntakeHost: View {
             persistedTreatmentId = treatments.seedFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
-                profileId: session.planProfileId
+                profileId: session.planProfileId,
+                maximumActiveMedicines: entitlements.maximumActiveMedicines
             )
             ok = persistedTreatmentId != nil
             #if DEBUG
@@ -344,14 +345,16 @@ struct AddPrescriptionIntakeHost: View {
             persistedTreatmentId = treatments.seedFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
-                profileId: session.planProfileId
+                profileId: session.planProfileId,
+                maximumActiveMedicines: entitlements.maximumActiveMedicines
             )
             ok = persistedTreatmentId != nil
         } else {
             persistedTreatmentId = treatments.addFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
-                profileId: session.planProfileId
+                profileId: session.planProfileId,
+                maximumActiveMedicines: entitlements.maximumActiveMedicines
             )
             ok = persistedTreatmentId != nil
         }

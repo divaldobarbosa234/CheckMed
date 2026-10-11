@@ -581,24 +581,66 @@ final class CheckMedStore {
 
     /// First-treatment onboarding: create or replace the single active plan.
     @discardableResult
-    func seedFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) -> UUID? {
-        seedFromDrafts([draft], ownerId: ownerId, profileId: profileId)
+    func seedFromDraft(
+        _ draft: OnboardingPrescriptionDraft,
+        ownerId: UUID?,
+        profileId: UUID?,
+        maximumActiveMedicines: Int
+    ) -> UUID? {
+        seedFromDrafts(
+            [draft],
+            ownerId: ownerId,
+            profileId: profileId,
+            maximumActiveMedicines: maximumActiveMedicines
+        )
     }
 
     @discardableResult
-    func seedFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) -> UUID? {
-        persistDrafts(drafts, ownerId: ownerId, profileId: profileId, replacePlan: true)
+    func seedFromDrafts(
+        _ drafts: [OnboardingPrescriptionDraft],
+        ownerId: UUID?,
+        profileId: UUID?,
+        maximumActiveMedicines: Int
+    ) -> UUID? {
+        persistDrafts(
+            drafts,
+            ownerId: ownerId,
+            profileId: profileId,
+            replacePlan: true,
+            maximumActiveMedicines: maximumActiveMedicines
+        )
     }
 
     /// Later adds from Home: append onto the active treatment when one exists.
     @discardableResult
-    func addFromDraft(_ draft: OnboardingPrescriptionDraft, ownerId: UUID?, profileId: UUID?) -> UUID? {
-        addFromDrafts([draft], ownerId: ownerId, profileId: profileId)
+    func addFromDraft(
+        _ draft: OnboardingPrescriptionDraft,
+        ownerId: UUID?,
+        profileId: UUID?,
+        maximumActiveMedicines: Int
+    ) -> UUID? {
+        addFromDrafts(
+            [draft],
+            ownerId: ownerId,
+            profileId: profileId,
+            maximumActiveMedicines: maximumActiveMedicines
+        )
     }
 
     @discardableResult
-    func addFromDrafts(_ drafts: [OnboardingPrescriptionDraft], ownerId: UUID?, profileId: UUID?) -> UUID? {
-        persistDrafts(drafts, ownerId: ownerId, profileId: profileId, replacePlan: false)
+    func addFromDrafts(
+        _ drafts: [OnboardingPrescriptionDraft],
+        ownerId: UUID?,
+        profileId: UUID?,
+        maximumActiveMedicines: Int
+    ) -> UUID? {
+        persistDrafts(
+            drafts,
+            ownerId: ownerId,
+            profileId: profileId,
+            replacePlan: false,
+            maximumActiveMedicines: maximumActiveMedicines
+        )
     }
 
     /// Move leftover on-device rows onto the signed-in account so Home still shows the plan.
@@ -688,9 +730,15 @@ final class CheckMedStore {
         _ drafts: [OnboardingPrescriptionDraft],
         ownerId: UUID?,
         profileId: UUID?,
-        replacePlan: Bool
+        replacePlan: Bool,
+        maximumActiveMedicines: Int
     ) -> UUID? {
-        let named = drafts.filter(\.hasMedicineName)
+        let uniqueNamed = drafts.filter(\.hasMedicineName).dedupedDistinctMedicines()
+        let replacementPlan = replacePlan ? activeTreatments().first : nil
+        let replacesExistingMedicine = replacementPlan.flatMap { medicines(for: $0.id).first } != nil
+        let availableNewSlots = max(0, maximumActiveMedicines - storedMedicineCount)
+        let acceptedCount = availableNewSlots + (replacesExistingMedicine ? 1 : 0)
+        let named = Array(uniqueNamed.prefix(acceptedCount))
         ScanLog.confirmed(named)
         guard let ownerId else {
             #if DEBUG
@@ -700,7 +748,10 @@ final class CheckMedStore {
         }
         guard let first = named.first else {
             #if DEBUG
-            print("[CheckMed] persistDrafts aborted: no named medicines")
+            print(
+                "[CheckMed] persistDrafts aborted: no capacity "
+                + "existing=\(storedMedicineCount) maximum=\(maximumActiveMedicines)"
+            )
             #endif
             return nil
         }
@@ -1448,15 +1499,14 @@ final class CheckMedStore {
         return drafts.isEmpty ? [.empty] : drafts
     }
 
-    func pruneDuplicateAndFreeCap(isSuper: Bool) {
-        let cap = isSuper ? 12 : SuperLimits.freePrescriptions
-        // Only active treatments fill / compete for free slots; completed history stays.
+    func removeDuplicateMedicinesIfNeeded() {
+        // Duplicate cleanup is data hygiene only. Subscription capacity is enforced
+        // when creating medicines and must never delete an existing valid record.
         let activeIds = Set(activeTreatments().map(\.id))
         let meds = medicines()
             .filter { activeIds.contains($0.treatmentId) }
             .sorted { $0.updatedAt < $1.updatedAt }
         var seen = Set<String>()
-        var kept = 0
         let now = Date()
         var changed = false
         for med in meds {
@@ -1469,11 +1519,9 @@ final class CheckMedStore {
             }
             let key = PrescriptionParser.canonicalMedicineKey(med.name)
             let duplicate = !key.isEmpty && !seen.insert(key).inserted
-            if duplicate || kept >= cap {
+            if duplicate {
                 removeMedicine(med, now: now)
                 changed = true
-            } else {
-                kept += 1
             }
         }
         for treatment in activeTreatments() where medicines(for: treatment.id).isEmpty {
@@ -3363,6 +3411,31 @@ final class CheckMedStore {
 
     func debugDoseStatus(_ logId: UUID) -> String? {
         allLogs().first(where: { $0.id == logId && $0.deletedAt == nil })?.status
+    }
+
+    func debugMedicineName(_ medicineId: UUID) -> String? {
+        allMedicines().first(where: { $0.id == medicineId && $0.deletedAt == nil })?.name
+    }
+
+    func debugLiveRecordCounts() -> (treatments: Int, medicines: Int, schedules: Int, logs: Int) {
+        (
+            allTreatments().filter { $0.deletedAt == nil }.count,
+            allMedicines().filter { $0.deletedAt == nil }.count,
+            allSchedules().filter { $0.deletedAt == nil }.count,
+            allLogs().filter { $0.deletedAt == nil }.count
+        )
+    }
+
+    func debugLiveMedicationRowsMatch(ownerId: UUID, profileId: UUID) -> Bool {
+        allTreatments().filter { $0.deletedAt == nil }.allSatisfy {
+            $0.ownerId == ownerId && $0.profileId == profileId
+        } && allMedicines().filter { $0.deletedAt == nil }.allSatisfy {
+            $0.ownerId == ownerId && $0.profileId == profileId
+        } && allSchedules().filter { $0.deletedAt == nil }.allSatisfy {
+            $0.ownerId == ownerId && $0.profileId == profileId
+        } && allLogs().filter { $0.deletedAt == nil }.allSatisfy {
+            $0.ownerId == ownerId && $0.profileId == profileId
+        }
     }
 
     func debugRewardGrantCount() -> Int {

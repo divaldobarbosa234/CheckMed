@@ -466,9 +466,7 @@ struct HomeView: View {
     }
 
     private func openScan() {
-        if !entitlements.isSuper,
-           treatments.storedMedicineCount > 0,
-           entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount) <= 0 {
+        if !entitlements.allowsNewPrescription(existingCount: treatments.storedMedicineCount) {
             entitlements.presentPaywall()
         } else {
             navPath.append(AppRoute.addPrescription)

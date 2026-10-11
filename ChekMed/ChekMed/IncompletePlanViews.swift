@@ -210,13 +210,15 @@ struct ResumePlanSetupFlow: View {
             ok = treatments.addFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
-                profileId: session.planProfileId
+                profileId: session.planProfileId,
+                maximumActiveMedicines: entitlements.maximumActiveMedicines
             ) != nil
         } else {
             ok = treatments.seedFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
-                profileId: session.planProfileId
+                profileId: session.planProfileId,
+                maximumActiveMedicines: entitlements.maximumActiveMedicines
             ) != nil
         }
         guard ok else {

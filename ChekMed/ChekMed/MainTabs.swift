@@ -231,11 +231,9 @@ struct FloatingPlusMenu: View {
     }
 
     private func open(_ dest: PlusMenuDestination) {
-        // Empty / under free active-medicine cap → intake; Super only at/over cap.
+        // Capacity gates creation only; existing medication data is never pruned.
         if dest == .scanPrescription,
-           !entitlements.isSuper,
-           treatments.storedMedicineCount > 0,
-           entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount) <= 0 {
+           !entitlements.allowsNewPrescription(existingCount: treatments.storedMedicineCount) {
             collapseMenu()
             entitlements.presentPaywall()
             return

@@ -6,8 +6,13 @@ import Vision
 
 enum SuperLimits {
     static let freePrescriptions = 3
+    static let superPrescriptions = 12
     static let freePhotoPDFItems = 1
     static let superPhotoPDFItems = 5
+
+    static func maximumActiveMedicines(isSuper: Bool) -> Int {
+        isSuper ? superPrescriptions : freePrescriptions
+    }
 }
 
 enum ImportUsage {
@@ -26,20 +31,20 @@ enum ImportUsage {
 }
 
 extension EntitlementStore {
+    var maximumActiveMedicines: Int {
+        SuperLimits.maximumActiveMedicines(isSuper: isSuper)
+    }
+
     func freeMedicineSlotsRemaining(existingCount: Int) -> Int {
-        if isSuper { return max(0, 12 - existingCount) }
-        return max(0, SuperLimits.freePrescriptions - existingCount)
+        max(0, maximumActiveMedicines - existingCount)
     }
 
     func allowsNewPrescription(existingCount: Int) -> Bool {
-        if isSuper { return true }
-        if existingCount == 0 { return true }
-        return existingCount < SuperLimits.freePrescriptions
+        existingCount < maximumActiveMedicines
     }
 
     /// Photo/PDF: gate after validated distinct medicine objects (never a hardcoded N).
     func needsScanSlotLimit(detectedCount: Int, existingCount: Int) -> Bool {
-        guard !isSuper else { return false }
         return detectedCount > freeMedicineSlotsRemaining(existingCount: existingCount)
     }
 

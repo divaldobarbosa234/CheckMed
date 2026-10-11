@@ -198,7 +198,10 @@ extension [OnboardingPrescriptionDraft] {
             }
             unique.append(draft)
         }
-        let room = Swift.max(0, (isSuper ? 12 : SuperLimits.freePrescriptions) - Swift.max(0, existingCount))
+        let room = Swift.max(
+            0,
+            SuperLimits.maximumActiveMedicines(isSuper: isSuper) - Swift.max(0, existingCount)
+        )
         if room == 0 {
             return unique.contains(where: \.hasMedicineName) ? [] : [.empty]
         }
@@ -973,7 +976,7 @@ struct OnboardingConfirmView: View {
             entitlements.presentPaywall()
             return
         }
-        if entitlements.isSuper, drafts.count >= 12 {
+        if entitlements.isSuper, drafts.count >= SuperLimits.superPrescriptions {
             return
         }
         drafts.append(.empty)

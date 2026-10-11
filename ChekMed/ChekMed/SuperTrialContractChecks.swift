@@ -129,6 +129,23 @@ enum SuperTrialContractChecks {
                 && SuperProductID.yearly == "com.checkmed.super.yearly",
             "O4: StoreKit product IDs unchanged"
         )
+        expect(
+            SuperLimits.freePrescriptions == 3
+                && SuperLimits.superPrescriptions == 12,
+            "O4: existing Free/Super creation limits remain 3/12"
+        )
+        expect(
+            !DebugSuperUnlockPolicy.restoresPersistedUnlock(true, isDebugBuild: false),
+            "O4: Release ignores a persisted DEBUG unlock"
+        )
+        expect(
+            DebugSuperUnlockPolicy.restoresPersistedUnlock(true, isDebugBuild: true),
+            "O4: DEBUG may restore its test unlock"
+        )
+        expect(
+            !DebugSuperUnlockPolicy.restoresPersistedUnlock(false, isDebugBuild: true),
+            "O4: DEBUG does not invent an unlock without the persisted flag"
+        )
 
         let formatKeys: Set<L10n.Key> = [
             .paywallStartTrialDays,

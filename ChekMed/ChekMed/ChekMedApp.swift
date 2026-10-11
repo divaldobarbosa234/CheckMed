@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let laterAddFailures = LaterAddPersistContractChecks.failures()
             let journeyTreeFailures = TreatmentJourneyClassificationContractChecks.failures()
             let lifecycleFailures = await MainActor.run { TreatmentLifecycleContractChecks.failures() }
+            let capacitySafetyFailures = await MainActor.run { MedicationCapacitySafetyContractChecks.failures() }
             let titleFailures = await MainActor.run { TreatmentTitleContractChecks.failures() }
             let missedAckFailures = await MainActor.run { MissedDosePresentationContractChecks.failures() }
             let skippedLabelFailures = CompletedSkippedLabelContractChecks.failures()
@@ -40,7 +41,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let superTrialFailures = SuperTrialContractChecks.failures()
             let clockFailures = CheckMedClockContractChecks.failures()
             let rewardFailures = RewardEngineContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -51,6 +52,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("LaterAddPersist failures:", laterAddFailures)
             print("JourneyTree failures:", journeyTreeFailures)
             print("TreatmentLifecycle failures:", lifecycleFailures)
+            print("MedicationCapacitySafety failures:", capacitySafetyFailures)
             print("TreatmentTitle failures:", titleFailures)
             print("MissedDosePresentation failures:", missedAckFailures)
             print("CompletedSkippedLabel failures:", skippedLabelFailures)
@@ -69,6 +71,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "LaterAddPersist failures: \(laterAddFailures)",
                 "JourneyTree failures: \(journeyTreeFailures)",
                 "TreatmentLifecycle failures: \(lifecycleFailures)",
+                "MedicationCapacitySafety failures: \(capacitySafetyFailures)",
                 "TreatmentTitle failures: \(titleFailures)",
                 "MissedDosePresentation failures: \(missedAckFailures)",
                 "CompletedSkippedLabel failures: \(skippedLabelFailures)",
@@ -97,6 +100,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     prescriptionDateFailures.isEmpty ? nil : "PRESCRIPTION DATE FAILURE: \(prescriptionDateFailures.joined(separator: "; "))",
                     laterAddFailures.isEmpty ? nil : "LATER ADD PERSIST FAILURE: \(laterAddFailures.joined(separator: "; "))",
                     lifecycleFailures.isEmpty ? nil : "TREATMENT LIFECYCLE FAILURE: \(lifecycleFailures.joined(separator: "; "))",
+                    capacitySafetyFailures.isEmpty ? nil : "MEDICATION CAPACITY SAFETY FAILURE: \(capacitySafetyFailures.joined(separator: "; "))",
                     titleFailures.isEmpty ? nil : "TREATMENT TITLE FAILURE: \(titleFailures.joined(separator: "; "))",
                     missedAckFailures.isEmpty ? nil : "MISSED DOSE PRESENTATION FAILURE: \(missedAckFailures.joined(separator: "; "))",
                     skippedLabelFailures.isEmpty ? nil : "COMPLETED SKIPPED LABEL FAILURE: \(skippedLabelFailures.joined(separator: "; "))",
@@ -158,7 +162,6 @@ struct ChekMedApp: App {
                         family.selectPrimary()
                         family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
                     }
-                    treatments.pruneDuplicateAndFreeCap(isSuper: isSuper)
                     ReminderScheduler.shared.reschedule(force: true)
                 }
         }
@@ -245,7 +248,7 @@ struct ChekMedApp: App {
             _ = treatments.reconcileUnconfirmedMedicationPlan(session: session)
             session.noteLocalDataBound()
         }
-        treatments.pruneDuplicateAndFreeCap(isSuper: entitlements.isSuper)
+        treatments.removeDuplicateMedicinesIfNeeded()
         session.startAuthIfNeeded()
     }
 

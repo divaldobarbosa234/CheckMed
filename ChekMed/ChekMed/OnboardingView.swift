@@ -522,7 +522,8 @@ struct FirstTimeOnboardingView: View {
         guard let treatmentId = treatments.seedFromDrafts(
             capped,
             ownerId: session.planOwnerId,
-            profileId: session.planProfileId
+            profileId: session.planProfileId,
+            maximumActiveMedicines: entitlements.maximumActiveMedicines
         ) else {
             #if DEBUG
             print("[CheckMed] onboarding seedFromDrafts failed")
