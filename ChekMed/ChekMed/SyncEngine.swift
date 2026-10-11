@@ -534,16 +534,18 @@ final class SyncEngine {
                     .execute()
                     .value
             }
-            if capabilities.mode == .versioned {
+            let mode = try SyncProtocolDecision.resolve(
+                capabilities: capabilities,
+                clientAuthorized: SyncProtocolActivation.outboxConsumptionAuthorized,
+                wasProtected: wasProtected
+            )
+            if mode == .versioned {
                 UserDefaults.standard.set(true, forKey: key)
                 expandedReplicaOwners.insert(ownerId)
                 return .versioned
             }
             if capabilities.protocolVersion >= 1, capabilities.mutationRPCAvailable {
                 expandedReplicaOwners.insert(ownerId)
-            }
-            guard !wasProtected else {
-                throw SyncEngineError.unsafeProtocolRollback
             }
             return .legacy
         } catch {
@@ -719,6 +721,36 @@ final class SyncEngine {
             .upsert(rows, onConflict: "id")
             .execute()
     }
+
+    #if DEBUG
+    nonisolated static func debugFetchReplica(
+        client: SupabaseClient,
+        ownerId: UUID,
+        logSince: Date? = nil
+    ) async throws -> (
+        treatments: [TreatmentSnapshot],
+        medicines: [MedicineSnapshot],
+        schedules: [DoseScheduleSnapshot],
+        logs: [DoseLogSnapshot]
+    ) {
+        let replica = try await fetchReplica(client: client, ownerId: ownerId, logSince: logSince)
+        return (replica.treatments, replica.medicines, replica.schedules, replica.logs)
+    }
+
+    nonisolated static func debugApplyMutation(
+        client: SupabaseClient,
+        work: SyncMutationWorkItem
+    ) async throws -> SyncMutationRPCResponse {
+        try await applyMutation(client: client, work: work)
+    }
+
+    nonisolated static func debugCanonicalSnapshot(
+        from response: SyncMutationRPCResponse,
+        entity: SyncMutationEntity
+    ) throws -> SyncCanonicalSnapshot? {
+        try canonicalSnapshot(from: response, entity: entity)
+    }
+    #endif
 }
 
 nonisolated private struct RemoteTreatment: Codable, Sendable {

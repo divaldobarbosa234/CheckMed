@@ -51,6 +51,47 @@ enum SyncProtocolContractChecks {
                 && serverReady.mode == .legacy,
             "protocol: this build keeps consumption unauthorized until explicit activation"
         )
+        expect(
+            (try? SyncProtocolDecision.resolve(
+                capabilities: serverReady,
+                clientAuthorized: false,
+                wasProtected: false
+            )) == .legacy,
+            "protocol: unauthorized client stays legacy even when the server is ready"
+        )
+        expect(
+            {
+                do {
+                    _ = try SyncProtocolDecision.resolve(
+                        capabilities: enforcedOnly,
+                        clientAuthorized: true,
+                        wasProtected: true
+                    )
+                    return false
+                } catch SyncProtocolDecision.Failure.unsafeRollback {
+                    return true
+                } catch {
+                    return false
+                }
+            }(),
+            "protocol: protected clients cannot fall back to legacy writes"
+        )
+        #if DEBUG
+        expect(
+            !SyncProtocolTestActivation.authorizes(
+                url: URL(string: "https://CheckMed_Project.supabase.co")!,
+                anonKey: SyncProtocolTestActivation.localDemoAnonKey
+            ),
+            "protocol: test activation rejects production hosts"
+        )
+        expect(
+            SyncProtocolTestActivation.authorizes(
+                url: SyncProtocolTestActivation.disposableURL,
+                anonKey: SyncProtocolTestActivation.localDemoAnonKey
+            ),
+            "protocol: test activation accepts only the disposable local host"
+        )
+        #endif
 
         let owner = UUID()
         let subject = UUID()

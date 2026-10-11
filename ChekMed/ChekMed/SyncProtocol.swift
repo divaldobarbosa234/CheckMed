@@ -39,6 +39,28 @@ struct SyncProtocolCapabilities: Decodable, Equatable, Sendable {
     }
 }
 
+enum SyncProtocolDecision {
+    enum Failure: Error, Equatable {
+        case unsafeRollback
+    }
+
+    /// Once a client has consumed the versioned protocol, capability downgrade
+    /// must fail closed. It must not silently reopen legacy snapshot writes.
+    static func resolve(
+        capabilities: SyncProtocolCapabilities,
+        clientAuthorized: Bool,
+        wasProtected: Bool
+    ) throws -> SyncProtocolMode {
+        if capabilities.serverAllowsVersioned && clientAuthorized {
+            return .versioned
+        }
+        if wasProtected {
+            throw Failure.unsafeRollback
+        }
+        return .legacy
+    }
+}
+
 struct SyncMutationPayload: Codable, Equatable, Sendable {
     var title: String?
     var status: String?

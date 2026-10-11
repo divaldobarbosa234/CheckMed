@@ -44,7 +44,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let syncTransportFailures = await SyncTransportContractChecks.failures()
             let syncOutboxFailures = await SyncOutboxContractChecks.failures()
             let syncProtocolFailures = await SyncProtocolContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures + syncProtocolFailures
+            let syncProtocolE2EFailures = await SyncProtocolE2EContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures + syncProtocolFailures + syncProtocolE2EFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -66,6 +67,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("SyncTransport failures:", syncTransportFailures)
             print("SyncOutbox failures:", syncOutboxFailures)
             print("SyncProtocol failures:", syncProtocolFailures)
+            print("SyncProtocolE2E failures:", syncProtocolE2EFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
                 "Gamification failures: \(gamificationFailures)",
@@ -88,6 +90,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "SyncTransport failures: \(syncTransportFailures)",
                 "SyncOutbox failures: \(syncOutboxFailures)",
                 "SyncProtocol failures: \(syncProtocolFailures)",
+                "SyncProtocolE2E failures: \(syncProtocolE2EFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -121,6 +124,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     syncTransportFailures.isEmpty ? nil : "SYNC TRANSPORT FAILURE: \(syncTransportFailures.joined(separator: "; "))",
                     syncOutboxFailures.isEmpty ? nil : "SYNC OUTBOX FAILURE: \(syncOutboxFailures.joined(separator: "; "))",
                     syncProtocolFailures.isEmpty ? nil : "SYNC PROTOCOL FAILURE: \(syncProtocolFailures.joined(separator: "; "))",
+                    syncProtocolE2EFailures.isEmpty ? nil : "SYNC PROTOCOL E2E FAILURE: \(syncProtocolE2EFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }
