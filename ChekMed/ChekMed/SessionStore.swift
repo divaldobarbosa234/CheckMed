@@ -632,9 +632,14 @@ final class SessionStore {
     }
 
     var needsCallYouScreen: Bool { !hasPreferredName || localBirthDate == nil }
-    var needsAddressYouScreen: Bool {
-        localPronouns.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || localGender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    /// Pronouns and gender are optional. This never blocks leaving Personal Profile.
+    var needsAddressYouScreen: Bool { false }
+
+    var careContextChoice: CareContextChoice? { CareContextStore.load(userId: auth.userId) }
+    var hasCareContext: Bool { careContextChoice != nil }
+
+    func setCareContext(_ choice: CareContextChoice) {
+        CareContextStore.save(choice, userId: auth.userId)
     }
 
     var needsNotificationsPrompt: Bool { !localNotificationsPrompted }
@@ -667,25 +672,24 @@ final class SessionStore {
         localOnboardingComplete && !localOnboardingPaywallOffered
     }
 
-    /// Identity fields collected after sign-in (name, DOB, pronouns, gender). Not language.
-    /// Keychain completion (survives app delete) short-circuits so reinstall + same
-    /// Apple/Google account never replays name → birth → pronouns.
+    /// Identity required after sign-in: preferred name and date of birth.
+    /// Pronouns and gender are optional. Keychain completion (survives app delete)
+    /// short-circuits so reinstall + same Apple/Google account never replays name → birth.
     var needsIdentityProfile: Bool {
         if ProfileSetupKeychain.isComplete(for: auth.userId) { return false }
         if auth.isRestoring, ProfileSetupKeychain.load().isComplete { return false }
         return !hasRawIdentityFields
     }
 
-    /// Saved profile has name, date of birth, pronouns, and gender.
+    /// Saved profile has the required name and date of birth.
     var hasCompleteIdentityProfile: Bool { !needsIdentityProfile }
 
-    /// Local UserDefaults fields only (ignores Keychain short-circuit).
+    /// Local UserDefaults required fields only (ignores Keychain short-circuit).
     private var hasRawIdentityFields: Bool {
-        guard hasPreferredName, localBirthDate != nil else { return false }
-        let pronouns = localPronouns.trimmingCharacters(in: .whitespacesAndNewlines)
-        let gender = localGender.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !pronouns.isEmpty && pronouns != ProfilePronoun.custom.rawValue
-            && !gender.isEmpty && gender != ProfileGender.custom.rawValue
+        OnboardingIdentityPolicy.hasRequiredIdentity(
+            hasPreferredName: hasPreferredName,
+            hasBirthDate: localBirthDate != nil
+        )
     }
 
     /// Persist identity completion in Keychain (and UserDefaults fields already saved).
@@ -1341,6 +1345,7 @@ final class SessionStore {
         restoreCount = 0
         UserDefaults.standard.removeObject(forKey: Self.onboardingCompleteKey(for: userId))
         UserDefaults.standard.removeObject(forKey: Self.medicationPlanConfirmedKey(for: userId))
+        CareContextStore.clear(for: userId)
         ProfileSetupKeychain.clear(for: userId)
     }
 
@@ -1906,13 +1911,15 @@ final class SessionStore {
     }
 
     private func remoteNeedsPush(_ profile: CheckMedProfile?) -> Bool {
-        guard hasCompleteIdentityProfile else { return false }
-        guard let profile else { return true }
-        let nameMissing = !isEligiblePreferredName(profile.displayName)
-        let dobMissing = profile.dateOfBirth?.nilIfEmpty == nil
-        let pronounsMissing = profile.pronouns?.nilIfEmpty == nil
-        let genderMissing = profile.gender?.nilIfEmpty == nil
-        return nameMissing || dobMissing || pronounsMissing || genderMissing
+        OnboardingIdentityPolicy.remoteNeedsPush(
+            hasRequiredIdentity: hasCompleteIdentityProfile,
+            remoteNameMissing: profile == nil || !isEligiblePreferredName(profile?.displayName),
+            remoteDobMissing: profile?.dateOfBirth?.nilIfEmpty == nil,
+            localPronouns: localPronouns.nilIfEmpty,
+            remotePronouns: profile?.pronouns,
+            localGender: localGender.nilIfEmpty,
+            remoteGender: profile?.gender
+        )
     }
 
     private func pushProfile() async {

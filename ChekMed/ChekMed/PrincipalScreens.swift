@@ -2125,6 +2125,12 @@ struct SettingsScreen: View {
                     set: { session.setGender($0) }
                 )
             )
+            CareContextSelectField(
+                value: Binding(
+                    get: { session.careContextChoice },
+                    set: { if let next = $0 { session.setCareContext(next) } }
+                )
+            )
             // Appearance stays locked to the pastel light theme.
             ForEach(L10n.settingsItems(session.locale), id: \.self) { item in
                 if item == session.t(.settingsPrivacy) {

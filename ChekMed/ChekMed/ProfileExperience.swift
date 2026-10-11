@@ -273,6 +273,9 @@ struct PersonalInformationScreen: View {
                         set: { session.setBirthDate($0) }
                     )
                 )
+                Text(session.t(.profileOptionalLater))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
                 PronounSelectField(
                     value: Binding(
                         get: { session.pronouns },
@@ -283,6 +286,12 @@ struct PersonalInformationScreen: View {
                     value: Binding(
                         get: { session.gender },
                         set: { session.setGender($0) }
+                    )
+                )
+                CareContextSelectField(
+                    value: Binding(
+                        get: { session.careContextChoice },
+                        set: { if let next = $0 { session.setCareContext(next) } }
                     )
                 )
                 LanguageSelectField(

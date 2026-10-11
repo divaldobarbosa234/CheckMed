@@ -1,6 +1,6 @@
 import Foundation
 
-/// Pure first-time funnel routing for O0/O1 Welcome.
+/// Pure first-time funnel routing for Welcome + Care Context + Profile.
 /// Does not replace `SessionStore.rootDestination`. Host views call this for
 /// the in-`FirstTimeOnboardingView` phase only.
 enum OnboardingWelcomeRouting: Equatable {
@@ -9,6 +9,7 @@ enum OnboardingWelcomeRouting: Equatable {
         case privacy
         case signIn
         case welcome
+        case careContext
         case profile
         case addMedication
         case home
@@ -21,6 +22,7 @@ enum OnboardingWelcomeRouting: Equatable {
         var hasCompletedSignInThisInstall = false
         var isSessionUnlocked = false
         var hasSeenWelcome = false
+        var hasCareContext = false
         var hasCompletedOnboarding = false
         var isReturningAuthenticated = false
         var needsIdentityProfile = true
@@ -28,8 +30,13 @@ enum OnboardingWelcomeRouting: Equatable {
         var allowsGuest = false
     }
 
-    /// Skip and Continue share this destination.
-    static func afterWelcome(needsIdentityProfile: Bool) -> Step {
+    /// Skip and Continue from Welcome share this destination.
+    static func afterWelcome(hasCareContext: Bool, needsIdentityProfile: Bool) -> Step {
+        if !hasCareContext { return .careContext }
+        return afterCareContext(needsIdentityProfile: needsIdentityProfile)
+    }
+
+    static func afterCareContext(needsIdentityProfile: Bool) -> Step {
         needsIdentityProfile ? .profile : .addMedication
     }
 
@@ -39,6 +46,15 @@ enum OnboardingWelcomeRouting: Equatable {
         guard input.isSessionUnlocked, input.hasCompletedSignInThisInstall else { return false }
         if input.hasCompletedOnboarding || input.isReturningAuthenticated { return false }
         return !input.hasSeenWelcome
+    }
+
+    static func shouldPresentCareContext(_ input: Input) -> Bool {
+        guard !input.allowsGuest else { return false }
+        guard input.userDataSettled else { return false }
+        guard input.isSessionUnlocked, input.hasCompletedSignInThisInstall else { return false }
+        if input.hasCompletedOnboarding || input.isReturningAuthenticated { return false }
+        guard input.hasSeenWelcome else { return false }
+        return !input.hasCareContext
     }
 
     static func hostPhase(_ input: Input) -> Step {
@@ -63,11 +79,24 @@ enum OnboardingWelcomeRouting: Equatable {
         if !input.hasSeenWelcome {
             return .welcome
         }
-        return afterWelcome(needsIdentityProfile: input.needsIdentityProfile)
+        if !input.hasCareContext {
+            return .careContext
+        }
+        return afterCareContext(needsIdentityProfile: input.needsIdentityProfile)
     }
 
-    /// First Skip or Continue wins; a second tap is a no-op.
+    /// First Skip or Continue on Welcome wins; a second tap is a no-op.
     static func consumeWelcomeAdvance(alreadyFinished: Bool) -> Bool {
+        !alreadyFinished
+    }
+
+    /// First Continue on Care Context wins; a second tap is a no-op.
+    static func consumeCareContextAdvance(alreadyFinished: Bool) -> Bool {
+        !alreadyFinished
+    }
+
+    /// First Continue on Personal Profile wins; a second tap is a no-op.
+    static func consumeProfileAdvance(alreadyFinished: Bool) -> Bool {
         !alreadyFinished
     }
 }

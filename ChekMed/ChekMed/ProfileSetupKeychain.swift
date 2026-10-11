@@ -2,8 +2,9 @@ import Foundation
 import Security
 
 /// Survives app delete. Used so reinstall + same Apple/Google account does not
-/// replay preferred name → birth → pronouns once setup already finished, and so
-/// returning welcome still recognizes an onboarded account after reinstall.
+/// replay preferred name → birth once setup already finished (`isComplete` is a
+/// stored flag, not a four-field check). Optional pronouns/gender may be empty.
+/// Returning welcome still recognizes an onboarded account after reinstall.
 ///
 /// Do not store language / how-it-works / privacy here — those are UserDefaults
 /// and must start false after app delete.

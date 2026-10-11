@@ -5,71 +5,73 @@ struct AccountProfileSetupView: View {
     var showsSignOut = true
     var onFinished: (() -> Void)? = nil
 
-    /// Strictly forward except explicit Back. Raw value only increases via Continue.
-    private enum Step: Int, Comparable {
-        case callYou = 0
-        case addressYou = 1
-
-        static func < (lhs: Step, rhs: Step) -> Bool { lhs.rawValue < rhs.rawValue }
-    }
-
-    @State private var step: Step = .callYou
-    @State private var highestStepReached: Int = 0
     @State private var name = ""
     @State private var birthDate: Date?
-    @State private var didChooseInitialStep = false
+    @State private var pronouns = ""
+    @State private var gender = ""
+    @State private var didFinish = false
 
     var body: some View {
-        Group {
-            switch step {
-            case .callYou:
-                callYou
-            case .addressYou:
-                AddressYouSetupView(
-                    onContinue: {
-                        session.markProfileSetupComplete()
-                        onFinished?()
-                    },
-                    onBack: { goBackToCallYou() }
-                )
+        VStack(spacing: 0) {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    PhilView(size: 96, smiling: true)
+                    VStack(spacing: 8) {
+                        Text(session.t(.profileMeetTitle))
+                            .font(.system(size: 26, weight: .black, design: .rounded))
+                            .foregroundStyle(CheckMedTheme.navy)
+                            .multilineTextAlignment(.center)
+                        Text(session.t(.profileMeetLead))
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                            .multilineTextAlignment(.center)
+                    }
+                    nameField
+                    DateOfBirthSelectField(date: $birthDate) { session.setBirthDate($0) }
+                    optionalCaption
+                    PronounSelectField(value: $pronouns) { session.setPronouns($0) }
+                    GenderSelectField(value: $gender) { session.setGender($0) }
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(CheckMedTheme.background)
-        .onAppear {
-            chooseInitialStepIfNeeded()
-            hydrateFields()
-            applyDebugLaunchHooks()
-        }
-    }
-
-    private var callYou: some View {
-        VStack(spacing: 18) {
-            SetupStepHeader(title: session.t(.callYouTitle), stepIndex: 1)
-            PhilView(size: 108)
-            Text(session.t(.callYouIntro))
-                .font(.system(.title3, design: .rounded).weight(.heavy))
-                .multilineTextAlignment(.center)
-            nameField
-            DateOfBirthSelectField(date: $birthDate) { session.setBirthDate($0) }
-            Spacer(minLength: 8)
             CheckMedButton(title: session.t(.continueButton)) {
-                persistCallYou()
-                advanceForward(to: .addressYou)
+                persistAndFinish()
             }
-            .disabled(!canContinueCallYou)
+            .disabled(!canContinue)
+            .accessibilityIdentifier("profile-setup-continue")
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
             if showsSignOut {
                 CheckMedButton(title: session.t(.profileSignOut), style: .ghost) {
                     session.signOut()
                 }
+                .padding(.horizontal, 24)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 24)
+        .safeAreaPadding(.bottom, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CheckMedTheme.welcomeCream.ignoresSafeArea())
+        .onAppear {
+            hydrateFields()
+            applyDebugLaunchHooks()
+        }
+        .accessibilityLabel(session.t(.profileMeetTitle))
     }
 
-    private var canContinueCallYou: Bool {
-        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && birthDate != nil
+    private var canContinue: Bool {
+        OnboardingIdentityPolicy.hasRequiredIdentity(
+            hasPreferredName: !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            hasBirthDate: birthDate != nil
+        )
+    }
+
+    private var optionalCaption: some View {
+        Text(session.t(.profileOptionalLater))
+            .font(.system(.caption, design: .rounded).weight(.semibold))
+            .foregroundStyle(CheckMedTheme.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var nameField: some View {
@@ -87,15 +89,6 @@ struct AccountProfileSetupView: View {
         }
     }
 
-    /// Initial placement only. Never bounce addressYou → callYou on remount once past callYou.
-    private func chooseInitialStepIfNeeded() {
-        guard !didChooseInitialStep else { return }
-        didChooseInitialStep = true
-        let initial: Step = session.needsCallYouScreen ? .callYou : .addressYou
-        step = initial
-        highestStepReached = initial.rawValue
-    }
-
     private func hydrateFields() {
         if session.hasPreferredName {
             name = session.displayName
@@ -105,19 +98,12 @@ struct AccountProfileSetupView: View {
         if birthDate == nil {
             birthDate = session.birthDate
         }
-    }
-
-    private func advanceForward(to next: Step) {
-        // Forward-only: never decrease step except via explicit Back.
-        guard next.rawValue >= step.rawValue else { return }
-        step = next
-        highestStepReached = max(highestStepReached, next.rawValue)
-    }
-
-    private func goBackToCallYou() {
-        step = .callYou
-        // Keep highestStepReached so a remount after Back still prefers addressYou
-        // only when callYou is already satisfied — remount uses needsCallYouScreen.
+        if pronouns.isEmpty {
+            pronouns = session.pronouns
+        }
+        if gender.isEmpty {
+            gender = session.gender
+        }
     }
 
     private func applyDebugLaunchHooks() {
@@ -136,8 +122,19 @@ struct AccountProfileSetupView: View {
         #endif
     }
 
-    private func persistCallYou() {
+    private func persistAndFinish() {
+        guard canContinue else { return }
+        guard OnboardingWelcomeRouting.consumeProfileAdvance(alreadyFinished: didFinish) else { return }
+        didFinish = true
         session.setDisplayName(name)
         session.setBirthDate(birthDate)
+        if !pronouns.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            session.setPronouns(pronouns)
+        }
+        if !gender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            session.setGender(gender)
+        }
+        session.markProfileSetupComplete()
+        onFinished?()
     }
 }

@@ -9,6 +9,7 @@ enum FirstTimePhase: String, Equatable {
     case howItWorks
     case privacy
     case signIn
+    case careContext
     case profile
     case addMedication
     case camera
@@ -59,6 +60,7 @@ struct FirstTimeOnboardingView: View {
     @State private var oldPrescriptionWarningDate: Date? = nil
     @State private var didCommitPlan = false
     @State private var didFinishWelcome = false
+    @State private var didFinishCareContext = false
 
     var body: some View {
         ZStack {
@@ -104,6 +106,9 @@ struct FirstTimeOnboardingView: View {
                     })
                 }
                 .transition(insert)
+            case .careContext:
+                CareContextOnboardingView(onContinue: { finishCareContext() })
+                    .transition(insert)
             case .profile:
                 AccountProfileSetupView(
                     showsSignOut: true,
@@ -359,20 +364,40 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func firstTimePhaseAfterWelcome() -> FirstTimePhase {
-        switch OnboardingWelcomeRouting.afterWelcome(needsIdentityProfile: session.needsIdentityProfile) {
-        case .profile: return .profile
-        case .addMedication: return .addMedication
-        default: return session.needsIdentityProfile ? .profile : .addMedication
-        }
+        firstTimePhase(
+            from: OnboardingWelcomeRouting.afterWelcome(
+                hasCareContext: session.hasCareContext,
+                needsIdentityProfile: session.needsIdentityProfile
+            )
+        )
+    }
+
+    private func finishCareContext() {
+        guard OnboardingWelcomeRouting.consumeCareContextAdvance(alreadyFinished: didFinishCareContext) else { return }
+        didFinishCareContext = true
+        advance(to: firstTimePhaseAfterCareContext())
+    }
+
+    private func firstTimePhaseAfterCareContext() -> FirstTimePhase {
+        firstTimePhase(
+            from: OnboardingWelcomeRouting.afterCareContext(needsIdentityProfile: session.needsIdentityProfile)
+        )
     }
 
     private func firstTimePhaseAfterSignIn() -> FirstTimePhase {
-        let input = welcomeRoutingInput()
-        switch OnboardingWelcomeRouting.hostPhase(input) {
+        firstTimePhase(from: OnboardingWelcomeRouting.hostPhase(welcomeRoutingInput()))
+    }
+
+    private func firstTimePhase(from step: OnboardingWelcomeRouting.Step) -> FirstTimePhase {
+        switch step {
+        case .language: return .language
+        case .privacy: return .privacy
+        case .signIn: return .signIn
         case .welcome: return .howItWorks
+        case .careContext: return .careContext
         case .profile: return .profile
         case .addMedication: return .addMedication
-        default: return firstTimePhaseAfterWelcome()
+        case .home, .restoring: return firstTimePhaseAfterCareContext()
         }
     }
 
@@ -383,6 +408,7 @@ struct FirstTimeOnboardingView: View {
             hasCompletedSignInThisInstall: session.hasCompletedSignInThisInstall,
             isSessionUnlocked: session.isSessionUnlocked,
             hasSeenWelcome: session.hasSeenHowItWorks,
+            hasCareContext: session.hasCareContext,
             hasCompletedOnboarding: session.hasCompletedOnboarding,
             isReturningAuthenticated: session.postAuthKind == .returning || session.hasCompletedOnboarding,
             needsIdentityProfile: session.needsIdentityProfile,
@@ -403,6 +429,8 @@ struct FirstTimeOnboardingView: View {
         switch next {
         case .addMedication, .camera, .manualEntry, .analysing, .slotLimit, .confirm:
             gated = session.needsIdentityProfile ? .profile : next
+        case .careContext:
+            gated = next
         default:
             gated = next
         }
@@ -585,9 +613,8 @@ struct FirstTimeOnboardingView: View {
         }
 
         switch saved {
-        case .language, .howItWorks, .privacy, .signIn:
-            // Pre-auth already finished — continue post-auth path (new users only).
-            return session.needsIdentityProfile ? .profile : .addMedication
+        case .language, .howItWorks, .privacy, .signIn, .careContext:
+            return firstTimePhaseAfterSignIn()
         case .profile:
             return session.needsIdentityProfile ? .profile : .addMedication
         case .confirm where session.hasConfirmedMedicationPlan || treatments.activeTreatmentCount > 0,
@@ -610,6 +637,7 @@ struct FirstTimeOnboardingView: View {
         case .privacy: return .privacy
         case .signIn: return .signIn
         case .welcome: return .howItWorks
+        case .careContext: return .careContext
         case .profile: return .profile
         case .addMedication: return .addMedication
         case .home, .restoring:
