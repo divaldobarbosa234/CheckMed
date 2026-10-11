@@ -1851,51 +1851,60 @@ struct OnboardingOrganizeView: View {
     }
 }
 
+/// Ready-screen continue is CTA-only. Does not write canonical medication or reward state.
+enum OnboardingReadyAdvance {
+    static let autoAdvancesToHome = false
+
+    static func consumeContinue(alreadyFinished: Bool) -> Bool {
+        !alreadyFinished
+    }
+}
+
 struct OnboardingPhilReadyView: View {
     @Environment(SessionStore.self) private var session
     var onContinue: () -> Void
 
     @State private var appeared = false
     @State private var didContinue = false
+    @ScaledMetric(relativeTo: .largeTitle) private var artSize: CGFloat = 168
 
     var body: some View {
         VStack(spacing: 18) {
-            Spacer()
-            PhilView(size: 176, mood: .complete, smiling: true)
-                .scaleEffect(appeared ? 1 : 0.86)
-                .opacity(appeared ? 1 : 0.2)
+            Spacer(minLength: 8)
+            CooperLibraryImage(asset: "phil_onboarding_05_healthy", size: min(artSize, 200))
+                .scaleEffect(appeared ? 1 : 0.92)
+                .opacity(appeared ? 1 : 0.35)
+                .accessibilityHidden(true)
             Text(session.t(.philReadyHeadline))
                 .font(.system(.title, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.ink)
                 .multilineTextAlignment(.center)
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : 10)
+                .minimumScaleFactor(0.75)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
             Text(session.t(.philReadyBody))
-                .font(.system(.body, design: .rounded).weight(.bold))
+                .font(.system(.body, design: .rounded).weight(.semibold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .multilineTextAlignment(.center)
-                .opacity(appeared ? 1 : 0)
-            Spacer()
+                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
             CheckMedButton(title: session.t(.philReadyButton), action: continueNow)
-                .opacity(appeared ? 1 : 0)
         }
         .padding(.horizontal, 24)
-        .padding(.bottom, 24)
+        .padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
+        .safeAreaPadding(.bottom, 16)
         .onAppear {
-            withAnimation(.spring(duration: 0.55, bounce: 0.32)) {
+            withAnimation(.spring(duration: 0.45, bounce: 0.22)) {
                 appeared = true
             }
-        }
-        .task {
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
-            guard !Task.isCancelled else { return }
-            continueNow()
         }
     }
 
     private func continueNow() {
-        guard !didContinue else { return }
+        guard OnboardingReadyAdvance.consumeContinue(alreadyFinished: didContinue) else { return }
         didContinue = true
         onContinue()
     }

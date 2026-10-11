@@ -344,6 +344,75 @@ enum OnboardingWelcomeContractChecks {
             )
         }
 
+        expect(
+            !SuperAcquisitionPolicy.skipOnboardingTrial(isSuper: false),
+            "O5: Free trial path still reaches Ready after the Super offer"
+        )
+        expect(
+            SuperAcquisitionPolicy.skipOnboardingTrial(isSuper: true),
+            "O5: Super skip still lands on Ready, not Home"
+        )
+        expect(
+            !OnboardingReadyAdvance.autoAdvancesToHome,
+            "O5: Ready does not automatically transition to Home"
+        )
+        expect(
+            OnboardingReadyAdvance.consumeContinue(alreadyFinished: false),
+            "O5: first Ready CTA is accepted"
+        )
+        expect(
+            !OnboardingReadyAdvance.consumeContinue(alreadyFinished: true),
+            "O5: second Ready CTA is ignored"
+        )
+        expect(
+            OnboardingWelcomeRouting.hostPhase(returning) == .home,
+            "O5: returning configured users bypass Ready"
+        )
+
+        let readyCopy: [AppLocale: (String, String, String)] = [
+            .english: (
+                "You're all set with Dr. Cooper!",
+                "Your medication routine is ready. Every step forward matters, and Dr. Cooper is here to cheer you on.",
+                "Go to Home"
+            ),
+            .portuguese: (
+                "Está tudo pronto com o Dr. Cooper!",
+                "A tua rotina de medicação está pronta. Cada passo conta, e o Dr. Cooper está aqui para te incentivar.",
+                "Ir para o início"
+            ),
+            .spanish: (
+                "¡Todo listo con el Dr. Cooper!",
+                "Tu rutina de medicación está lista. Cada paso cuenta, y el Dr. Cooper está aquí para animarte.",
+                "Ir al inicio"
+            ),
+            .french: (
+                "Tout est prêt avec Dr Cooper !",
+                "Votre routine de médicaments est prête. Chaque étape compte, et Dr Cooper est là pour vous encourager.",
+                "Aller à l’accueil"
+            ),
+        ]
+        for locale in AppLocale.allCases {
+            let expected = readyCopy[locale]!
+            expect(
+                L10n.string(.philReadyHeadline, locale: locale) == expected.0,
+                "O5: Ready headline for \(locale.rawValue)"
+            )
+            expect(
+                L10n.string(.philReadyBody, locale: locale) == expected.1,
+                "O5: Ready body for \(locale.rawValue)"
+            )
+            expect(
+                L10n.string(.philReadyButton, locale: locale) == expected.2,
+                "O5: Ready CTA for \(locale.rawValue)"
+            )
+            let blob = (expected.0 + expected.1 + expected.2).lowercased()
+            expect(!blob.contains("phil"), "O5: Ready copy has no Phil branding (\(locale.rawValue))")
+            expect(
+                !blob.contains("feel better") && !blob.contains("sentir melhor") && !blob.contains("sentirte mejor"),
+                "O5: Ready copy does not promise medical outcomes (\(locale.rawValue))"
+            )
+        }
+
         return failures
     }
 }
