@@ -14,6 +14,103 @@ private struct ReplicaPayload: Sendable {
     var phil: ReplicaPhilSnap?
 }
 
+private struct ReplicaPushPayload: Sendable {
+    var treatments: [RemoteTreatment]
+    var medicines: [RemoteMedicine]
+    var schedules: [RemoteSchedule]
+    var logs: [RemoteLog]
+}
+
+@MainActor
+enum SyncTransportCycle {
+    static func run<Payload>(
+        pull: () async throws -> Payload,
+        push: (Payload) async throws -> Void
+    ) async throws {
+        let payload = try await pull()
+        try await push(payload)
+    }
+}
+
+@MainActor
+final class SyncCycleCoordinator {
+    struct Request: Equatable {
+        var logSince: Date?
+        var shouldPush: Bool
+    }
+
+    typealias Runner = @MainActor (Request) async -> Bool
+
+    private let runner: Runner
+    private var inFlight: Task<Bool, Never>?
+    private var queuedRequest: Request?
+
+    init(runner: @escaping Runner) {
+        self.runner = runner
+    }
+
+    func enqueue(_ request: Request) -> Task<Bool, Never> {
+        if let inFlight {
+            queuedRequest = Self.merged(queuedRequest, request)
+            return inFlight
+        }
+        let task = Task { [weak self] in
+            guard let self else { return false }
+            return await self.drain(startingWith: request)
+        }
+        inFlight = task
+        return task
+    }
+
+    private func drain(startingWith initial: Request) async -> Bool {
+        var request = initial
+        var allSucceeded = true
+        while true {
+            allSucceeded = await runner(request) && allSucceeded
+            guard let next = queuedRequest else {
+                inFlight = nil
+                return allSucceeded
+            }
+            queuedRequest = nil
+            request = next
+        }
+    }
+
+    private static func merged(_ queued: Request?, _ incoming: Request) -> Request {
+        guard let queued else { return incoming }
+        let logSince: Date?
+        switch (queued.logSince, incoming.logSince) {
+        case let (.some(lhs), .some(rhs)):
+            logSince = min(lhs, rhs)
+        default:
+            // `nil` requests the complete log replica and therefore dominates.
+            logSince = nil
+        }
+        return Request(
+            logSince: logSince,
+            shouldPush: queued.shouldPush || incoming.shouldPush
+        )
+    }
+}
+
+private enum SyncEngineError: LocalizedError {
+    case missingStore
+    case missingClient
+    case missingOwner
+    case missingProfile
+    case sessionChanged
+
+    var errorDescription: String? {
+        switch self {
+        case .missingStore: "Sync store unavailable"
+        case .missingClient: "Sync client unavailable"
+        case .missingOwner: "Sync owner unavailable"
+        case .missingProfile: "Sync profile unavailable"
+        case .sessionChanged: "Sync session changed"
+        }
+    }
+}
+
 /// Last-write-wins replica of local SwiftData. Auth required. Screens do not call this.
 @Observable
 @MainActor
@@ -29,16 +126,21 @@ final class SyncEngine {
     private weak var session: SessionStore?
     @ObservationIgnored
     private weak var family: FamilyStore?
-    private var inFlight: Task<Bool, Never>?
-    private var queued = false
     private var lastSyncSucceeded = true
-    private var replicaRestoreActive = false
+    @ObservationIgnored
+    private lazy var cycleCoordinator = SyncCycleCoordinator { [weak self] request in
+        guard let self else { return false }
+        return await self.runSync(
+            logSince: request.logSince,
+            shouldPush: request.shouldPush
+        )
+    }
 
     func bind(store: CheckMedStore, session: SessionStore) {
         self.store = store
         self.session = session
         store.onNeedsSync = { [weak self] in
-            guard let self, !self.replicaRestoreActive else { return }
+            guard let self else { return }
             await self.syncIfSignedIn()
         }
     }
@@ -50,15 +152,15 @@ final class SyncEngine {
             LaunchLog.error("restore: store missing")
             return RestoreOutcome(hasTreatments: false, failed: true)
         }
-        replicaRestoreActive = true
-        defer { replicaRestoreActive = false }
 
         let hadLocal = store.hasExistingTreatments
         LaunchLog.data("restore start localTreatments=\(hadLocal)")
-        let ok = await runSync(
-            logSince: Date().addingTimeInterval(-8 * 86_400),
-            shouldPush: false
-        )
+        let ok = await cycleCoordinator.enqueue(
+            SyncCycleCoordinator.Request(
+                logSince: Date().addingTimeInterval(-8 * 86_400),
+                shouldPush: false
+            )
+        ).value
         let has = store.hasExistingTreatments || hadLocal
         if ok {
             LaunchLog.data(has ? "restore loadedWithData" : "restore loadedWithNoData")
@@ -72,86 +174,91 @@ final class SyncEngine {
     /// local rows must be kept. Never treat a failed fetch as "no data".
     @discardableResult
     func syncIfSignedIn() async -> Bool {
-        await startSyncIfNeeded(logSince: nil, push: true).value
-    }
-
-    private func startSyncIfNeeded(logSince: Date?, push: Bool) -> Task<Bool, Never> {
-        if let inFlight {
-            queued = queued || push
-            return inFlight
-        }
-        let task = Task { [weak self] in
-            guard let self else { return false }
-            let ok = await self.runSync(logSince: logSince, shouldPush: push)
-            let followUp = self.queued
-            self.queued = false
-            self.inFlight = nil
-            if followUp {
-                _ = await self.startSyncIfNeeded(logSince: nil, push: true).value
-            }
-            return ok
-        }
-        inFlight = task
-        return task
+        await cycleCoordinator.enqueue(
+            SyncCycleCoordinator.Request(logSince: nil, shouldPush: true)
+        ).value
     }
 
     private func runSync(logSince: Date?, shouldPush: Bool) async -> Bool {
         guard let session, session.kind == .authenticated else { return true }
-        guard let store, let client = session.auth.supabaseForSync else { return true }
-        guard let ownerId = session.auth.userId else { return true }
+        guard let store else {
+            LaunchLog.error(SyncEngineError.missingStore.localizedDescription)
+            return false
+        }
+        guard let client = session.auth.supabaseForSync else {
+            LaunchLog.error(SyncEngineError.missingClient.localizedDescription)
+            return false
+        }
+        guard let ownerId = session.auth.userId else {
+            LaunchLog.error(SyncEngineError.missingOwner.localizedDescription)
+            return false
+        }
         LaunchLog.sync("request push=\(shouldPush) owner=\(ownerId.uuidString.prefix(8))")
 
-        var pullFailed = false
         do {
-            let replica = try await NetworkDeadline.run(seconds: 20) {
-                try await SyncEngine.fetchReplica(client: client, ownerId: ownerId, logSince: logSince)
-            }
-            await store.applyRemoteReplica(
-                treatments: replica.treatments,
-                medicines: replica.medicines,
-                schedules: replica.schedules,
-                logs: replica.logs
-            )
-            if let phil = replica.phil {
-                store.applyRemotePhilPlan(status: phil.status, ownerId: ownerId, updatedAt: phil.updatedAt)
-            } else if store.hasExistingTreatments, !store.philPlanStatus().planExists {
-                store.setPhilPlanStatus(.active)
-            }
-        } catch {
-            pullFailed = true
-            LaunchLog.error("sync pull: \(error.localizedDescription)")
-        }
-        await pullFamily(client: client, ownerId: ownerId)
+            try await SyncTransportCycle.run(pull: { () async throws -> ReplicaPushPayload? in
+                let replica = try await NetworkDeadline.run(seconds: 20) {
+                    try await SyncEngine.fetchReplica(client: client, ownerId: ownerId, logSince: logSince)
+                }
+                await store.applyRemoteReplica(
+                    treatments: replica.treatments,
+                    medicines: replica.medicines,
+                    schedules: replica.schedules,
+                    logs: replica.logs
+                )
+                if let phil = replica.phil {
+                    store.applyRemotePhilPlan(status: phil.status, ownerId: ownerId, updatedAt: phil.updatedAt)
+                } else if store.hasExistingTreatments, !store.philPlanStatus().planExists {
+                    store.setPhilPlanStatus(.active)
+                }
+                // A successful pull remains local even if the following upload fails.
+                store.saveAfterSync()
+                try await self.pullFamily(client: client, ownerId: ownerId)
 
-        let profileId: UUID?
-        if let existing = session.profileId {
-            profileId = existing
-        } else {
-            profileId = await fetchProfileId(client: client, ownerId: ownerId)
-        }
-        if let profileId {
-            store.bindIdentity(ownerId: ownerId, profileId: profileId)
-            store.adoptProfile(from: session.localPlanProfileId, to: profileId)
-            if shouldPush {
+                let profileId: UUID
+                if let existing = session.profileId {
+                    profileId = existing
+                } else {
+                    profileId = try await self.fetchProfileId(client: client, ownerId: ownerId)
+                }
+                guard session.kind == .authenticated, session.auth.userId == ownerId else {
+                    throw SyncEngineError.sessionChanged
+                }
+                store.bindIdentity(ownerId: ownerId, profileId: profileId)
+                store.adoptProfile(from: session.localPlanProfileId, to: profileId)
+                guard shouldPush else { return nil }
+
                 let treatments = store.treatmentSnapshots().compactMap { RemoteTreatment($0, ownerId: ownerId, profileId: profileId) }
                 let medicines = store.medicineSnapshots().compactMap { RemoteMedicine($0, ownerId: ownerId, profileId: profileId) }
                 let schedules = store.scheduleSnapshots().compactMap { RemoteSchedule($0, ownerId: ownerId, profileId: profileId) }
                 let logs = store.logSnapshots().compactMap { RemoteLog($0, ownerId: ownerId, profileId: profileId) }
-                Task.detached {
-                    await SyncEngine.pushReplica(
-                        client: client,
-                        treatments: treatments,
-                        medicines: medicines,
-                        schedules: schedules,
-                        logs: logs
-                    )
+                return ReplicaPushPayload(
+                    treatments: treatments,
+                    medicines: medicines,
+                    schedules: schedules,
+                    logs: logs
+                )
+            }, push: { payload in
+                guard let payload else { return }
+                guard session.kind == .authenticated, session.auth.userId == ownerId else {
+                    throw SyncEngineError.sessionChanged
                 }
-                Task { await self.pushFamily(client: client, ownerId: ownerId) }
-            }
+                try await SyncEngine.pushReplica(
+                    client: client,
+                    treatments: payload.treatments,
+                    medicines: payload.medicines,
+                    schedules: payload.schedules,
+                    logs: payload.logs
+                )
+                try await self.pushFamily(client: client, ownerId: ownerId)
+            })
+            lastSyncSucceeded = true
+            return true
+        } catch {
+            lastSyncSucceeded = false
+            LaunchLog.error("sync failed: \(error.localizedDescription)")
+            return false
         }
-        store.saveAfterSync()
-        lastSyncSucceeded = !pullFailed
-        return lastSyncSucceeded
     }
 
     nonisolated private static func fetchReplica(
@@ -181,12 +288,12 @@ final class SyncEngine {
     func bindFamily(_ family: FamilyStore) {
         self.family = family
         family.onCloudSync = { [weak self] in
-            guard let self, !self.replicaRestoreActive else { return }
+            guard let self else { return }
             await self.syncIfSignedIn()
         }
     }
 
-    private func pullFamily(client: SupabaseClient, ownerId: UUID) async {
+    private func pullFamily(client: SupabaseClient, ownerId: UUID) async throws {
         struct Row: Decodable {
             var extraFamilyId: UUID?
             var extraFamilyName: String?
@@ -196,55 +303,48 @@ final class SyncEngine {
             }
         }
         guard let family else { return }
-        do {
-            let rows: [Row] = try await NetworkDeadline.run(seconds: 12) {
-                try await client
-                    .from("profiles")
-                    .select("extra_family_id, extra_family_name")
-                    .eq("owner_id", value: ownerId.uuidString)
-                    .limit(1)
-                    .execute()
-                    .value
-            }
-            guard let row = rows.first else { return }
-            if let name = row.extraFamilyName, !name.isEmpty {
-                family.applyRemote(id: row.extraFamilyId ?? family.extra?.id ?? UUID(), name: name)
-            }
-        } catch {
-            LaunchLog.error("family pull: \(error.localizedDescription)")
+        let rows: [Row] = try await NetworkDeadline.run(seconds: 12) {
+            try await client
+                .from("profiles")
+                .select("extra_family_id, extra_family_name")
+                .eq("owner_id", value: ownerId.uuidString)
+                .limit(1)
+                .execute()
+                .value
+        }
+        guard let row = rows.first else { return }
+        if let name = row.extraFamilyName, !name.isEmpty {
+            family.applyRemote(id: row.extraFamilyId ?? family.extra?.id ?? UUID(), name: name)
         }
     }
 
-    private func pushFamily(client: SupabaseClient, ownerId: UUID) async {
+    private func pushFamily(client: SupabaseClient, ownerId: UUID) async throws {
         struct Patch: Encodable {
             var extra_family_id: UUID?
             var extra_family_name: String?
         }
-        let extra = family?.extra
-        _ = try? await client
+        guard let family else { return }
+        let extra = family.extra
+        try await client
             .from("profiles")
             .update(Patch(extra_family_id: extra?.id, extra_family_name: extra?.name))
             .eq("owner_id", value: ownerId.uuidString)
             .execute()
     }
 
-    private func fetchProfileId(client: SupabaseClient, ownerId: UUID) async -> UUID? {
+    private func fetchProfileId(client: SupabaseClient, ownerId: UUID) async throws -> UUID {
         struct Row: Decodable { let id: UUID }
-        do {
-            let rows: [Row] = try await NetworkDeadline.run(seconds: 12) {
-                try await client
-                    .from("profiles")
-                    .select("id")
-                    .eq("owner_id", value: ownerId.uuidString)
-                    .limit(1)
-                    .execute()
-                    .value
-            }
-            return rows.first?.id
-        } catch {
-            LaunchLog.error("profile id fetch: \(error.localizedDescription)")
-            return nil
+        let rows: [Row] = try await NetworkDeadline.run(seconds: 12) {
+            try await client
+                .from("profiles")
+                .select("id")
+                .eq("owner_id", value: ownerId.uuidString)
+                .limit(1)
+                .execute()
+                .value
         }
+        guard let profileId = rows.first?.id else { throw SyncEngineError.missingProfile }
+        return profileId
     }
 
     nonisolated private static func fetchTable<T: Decodable>(
@@ -266,11 +366,11 @@ final class SyncEngine {
         medicines: [RemoteMedicine],
         schedules: [RemoteSchedule],
         logs: [RemoteLog]
-    ) async {
-        _ = try? await upsert(client, table: "treatments", rows: treatments)
-        _ = try? await upsert(client, table: "medicines", rows: medicines)
-        _ = try? await upsert(client, table: "dose_schedules", rows: schedules)
-        _ = try? await upsert(client, table: "dose_logs", rows: logs)
+    ) async throws {
+        try await upsert(client, table: "treatments", rows: treatments)
+        try await upsert(client, table: "medicines", rows: medicines)
+        try await upsert(client, table: "dose_schedules", rows: schedules)
+        try await upsert(client, table: "dose_logs", rows: logs)
     }
 
     nonisolated private static func upsert<T: Encodable>(
