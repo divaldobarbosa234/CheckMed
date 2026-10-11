@@ -97,23 +97,47 @@ struct PaywallView: View {
 
     private var trialHeadline: some View {
         VStack(spacing: 8) {
-            Text(session.t(.paywallTrialLead))
-                .font(.system(.title, design: .rounded).weight(.black))
-                .foregroundStyle(CheckMedTheme.ink)
-            + Text(session.t(.paywallTrialAccent))
-                .font(.system(.title, design: .rounded).weight(.black))
-                .foregroundStyle(CheckMedTheme.primaryShadow)
-            + Text(session.t(.paywallTrialTail))
-                .font(.system(.title, design: .rounded).weight(.black))
-                .foregroundStyle(CheckMedTheme.ink)
-            if let selectedProduct {
+            headlineText
+            if let selectedProduct, case .trial = entitlements.acquisitionMessaging(for: selectedProduct) {
                 Text(session.t(.paywallThenContinue, "\(selectedProduct.displayPrice) \(period(for: selectedProduct))"))
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            } else if case .standard = entitlements.acquisitionMessaging(for: selectedProduct) {
+                Text(session.t(.paywallStandardBody))
                     .font(.system(.subheadline, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
             }
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var headlineText: some View {
+        switch entitlements.acquisitionMessaging(for: selectedProduct) {
+        case .checking:
+            Text(session.t(.paywallCheckingOffer))
+                .font(.system(.title, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.ink)
+        case .missingProducts:
+            Text(session.t(.paywallStandardLead))
+                .font(.system(.title, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.ink)
+        case .standard:
+            Text(session.t(.paywallStandardLead))
+                .font(.system(.title, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.ink)
+        case .trial(let days):
+            Text(session.t(.paywallTrialLead))
+                .font(.system(.title, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.ink)
+            + Text(trialAccent(days: days))
+                .font(.system(.title, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.primaryShadow)
+            + Text(session.t(.paywallTrialTail))
+                .font(.system(.title, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.ink)
+        }
     }
 
     private var philHero: some View {
@@ -234,7 +258,7 @@ struct PaywallView: View {
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.safety)
         }
-        if let status = entitlements.statusMessage {
+        if let status = localizedStatus(entitlements.userStatus) {
             Text(status)
                 .font(.system(.caption, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.safety)
@@ -254,14 +278,14 @@ struct PaywallView: View {
                 CheckMedButton(title: primaryTitle(for: selectedProduct)) {
                     Task { await entitlements.purchase(selectedProduct) }
                 }
-                .disabled(entitlements.isLoading)
+                .disabled(entitlements.isLoading || entitlements.introEligibility(for: selectedProduct) == .unknown)
             }
         }
     }
 
     private var legalFooter: some View {
         VStack(spacing: 10) {
-            Text(session.t(.paywallRenewalLegal))
+            Text(renewalLegalText)
                 .font(.system(.caption2, design: .rounded).weight(.semibold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .multilineTextAlignment(.center)
@@ -327,10 +351,54 @@ struct PaywallView: View {
     }
 
     private func primaryTitle(for product: Product) -> String {
-        if entitlements.isEligibleForFreeTrial(product) {
-            return session.t(.paywallStartTrial)
+        switch entitlements.introEligibility(for: product) {
+        case .eligible:
+            if let days = entitlements.introTrialDayCount(for: product) {
+                return days == 1
+                    ? session.t(.paywallStartTrialDay, days)
+                    : session.t(.paywallStartTrialDays, days)
+            }
+            return session.t(.paywallStartTrialGeneric)
+        case .ineligible:
+            return session.t(.paywallStartPlan, session.t(.paywallSuper), product.displayPrice)
+        case .unknown:
+            return session.t(.paywallCheckingOffer)
         }
-        return session.t(.paywallStartPlan, session.t(.paywallSuper), product.displayPrice)
+    }
+
+    private func trialAccent(days: Int?) -> String {
+        guard let days else { return session.t(.paywallTrialAccentGeneric) }
+        return days == 1
+            ? session.t(.paywallTrialAccentDay, days)
+            : session.t(.paywallTrialAccentDays, days)
+    }
+
+    private var renewalLegalText: String {
+        switch entitlements.acquisitionMessaging(for: selectedProduct) {
+        case .trial(let days):
+            if let days {
+                return session.t(.paywallRenewalLegalTrialDays, days)
+            }
+            return session.t(.paywallRenewalLegalTrial)
+        case .checking:
+            return session.t(.paywallRenewalLegalStandard)
+        default:
+            return session.t(.paywallRenewalLegalStandard)
+        }
+    }
+
+    private func localizedStatus(_ status: EntitlementUserStatus) -> String? {
+        switch status {
+        case .idle: nil
+        case .cancelled: session.t(.paywallPurchaseCancelled)
+        case .pending: session.t(.paywallPurchasePending)
+        case .unknownState: session.t(.paywallPurchaseUnknown)
+        case .restored: session.t(.paywallRestoreSuccess)
+        case .restoredDebug: session.t(.paywallRestoreDebug)
+        case .restoreEmpty: session.t(.paywallRestoreEmpty)
+        case .debugUnlocked: session.t(.paywallDebugNote)
+        case .system(let message): message
+        }
     }
 
     private func period(for product: Product) -> String {
@@ -353,42 +421,50 @@ struct OnboardingSuperTrialView: View {
         entitlements.yearlyProduct ?? entitlements.monthlyProduct
     }
 
+    private var messaging: SuperAcquisitionMessaging {
+        entitlements.acquisitionMessaging(for: trialProduct)
+    }
+
     var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color(hex: 0x3184EE), Color(hex: 0x3258D4)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(hex: 0x3184EE), Color(hex: 0x3258D4)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
 
-            trialStars
+                trialStars
 
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 18) {
-                    closeRow
-                    Text(session.t(.onboardingTrialOffer))
-                        .font(.system(size: 29, weight: .black, design: .rounded))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 8)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 18) {
+                        closeRow
+                        Text(offerTitle)
+                            .font(.system(size: 29, weight: .black, design: .rounded))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 8)
 
-                    TrialPhilCrowd()
-                        .frame(height: 240)
+                        TrialPhilCrowd()
+                            .frame(height: 240)
 
-                    offerDetails
-                    actions
-
-                    Text(session.t(.paywallRenewalLegal))
-                        .font(.system(.caption2, design: .rounded).weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.70))
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 8)
+                        offerDetails
+                        if let status = localizedStatus(entitlements.userStatus) {
+                            Text(status)
+                                .font(.system(.caption, design: .rounded).weight(.bold))
+                                .foregroundStyle(.white)
+                                .multilineTextAlignment(.center)
+                        }
+                        actions
+                        legalFooter
+                    }
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 22)
-                .padding(.bottom, 24)
             }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .task {
             await entitlements.refresh()
@@ -403,6 +479,14 @@ struct OnboardingSuperTrialView: View {
         guard !didFinish else { return }
         didFinish = true
         onFinished()
+    }
+
+    private var offerTitle: String {
+        switch messaging {
+        case .checking: session.t(.onboardingTrialOfferChecking)
+        case .trial: session.t(.onboardingTrialOffer)
+        case .standard, .missingProducts: session.t(.onboardingTrialOfferStandard)
+        }
     }
 
     private var closeRow: some View {
@@ -424,11 +508,27 @@ struct OnboardingSuperTrialView: View {
     @ViewBuilder
     private var offerDetails: some View {
         VStack(spacing: 4) {
-            Text(session.t(.paywallTrialAccent))
-                .font(.system(.title3, design: .rounded).weight(.heavy))
-            if let trialProduct {
-                Text(session.t(.paywallThenContinue, "\(trialProduct.displayPrice) \(period(for: trialProduct))"))
+            switch messaging {
+            case .checking:
+                Text(session.t(.paywallCheckingOffer))
+                    .font(.system(.title3, design: .rounded).weight(.heavy))
+            case .missingProducts:
+                Text(session.t(.paywallProductsMissing))
                     .font(.system(.subheadline, design: .rounded).weight(.bold))
+            case .standard:
+                Text(session.t(.paywallStandardLead))
+                    .font(.system(.title3, design: .rounded).weight(.heavy))
+                if let trialProduct {
+                    Text("\(trialProduct.displayPrice) \(period(for: trialProduct))")
+                        .font(.system(.subheadline, design: .rounded).weight(.bold))
+                }
+            case .trial(let days):
+                Text(trialAccent(days: days))
+                    .font(.system(.title3, design: .rounded).weight(.heavy))
+                if let trialProduct {
+                    Text(session.t(.paywallThenContinue, "\(trialProduct.displayPrice) \(period(for: trialProduct))"))
+                        .font(.system(.subheadline, design: .rounded).weight(.bold))
+                }
             }
         }
         .foregroundStyle(.white)
@@ -446,7 +546,7 @@ struct OnboardingSuperTrialView: View {
                         ProgressView()
                             .tint(Color(hex: 0x2F68DC))
                     }
-                    Text(session.t(.paywallStartTrial))
+                    Text(primaryTitle)
                 }
                 .font(.system(.headline, design: .rounded).weight(.heavy))
                 .foregroundStyle(Color(hex: 0x2F68DC))
@@ -456,13 +556,102 @@ struct OnboardingSuperTrialView: View {
                 .shadow(color: Color.black.opacity(0.16), radius: 0, y: 5)
             }
             .buttonStyle(.plain)
-            .disabled(trialProduct == nil || entitlements.isLoading)
-            .opacity(trialProduct == nil ? 0.65 : 1)
+            .disabled(purchaseDisabled)
+            .opacity(trialProduct == nil || messaging == .checking ? 0.65 : 1)
+
+            Button(session.t(.paywallRestore)) {
+                Task { await entitlements.restore() }
+            }
+            .font(.system(.body, design: .rounded).weight(.heavy))
+            .foregroundStyle(.white)
+            .disabled(entitlements.isLoading)
 
             Button(session.t(.paywallNotNow), action: finishOnce)
                 .font(.system(.body, design: .rounded).weight(.heavy))
                 .foregroundStyle(.white)
                 .padding(.vertical, 8)
+        }
+    }
+
+    private var legalFooter: some View {
+        VStack(spacing: 10) {
+            Text(renewalLegalText)
+                .font(.system(.caption2, design: .rounded).weight(.semibold))
+                .foregroundStyle(.white.opacity(0.70))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 8)
+            HStack(spacing: 4) {
+                NavigationLink {
+                    LegalDocumentView(kind: .termsOfUse)
+                } label: {
+                    Text(session.t(.termsOfUseTitle))
+                        .underline()
+                }
+                Text(session.t(.paywallAnd))
+                NavigationLink {
+                    LegalDocumentView(kind: .privacyPolicy)
+                } label: {
+                    Text(session.t(.privacyPolicyTitle))
+                        .underline()
+                }
+            }
+            .font(.system(.caption, design: .rounded).weight(.bold))
+            .foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var purchaseDisabled: Bool {
+        guard let trialProduct else { return true }
+        if entitlements.isLoading { return true }
+        return entitlements.introEligibility(for: trialProduct) == .unknown
+    }
+
+    private var primaryTitle: String {
+        guard let trialProduct else { return session.t(.paywallCheckingOffer) }
+        switch entitlements.introEligibility(for: trialProduct) {
+        case .eligible:
+            if let days = entitlements.introTrialDayCount(for: trialProduct) {
+                return days == 1
+                    ? session.t(.paywallStartTrialDay, days)
+                    : session.t(.paywallStartTrialDays, days)
+            }
+            return session.t(.paywallStartTrialGeneric)
+        case .ineligible:
+            return session.t(.paywallStartPlan, session.t(.paywallSuper), trialProduct.displayPrice)
+        case .unknown:
+            return session.t(.paywallCheckingOffer)
+        }
+    }
+
+    private func trialAccent(days: Int?) -> String {
+        guard let days else { return session.t(.paywallTrialAccentGeneric) }
+        return days == 1
+            ? session.t(.paywallTrialAccentDay, days)
+            : session.t(.paywallTrialAccentDays, days)
+    }
+
+    private var renewalLegalText: String {
+        switch messaging {
+        case .trial(let days):
+            if let days { return session.t(.paywallRenewalLegalTrialDays, days) }
+            return session.t(.paywallRenewalLegalTrial)
+        default:
+            return session.t(.paywallRenewalLegalStandard)
+        }
+    }
+
+    private func localizedStatus(_ status: EntitlementUserStatus) -> String? {
+        switch status {
+        case .idle: nil
+        case .cancelled: session.t(.paywallPurchaseCancelled)
+        case .pending: session.t(.paywallPurchasePending)
+        case .unknownState: session.t(.paywallPurchaseUnknown)
+        case .restored: session.t(.paywallRestoreSuccess)
+        case .restoredDebug: session.t(.paywallRestoreDebug)
+        case .restoreEmpty: session.t(.paywallRestoreEmpty)
+        case .debugUnlocked: session.t(.paywallDebugNote)
+        case .system(let message): message
         }
     }
 

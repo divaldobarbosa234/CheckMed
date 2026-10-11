@@ -15,9 +15,11 @@ final class EntitlementStore {
     private(set) var isSuper = false
     private(set) var products: [Product] = []
     private(set) var isLoading = false
-    private(set) var statusMessage: String?
+    private(set) var userStatus: EntitlementUserStatus = .idle
     private(set) var usedDebugUnlock = false
     private(set) var introEligibleProductIDs: Set<String> = []
+    private(set) var introEligibilitySettled = false
+    private(set) var entitlementSettled = false
 
     var freeFamilySlots: Int { 1 }
     var familySlots: Int { isSuper ? 2 : freeFamilySlots }
@@ -34,8 +36,52 @@ final class EntitlementStore {
     var monthlyProduct: Product? { products.first { $0.id == SuperProductID.monthly } }
     var yearlyProduct: Product? { products.first { $0.id == SuperProductID.yearly } }
 
+    func introEligibility(for product: Product) -> SuperIntroEligibility {
+        SuperAcquisitionPolicy.introEligibility(
+            settled: introEligibilitySettled,
+            eligibleProductIDs: introEligibleProductIDs,
+            productID: product.id
+        )
+    }
+
     func isEligibleForFreeTrial(_ product: Product) -> Bool {
-        introEligibleProductIDs.contains(product.id)
+        introEligibility(for: product) == .eligible
+    }
+
+    func introTrialDayCount(for product: Product) -> Int? {
+        guard let offer = product.subscription?.introductoryOffer,
+              offer.paymentMode == .freeTrial else { return nil }
+        let unit: SuperTrialPeriodUnit
+        switch offer.period.unit {
+        case .day: unit = .day
+        case .week: unit = .week
+        case .month: unit = .month
+        case .year: unit = .year
+        @unknown default: return nil
+        }
+        return SuperAcquisitionPolicy.confirmedTrialDays(unit: unit, value: offer.period.value)
+    }
+
+    func acquisitionMessaging(for product: Product?) -> SuperAcquisitionMessaging {
+        let eligibility: SuperIntroEligibility
+        let days: Int?
+        if let product {
+            eligibility = introEligibility(for: product)
+            days = introTrialDayCount(for: product)
+        } else if !introEligibilitySettled || !entitlementSettled {
+            eligibility = .unknown
+            days = nil
+        } else {
+            eligibility = .ineligible
+            days = nil
+        }
+        return SuperAcquisitionPolicy.messaging(
+            entitlementSettled: entitlementSettled,
+            eligibilitySettled: introEligibilitySettled,
+            productsMissing: introEligibilitySettled && products.isEmpty,
+            eligibility: eligibility,
+            trialDays: days
+        )
     }
 
     var allowsDebugUnlock: Bool {
@@ -54,7 +100,10 @@ final class EntitlementStore {
 
     init() {
         usedDebugUnlock = UserDefaults.standard.bool(forKey: Keys.debugUnlock)
-        if usedDebugUnlock { isSuper = true }
+        if usedDebugUnlock {
+            isSuper = true
+            entitlementSettled = true
+        }
         Task { await refresh() }
         Task { await listenForTransactions() }
     }
@@ -65,16 +114,18 @@ final class EntitlementStore {
 
     func refresh() async {
         isLoading = true
-        statusMessage = nil
+        userStatus = .idle
+        introEligibilitySettled = false
         await loadProducts()
         await refreshIntroEligibility()
         await updateEntitlementFromStore()
+        entitlementSettled = true
         isLoading = false
     }
 
     func purchase(_ product: Product) async {
         isLoading = true
-        statusMessage = nil
+        userStatus = .idle
         do {
             let result = try await product.purchase()
             switch result {
@@ -82,38 +133,40 @@ final class EntitlementStore {
                 let transaction = try checkVerified(verification)
                 await transaction.finish()
                 await updateEntitlementFromStore()
+                await refreshIntroEligibility()
                 if isSuper { showPaywall = false }
             case .userCancelled:
-                statusMessage = "No charge. You can stay on Free — Taken and the first treatment stay open."
+                userStatus = .cancelled
             case .pending:
-                statusMessage = "That purchase is pending. Super unlocks after Apple confirms it."
+                userStatus = .pending
             @unknown default:
-                statusMessage = "Apple returned an unknown purchase state."
+                userStatus = .unknownState
             }
         } catch {
-            statusMessage = error.localizedDescription
+            userStatus = .system(error.localizedDescription)
         }
         isLoading = false
     }
 
     func restore() async {
         isLoading = true
-        statusMessage = nil
+        userStatus = .idle
         do {
             try await AppStore.sync()
         } catch {
-            statusMessage = error.localizedDescription
+            userStatus = .system(error.localizedDescription)
             isLoading = false
             return
         }
         await updateEntitlementFromStore()
+        await refreshIntroEligibility()
         if isSuper && !usedDebugUnlock {
-            statusMessage = "Super is restored for this Apple ID."
+            userStatus = .restored
             showPaywall = false
         } else if usedDebugUnlock {
-            statusMessage = "Simulator unlock is on. That is not an App Store charge."
+            userStatus = .restoredDebug
         } else {
-            statusMessage = "No Super on this Apple ID yet. In Xcode, select Products.storekit on the scheme to try monthly/yearly. For TestFlight or the store, create those products in App Store Connect."
+            userStatus = .restoreEmpty
         }
         isLoading = false
     }
@@ -122,8 +175,9 @@ final class EntitlementStore {
         guard allowsDebugUnlock else { return }
         usedDebugUnlock = true
         isSuper = true
+        entitlementSettled = true
         UserDefaults.standard.set(true, forKey: Keys.debugUnlock)
-        statusMessage = "Unlocked Super on this simulator or debug build. Not a live Apple charge."
+        userStatus = .debugUnlocked
         showPaywall = false
     }
 
@@ -154,6 +208,7 @@ final class EntitlementStore {
             }
         }
         introEligibleProductIDs = eligible
+        introEligibilitySettled = true
     }
 
     private func updateEntitlementFromStore() async {
@@ -166,6 +221,7 @@ final class EntitlementStore {
             }
         }
         isSuper = hasStoreEntitlement || usedDebugUnlock
+        entitlementSettled = true
     }
 
     private func listenForTransactions() async {
@@ -173,6 +229,7 @@ final class EntitlementStore {
             if let transaction = try? checkVerified(update) {
                 await transaction.finish()
                 await updateEntitlementFromStore()
+                await refreshIntroEligibility()
             }
         }
     }

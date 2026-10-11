@@ -890,7 +890,7 @@ final class SessionStore {
         case .alarms:
             next = .notifications
         case .notifications:
-            next = isSuper ? .philReady : .trial
+            next = SuperAcquisitionPolicy.skipOnboardingTrial(isSuper: isSuper) ? .philReady : .trial
         case .trial:
             next = .philReady
         case .philReady, .done:

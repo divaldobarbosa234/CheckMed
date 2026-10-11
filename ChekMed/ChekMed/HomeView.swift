@@ -344,14 +344,6 @@ struct HomeView: View {
             .task {
                 FreezeDiag.log("Home.task start")
                 LaunchLog.home("task start")
-                guard !session.needsUnfinishedPlan(treatments: treatments) else { return }
-                guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
-                try? await Task.sleep(nanoseconds: 3_500_000_000)
-                guard !Task.isCancelled else { return }
-                guard !session.needsUnfinishedPlan(treatments: treatments) else { return }
-                guard session.shouldOfferOnboardingPaywall, !entitlements.isSuper else { return }
-                session.markOnboardingPaywallOffered()
-                entitlements.presentPaywall()
             }
             }
         }
