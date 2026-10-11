@@ -43,7 +43,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let rewardFailures = RewardEngineContractChecks.failures()
             let syncTransportFailures = await SyncTransportContractChecks.failures()
             let syncOutboxFailures = await SyncOutboxContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures
+            let syncProtocolFailures = await SyncProtocolContractChecks.failures()
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures + syncProtocolFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -64,6 +65,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("RewardEngine failures:", rewardFailures)
             print("SyncTransport failures:", syncTransportFailures)
             print("SyncOutbox failures:", syncOutboxFailures)
+            print("SyncProtocol failures:", syncProtocolFailures)
             let report = [
                 "DoseLoop failures: \(doseFailures)",
                 "Gamification failures: \(gamificationFailures)",
@@ -85,6 +87,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "RewardEngine failures: \(rewardFailures)",
                 "SyncTransport failures: \(syncTransportFailures)",
                 "SyncOutbox failures: \(syncOutboxFailures)",
+                "SyncProtocol failures: \(syncProtocolFailures)",
                 "allEmpty: \(failures.isEmpty)",
             ].joined(separator: "\n")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -117,6 +120,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     rewardFailures.isEmpty ? nil : "REWARD ENGINE FAILURE: \(rewardFailures.joined(separator: "; "))",
                     syncTransportFailures.isEmpty ? nil : "SYNC TRANSPORT FAILURE: \(syncTransportFailures.joined(separator: "; "))",
                     syncOutboxFailures.isEmpty ? nil : "SYNC OUTBOX FAILURE: \(syncOutboxFailures.joined(separator: "; "))",
+                    syncProtocolFailures.isEmpty ? nil : "SYNC PROTOCOL FAILURE: \(syncProtocolFailures.joined(separator: "; "))",
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }
@@ -198,6 +202,15 @@ struct ChekMedApp: App {
         #endif
         syncEngine.bind(store: treatments, session: session)
         syncEngine.bindFamily(family)
+        session.onWillSignOut = { [syncEngine] in
+            syncEngine.invalidateSession()
+        }
+        session.onPrepareAccountDeletion = { [syncEngine] ownerId in
+            await syncEngine.beginAccountDeletion(ownerId: ownerId)
+        }
+        session.onCancelAccountDeletion = { [syncEngine] ownerId in
+            syncEngine.cancelAccountDeletion(ownerId: ownerId)
+        }
         treatments.onRecordsChanged = { [path] in
             FreezeDiag.log("onRecordsChanged() CALLED from ChekMedApp.bindStores")
             LaunchLog.home("onRecordsChanged → coalesced path.reload")
@@ -214,9 +227,12 @@ struct ChekMedApp: App {
         session.onLocalTreatmentsCheck = { [treatments] in
             treatments.hasExistingTreatments
         }
-        session.onBindAuthenticatedIdentity = { [treatments, session, family] in
+        session.onBindAuthenticatedIdentity = { [treatments, syncEngine, session, family] in
             let ownerId = session.planOwnerId
             let profileId = session.planProfileId
+            if let authenticatedOwnerId = session.auth.userId {
+                syncEngine.activateSession(ownerId: authenticatedOwnerId)
+            }
             if let authId = session.auth.userId, authId != session.localPlanOwnerId {
                 treatments.adoptOwner(from: session.localPlanOwnerId, to: authId, profileId: profileId)
             }
@@ -231,6 +247,9 @@ struct ChekMedApp: App {
         session.onPostAuthSync = { [treatments, syncEngine, session, family] in
             let ownerId = session.planOwnerId
             let profileId = session.planProfileId
+            if let authenticatedOwnerId = session.auth.userId {
+                syncEngine.activateSession(ownerId: authenticatedOwnerId)
+            }
             if let authId = session.auth.userId, authId != session.localPlanOwnerId {
                 treatments.adoptOwner(from: session.localPlanOwnerId, to: authId, profileId: profileId)
             }

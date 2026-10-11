@@ -11,6 +11,7 @@ struct TreatmentSnapshot: Sendable {
     var endDate: Date?
     var updatedAt: Date
     var deletedAt: Date?
+    var syncVersion: Int64? = nil
 }
 
 struct MedicineSnapshot: Sendable {
@@ -22,8 +23,23 @@ struct MedicineSnapshot: Sendable {
     var doseLabel: String
     var frequency: String
     var duration: String
+    var reason: String = ""
+    var form: String = MedicineForm.other.rawValue
+    var packageAmount: Double = 0
+    var packageUnit: String = MedicineUnit.tablet.rawValue
+    var stockPercent: Double = 100
+    var quantityPerDose: Double = 1
+    var doseUnit: String = MedicineUnit.tablet.rawValue
+    var doctorName: String = ""
+    var doctorId: String = ""
+    var hospitalName: String = ""
+    var doctorNotes: String = ""
+    var lastRefillAt: Date? = nil
+    var refillRemindEnabled: Bool = true
     var updatedAt: Date
     var deletedAt: Date?
+    var syncVersion: Int64? = nil
+    var replicaIncludesCompleteFields: Bool = true
 }
 
 struct DoseScheduleSnapshot: Sendable {
@@ -35,6 +51,7 @@ struct DoseScheduleSnapshot: Sendable {
     var period: String
     var updatedAt: Date
     var deletedAt: Date?
+    var syncVersion: Int64? = nil
 }
 
 struct DoseLogSnapshot: Sendable {
@@ -47,6 +64,7 @@ struct DoseLogSnapshot: Sendable {
     var loggedAt: Date?
     var updatedAt: Date
     var deletedAt: Date?
+    var syncVersion: Int64? = nil
 }
 
 @Model
@@ -60,6 +78,7 @@ final class TreatmentRecord {
     var endDate: Date?
     var updatedAt: Date
     var deletedAt: Date?
+    var serverVersion: Int64?
 
     init(
         id: UUID = UUID(),
@@ -70,7 +89,8 @@ final class TreatmentRecord {
         startDate: Date = Date(),
         endDate: Date? = nil,
         updatedAt: Date = Date(),
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        serverVersion: Int64? = nil
     ) {
         self.id = id
         self.ownerId = ownerId
@@ -81,6 +101,7 @@ final class TreatmentRecord {
         self.endDate = endDate
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
+        self.serverVersion = serverVersion
     }
 
     convenience init(snapshot: TreatmentSnapshot) {
@@ -93,7 +114,8 @@ final class TreatmentRecord {
             startDate: snapshot.startDate,
             endDate: snapshot.endDate,
             updatedAt: snapshot.updatedAt,
-            deletedAt: snapshot.deletedAt
+            deletedAt: snapshot.deletedAt,
+            serverVersion: snapshot.syncVersion
         )
     }
 
@@ -107,19 +129,21 @@ final class TreatmentRecord {
             startDate: startDate,
             endDate: endDate,
             updatedAt: updatedAt,
-            deletedAt: deletedAt
+            deletedAt: deletedAt,
+            syncVersion: serverVersion
         )
     }
 
     func apply(_ snapshot: TreatmentSnapshot) {
-        ownerId = snapshot.ownerId
-        profileId = snapshot.profileId
-        title = snapshot.title
-        status = snapshot.status
-        startDate = snapshot.startDate
-        endDate = snapshot.endDate
-        updatedAt = snapshot.updatedAt
-        deletedAt = snapshot.deletedAt
+        if ownerId != snapshot.ownerId { ownerId = snapshot.ownerId }
+        if profileId != snapshot.profileId { profileId = snapshot.profileId }
+        if title != snapshot.title { title = snapshot.title }
+        if status != snapshot.status { status = snapshot.status }
+        if startDate != snapshot.startDate { startDate = snapshot.startDate }
+        if endDate != snapshot.endDate { endDate = snapshot.endDate }
+        if updatedAt != snapshot.updatedAt { updatedAt = snapshot.updatedAt }
+        if deletedAt != snapshot.deletedAt { deletedAt = snapshot.deletedAt }
+        if serverVersion != snapshot.syncVersion { serverVersion = snapshot.syncVersion }
     }
 }
 
@@ -148,6 +172,7 @@ final class MedicineRecord {
     var refillRemindEnabled: Bool = true
     var updatedAt: Date
     var deletedAt: Date?
+    var serverVersion: Int64?
 
     init(
         id: UUID = UUID(),
@@ -172,7 +197,8 @@ final class MedicineRecord {
         lastRefillAt: Date? = nil,
         refillRemindEnabled: Bool = true,
         updatedAt: Date = Date(),
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        serverVersion: Int64? = nil
     ) {
         self.id = id
         self.treatmentId = treatmentId
@@ -197,6 +223,7 @@ final class MedicineRecord {
         self.refillRemindEnabled = refillRemindEnabled
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
+        self.serverVersion = serverVersion
     }
 
     convenience init(snapshot: MedicineSnapshot) {
@@ -209,8 +236,22 @@ final class MedicineRecord {
             doseLabel: snapshot.doseLabel,
             frequency: snapshot.frequency,
             duration: snapshot.duration,
+            reason: snapshot.reason,
+            form: snapshot.form,
+            packageAmount: snapshot.packageAmount,
+            packageUnit: snapshot.packageUnit,
+            stockPercent: snapshot.stockPercent,
+            quantityPerDose: snapshot.quantityPerDose,
+            doseUnit: snapshot.doseUnit,
+            doctorName: snapshot.doctorName,
+            doctorId: snapshot.doctorId,
+            hospitalName: snapshot.hospitalName,
+            doctorNotes: snapshot.doctorNotes,
+            lastRefillAt: snapshot.lastRefillAt,
+            refillRemindEnabled: snapshot.refillRemindEnabled,
             updatedAt: snapshot.updatedAt,
-            deletedAt: snapshot.deletedAt
+            deletedAt: snapshot.deletedAt,
+            serverVersion: snapshot.syncVersion
         )
     }
 
@@ -224,21 +265,53 @@ final class MedicineRecord {
             doseLabel: doseLabel,
             frequency: frequency,
             duration: duration,
+            reason: reason,
+            form: form,
+            packageAmount: packageAmount,
+            packageUnit: packageUnit,
+            stockPercent: stockPercent,
+            quantityPerDose: quantityPerDose,
+            doseUnit: doseUnit,
+            doctorName: doctorName,
+            doctorId: doctorId,
+            hospitalName: hospitalName,
+            doctorNotes: doctorNotes,
+            lastRefillAt: lastRefillAt,
+            refillRemindEnabled: refillRemindEnabled,
             updatedAt: updatedAt,
-            deletedAt: deletedAt
+            deletedAt: deletedAt,
+            syncVersion: serverVersion
         )
     }
 
     func apply(_ snapshot: MedicineSnapshot) {
-        treatmentId = snapshot.treatmentId
-        ownerId = snapshot.ownerId
-        profileId = snapshot.profileId
-        name = snapshot.name
-        doseLabel = snapshot.doseLabel
-        frequency = snapshot.frequency
-        duration = snapshot.duration
-        updatedAt = snapshot.updatedAt
-        deletedAt = snapshot.deletedAt
+        if treatmentId != snapshot.treatmentId { treatmentId = snapshot.treatmentId }
+        if ownerId != snapshot.ownerId { ownerId = snapshot.ownerId }
+        if profileId != snapshot.profileId { profileId = snapshot.profileId }
+        if name != snapshot.name { name = snapshot.name }
+        if doseLabel != snapshot.doseLabel { doseLabel = snapshot.doseLabel }
+        if frequency != snapshot.frequency { frequency = snapshot.frequency }
+        if duration != snapshot.duration { duration = snapshot.duration }
+        if snapshot.replicaIncludesCompleteFields {
+            if reason != snapshot.reason { reason = snapshot.reason }
+            if form != snapshot.form { form = snapshot.form }
+            if packageAmount != snapshot.packageAmount { packageAmount = snapshot.packageAmount }
+            if packageUnit != snapshot.packageUnit { packageUnit = snapshot.packageUnit }
+            if stockPercent != snapshot.stockPercent { stockPercent = snapshot.stockPercent }
+            if quantityPerDose != snapshot.quantityPerDose { quantityPerDose = snapshot.quantityPerDose }
+            if doseUnit != snapshot.doseUnit { doseUnit = snapshot.doseUnit }
+            if doctorName != snapshot.doctorName { doctorName = snapshot.doctorName }
+            if doctorId != snapshot.doctorId { doctorId = snapshot.doctorId }
+            if hospitalName != snapshot.hospitalName { hospitalName = snapshot.hospitalName }
+            if doctorNotes != snapshot.doctorNotes { doctorNotes = snapshot.doctorNotes }
+            if lastRefillAt != snapshot.lastRefillAt { lastRefillAt = snapshot.lastRefillAt }
+            if refillRemindEnabled != snapshot.refillRemindEnabled {
+                refillRemindEnabled = snapshot.refillRemindEnabled
+            }
+        }
+        if updatedAt != snapshot.updatedAt { updatedAt = snapshot.updatedAt }
+        if deletedAt != snapshot.deletedAt { deletedAt = snapshot.deletedAt }
+        if serverVersion != snapshot.syncVersion { serverVersion = snapshot.syncVersion }
     }
 
     var medicineForm: MedicineForm {
@@ -293,6 +366,7 @@ final class DoseScheduleRecord {
     var period: String
     var updatedAt: Date
     var deletedAt: Date?
+    var serverVersion: Int64?
 
     init(
         id: UUID = UUID(),
@@ -302,7 +376,8 @@ final class DoseScheduleRecord {
         timeOfDay: String,
         period: String,
         updatedAt: Date = Date(),
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        serverVersion: Int64? = nil
     ) {
         self.id = id
         self.medicineId = medicineId
@@ -312,6 +387,7 @@ final class DoseScheduleRecord {
         self.period = period
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
+        self.serverVersion = serverVersion
     }
 
     convenience init(snapshot: DoseScheduleSnapshot) {
@@ -323,7 +399,8 @@ final class DoseScheduleRecord {
             timeOfDay: snapshot.timeOfDay,
             period: snapshot.period,
             updatedAt: snapshot.updatedAt,
-            deletedAt: snapshot.deletedAt
+            deletedAt: snapshot.deletedAt,
+            serverVersion: snapshot.syncVersion
         )
     }
 
@@ -336,18 +413,20 @@ final class DoseScheduleRecord {
             timeOfDay: timeOfDay,
             period: period,
             updatedAt: updatedAt,
-            deletedAt: deletedAt
+            deletedAt: deletedAt,
+            syncVersion: serverVersion
         )
     }
 
     func apply(_ snapshot: DoseScheduleSnapshot) {
-        medicineId = snapshot.medicineId
-        ownerId = snapshot.ownerId
-        profileId = snapshot.profileId
-        timeOfDay = snapshot.timeOfDay
-        period = snapshot.period
-        updatedAt = snapshot.updatedAt
-        deletedAt = snapshot.deletedAt
+        if medicineId != snapshot.medicineId { medicineId = snapshot.medicineId }
+        if ownerId != snapshot.ownerId { ownerId = snapshot.ownerId }
+        if profileId != snapshot.profileId { profileId = snapshot.profileId }
+        if timeOfDay != snapshot.timeOfDay { timeOfDay = snapshot.timeOfDay }
+        if period != snapshot.period { period = snapshot.period }
+        if updatedAt != snapshot.updatedAt { updatedAt = snapshot.updatedAt }
+        if deletedAt != snapshot.deletedAt { deletedAt = snapshot.deletedAt }
+        if serverVersion != snapshot.syncVersion { serverVersion = snapshot.syncVersion }
     }
 }
 
@@ -362,6 +441,7 @@ final class DoseLogRecord {
     var loggedAt: Date?
     var updatedAt: Date
     var deletedAt: Date?
+    var serverVersion: Int64?
 
     init(
         id: UUID = UUID(),
@@ -372,7 +452,8 @@ final class DoseLogRecord {
         status: String = DoseLogStatus.pending.rawValue,
         loggedAt: Date? = nil,
         updatedAt: Date = Date(),
-        deletedAt: Date? = nil
+        deletedAt: Date? = nil,
+        serverVersion: Int64? = nil
     ) {
         self.id = id
         self.scheduleId = scheduleId
@@ -383,6 +464,7 @@ final class DoseLogRecord {
         self.loggedAt = loggedAt
         self.updatedAt = updatedAt
         self.deletedAt = deletedAt
+        self.serverVersion = serverVersion
     }
 
     convenience init(snapshot: DoseLogSnapshot) {
@@ -395,7 +477,8 @@ final class DoseLogRecord {
             status: snapshot.status,
             loggedAt: snapshot.loggedAt,
             updatedAt: snapshot.updatedAt,
-            deletedAt: snapshot.deletedAt
+            deletedAt: snapshot.deletedAt,
+            serverVersion: snapshot.syncVersion
         )
     }
 
@@ -409,7 +492,8 @@ final class DoseLogRecord {
             status: status,
             loggedAt: loggedAt,
             updatedAt: updatedAt,
-            deletedAt: deletedAt
+            deletedAt: deletedAt,
+            syncVersion: serverVersion
         )
     }
 
@@ -422,6 +506,7 @@ final class DoseLogRecord {
         if loggedAt != snapshot.loggedAt { loggedAt = snapshot.loggedAt }
         if updatedAt != snapshot.updatedAt { updatedAt = snapshot.updatedAt }
         if deletedAt != snapshot.deletedAt { deletedAt = snapshot.deletedAt }
+        if serverVersion != snapshot.syncVersion { serverVersion = snapshot.syncVersion }
     }
 }
 
@@ -457,10 +542,12 @@ enum SyncMutationOperation: String, Sendable {
 
 enum SyncMutationState: String, Sendable {
     case pending
+    case inFlight = "in_flight"
+    case conflict
     case acknowledged
 }
 
-/// Durable local intent only. Batch 2B-2 never uploads or acknowledges these rows.
+/// Durable owner-scoped intent. Consumption is gated by the verified server protocol.
 @Model
 final class SyncMutationRecord {
     @Attribute(.unique) var id: UUID
@@ -470,6 +557,11 @@ final class SyncMutationRecord {
     var entityId: UUID
     var operation: String
     var baseVersion: Int64?
+    var payloadData: Data?
+    var conflictData: Data?
+    var conflictReason: String?
+    var attemptCount: Int = 0
+    var lastAttemptAt: Date?
     var state: String
     var createdAt: Date
     var lastChangedAt: Date
@@ -482,6 +574,11 @@ final class SyncMutationRecord {
         entityId: UUID,
         operation: SyncMutationOperation,
         baseVersion: Int64? = nil,
+        payloadData: Data? = nil,
+        conflictData: Data? = nil,
+        conflictReason: String? = nil,
+        attemptCount: Int = 0,
+        lastAttemptAt: Date? = nil,
         state: SyncMutationState = .pending,
         createdAt: Date = Date(),
         lastChangedAt: Date = Date()
@@ -493,6 +590,11 @@ final class SyncMutationRecord {
         self.entityId = entityId
         self.operation = operation.rawValue
         self.baseVersion = baseVersion
+        self.payloadData = payloadData
+        self.conflictData = conflictData
+        self.conflictReason = conflictReason
+        self.attemptCount = attemptCount
+        self.lastAttemptAt = lastAttemptAt
         self.state = state.rawValue
         self.createdAt = createdAt
         self.lastChangedAt = lastChangedAt
@@ -504,6 +606,7 @@ protocol SyncOutboxCanonicalRecord: AnyObject {
     var ownerId: UUID? { get }
     var profileId: UUID? { get }
     var deletedAt: Date? { get }
+    var serverVersion: Int64? { get set }
     var syncMutationEntity: SyncMutationEntity { get }
 }
 
@@ -534,6 +637,7 @@ enum SyncMutationOutbox {
     ) throws {
         for record in records {
             guard let ownerId = record.ownerId else { continue }
+            let payloadData = try payload(for: record).encodedData()
             let pending = SyncMutationState.pending.rawValue
             let descriptor = FetchDescriptor<SyncMutationRecord>(
                 predicate: #Predicate { row in
@@ -552,7 +656,12 @@ enum SyncMutationOutbox {
                 if existing.operation != operation.rawValue {
                     existing.operation = operation.rawValue
                 }
-                existing.lastChangedAt = now
+                if existing.payloadData != payloadData {
+                    existing.payloadData = payloadData
+                }
+                if existing.lastChangedAt != now {
+                    existing.lastChangedAt = now
+                }
             } else {
                 let mutation = SyncMutationRecord(
                     ownerId: ownerId,
@@ -560,6 +669,11 @@ enum SyncMutationOutbox {
                     entityType: record.syncMutationEntity,
                     entityId: record.id,
                     operation: operation,
+                    // A newly captured row with no known server version is a
+                    // conditional create. Existing Batch 2B-2 rows retain nil
+                    // and are reconciled conservatively before consumption.
+                    baseVersion: record.serverVersion ?? 0,
+                    payloadData: payloadData,
                     createdAt: now,
                     lastChangedAt: now
                 )
@@ -579,6 +693,42 @@ enum SyncMutationOutbox {
         return try context.fetch(descriptor)
     }
 
+    static func unresolved(ownerId: UUID, in context: ModelContext) throws -> [SyncMutationRecord] {
+        let acknowledged = SyncMutationState.acknowledged.rawValue
+        let descriptor = FetchDescriptor<SyncMutationRecord>(
+            predicate: #Predicate { row in
+                row.ownerId == ownerId && row.state != acknowledged
+            },
+            sortBy: [SortDescriptor(\.createdAt)]
+        )
+        return try context.fetch(descriptor)
+    }
+
+    static func hasConflict(ownerId: UUID, in context: ModelContext) throws -> Bool {
+        let conflict = SyncMutationState.conflict.rawValue
+        let descriptor = FetchDescriptor<SyncMutationRecord>(
+            predicate: #Predicate { row in
+                row.ownerId == ownerId && row.state == conflict
+            }
+        )
+        return try !context.fetch(descriptor).isEmpty
+    }
+
+    static func payload(for record: any SyncOutboxCanonicalRecord) throws -> SyncMutationPayload {
+        switch record {
+        case let treatment as TreatmentRecord:
+            return SyncMutationPayload(treatment.snapshot)
+        case let medicine as MedicineRecord:
+            return SyncMutationPayload(medicine.snapshot)
+        case let schedule as DoseScheduleRecord:
+            return SyncMutationPayload(schedule.snapshot)
+        case let log as DoseLogRecord:
+            return SyncMutationPayload(log.snapshot)
+        default:
+            throw CocoaError(.coderInvalidValue)
+        }
+    }
+
     static func removeAll(ownerId: UUID, in context: ModelContext) throws {
         let descriptor = FetchDescriptor<SyncMutationRecord>(
             predicate: #Predicate { row in row.ownerId == ownerId }
@@ -594,10 +744,30 @@ enum SyncMutationOutbox {
         in context: ModelContext,
         now: Date = Date()
     ) throws {
-        for row in try pending(ownerId: previousOwnerId, in: context) {
+        for row in try unresolved(ownerId: previousOwnerId, in: context) {
             row.ownerId = newOwnerId
             row.lastChangedAt = now
         }
+    }
+}
+
+@Model
+final class DoseLogSyncAliasRecord {
+    @Attribute(.unique) var localLogId: UUID
+    var ownerId: UUID
+    var canonicalLogId: UUID
+    var createdAt: Date
+
+    init(
+        localLogId: UUID,
+        ownerId: UUID,
+        canonicalLogId: UUID,
+        createdAt: Date = Date()
+    ) {
+        self.localLogId = localLogId
+        self.ownerId = ownerId
+        self.canonicalLogId = canonicalLogId
+        self.createdAt = createdAt
     }
 }
 

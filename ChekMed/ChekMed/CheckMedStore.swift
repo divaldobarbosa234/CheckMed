@@ -153,6 +153,7 @@ final class CheckMedStore {
             DoseScheduleRecord.self,
             DoseLogRecord.self,
             SyncMutationRecord.self,
+            DoseLogSyncAliasRecord.self,
             FeelingRecord.self,
             RewardGrant.self,
             CommunityCommentRecord.self,
@@ -1674,6 +1675,14 @@ final class CheckMedStore {
         for row in allRewardGrants() where row.ownerId == ownerId { context.delete(row) }
         do {
             try SyncMutationOutbox.removeAll(ownerId: ownerId, in: context)
+            let aliases = try context.fetch(
+                FetchDescriptor<DoseLogSyncAliasRecord>(
+                    predicate: #Predicate { row in row.ownerId == ownerId }
+                )
+            )
+            for alias in aliases {
+                context.delete(alias)
+            }
             try context.save()
         } catch {
             context.rollback()
@@ -1937,6 +1946,7 @@ final class CheckMedStore {
             DoseScheduleRecord.self,
             DoseLogRecord.self,
             SyncMutationRecord.self,
+            DoseLogSyncAliasRecord.self,
             FeelingRecord.self,
             RewardGrant.self,
             CommunityCommentRecord.self,
@@ -2719,29 +2729,318 @@ final class CheckMedStore {
         mergeLogs([row])
     }
 
-    func applyRemoteReplica(
+    /// Reconciles Batch 2B-2 reference-only intent before versioned consumption.
+    /// Ambiguous rows become durable conflicts; they are never force-written.
+    private func reconcileVersionedOutbox(
         treatments: [TreatmentSnapshot],
         medicines: [MedicineSnapshot],
         schedules: [DoseScheduleSnapshot],
         logs: [DoseLogSnapshot]
+    ) -> [SyncMutationEntity: Set<UUID>] {
+        guard let ownerId else { return [:] }
+        let treatmentRows = Dictionary(uniqueKeysWithValues: treatments.map { ($0.id, $0) })
+        let medicineRows = Dictionary(uniqueKeysWithValues: medicines.map { ($0.id, $0) })
+        let scheduleRows = Dictionary(uniqueKeysWithValues: schedules.map { ($0.id, $0) })
+        let logRows = Dictionary(uniqueKeysWithValues: logs.map { ($0.id, $0) })
+
+        do {
+            let rows = try SyncMutationOutbox.unresolved(ownerId: ownerId, in: context)
+            let existingIntentKeys = Set(rows.map { "\($0.entityType)|\($0.entityId.uuidString)" })
+
+            func protectLegacyMismatch(
+                record: any SyncOutboxCanonicalRecord,
+                remoteSubject: UUID?,
+                remoteVersion: Int64?,
+                remoteDeleted: Bool,
+                remotePayload: SyncMutationPayload
+            ) throws {
+                guard record.serverVersion == nil,
+                      !existingIntentKeys.contains(
+                        "\(record.syncMutationEntity.rawValue)|\(record.id.uuidString)"
+                      )
+                else { return }
+                let localPayload = try SyncMutationOutbox.payload(for: record)
+                let statesMatch = (record.deletedAt != nil) == remoteDeleted
+                if record.profileId == remoteSubject,
+                   statesMatch,
+                   localPayload == remotePayload,
+                   let remoteVersion {
+                    record.serverVersion = remoteVersion
+                    return
+                }
+                let conflict = SyncMutationRecord(
+                    ownerId: ownerId,
+                    subjectProfileId: record.profileId,
+                    entityType: record.syncMutationEntity,
+                    entityId: record.id,
+                    operation: record.deletedAt == nil ? .upsert : .delete,
+                    baseVersion: remoteVersion,
+                    payloadData: try localPayload.encodedData(),
+                    conflictData: try remotePayload.encodedData(),
+                    conflictReason: record.profileId == remoteSubject
+                        ? "legacy_state_differs"
+                        : "subject_profile_mismatch",
+                    state: .conflict
+                )
+                context.insert(conflict)
+            }
+
+            for row in treatments {
+                if let local = allTreatments().first(where: { $0.id == row.id }) {
+                    try protectLegacyMismatch(
+                        record: local,
+                        remoteSubject: row.profileId,
+                        remoteVersion: row.syncVersion,
+                        remoteDeleted: row.deletedAt != nil,
+                        remotePayload: SyncMutationPayload(row)
+                    )
+                }
+            }
+            for row in medicines {
+                if let local = allMedicines().first(where: { $0.id == row.id }) {
+                    try protectLegacyMismatch(
+                        record: local,
+                        remoteSubject: row.profileId,
+                        remoteVersion: row.syncVersion,
+                        remoteDeleted: row.deletedAt != nil,
+                        remotePayload: SyncMutationPayload(row)
+                    )
+                }
+            }
+            for row in schedules {
+                if let local = allSchedules().first(where: { $0.id == row.id }) {
+                    try protectLegacyMismatch(
+                        record: local,
+                        remoteSubject: row.profileId,
+                        remoteVersion: row.syncVersion,
+                        remoteDeleted: row.deletedAt != nil,
+                        remotePayload: SyncMutationPayload(row)
+                    )
+                }
+            }
+            for row in logs {
+                if let local = allLogs().first(where: { $0.id == row.id }) {
+                    try protectLegacyMismatch(
+                        record: local,
+                        remoteSubject: row.profileId,
+                        remoteVersion: row.syncVersion,
+                        remoteDeleted: row.deletedAt != nil,
+                        remotePayload: SyncMutationPayload(row)
+                    )
+                }
+            }
+
+            func protectMissingLegacy(
+                record: any SyncOutboxCanonicalRecord,
+                remoteIds: Set<UUID>
+            ) throws {
+                let key = "\(record.syncMutationEntity.rawValue)|\(record.id.uuidString)"
+                guard record.serverVersion == nil,
+                      record.deletedAt == nil,
+                      !remoteIds.contains(record.id),
+                      !existingIntentKeys.contains(key)
+                else { return }
+                // Approved create path: an absent server row may be written
+                // once with expected version 0. It is never force-applied
+                // against an existing or tombstoned replica row.
+                context.insert(
+                    SyncMutationRecord(
+                        ownerId: ownerId,
+                        subjectProfileId: record.profileId,
+                        entityType: record.syncMutationEntity,
+                        entityId: record.id,
+                        operation: .upsert,
+                        baseVersion: 0,
+                        payloadData: try SyncMutationOutbox.payload(for: record).encodedData()
+                    )
+                )
+            }
+            let remoteTreatmentIds = Set(treatmentRows.keys)
+            let remoteMedicineIds = Set(medicineRows.keys)
+            let remoteScheduleIds = Set(scheduleRows.keys)
+            let remoteLogIds = Set(logRows.keys)
+            for local in allTreatments() where local.ownerId == ownerId {
+                try protectMissingLegacy(record: local, remoteIds: remoteTreatmentIds)
+            }
+            for local in allMedicines() where local.ownerId == ownerId {
+                try protectMissingLegacy(record: local, remoteIds: remoteMedicineIds)
+            }
+            for local in allSchedules() where local.ownerId == ownerId {
+                try protectMissingLegacy(record: local, remoteIds: remoteScheduleIds)
+            }
+            for local in allLogs() where local.ownerId == ownerId {
+                try protectMissingLegacy(record: local, remoteIds: remoteLogIds)
+            }
+
+            for mutation in rows where mutation.state == SyncMutationState.pending.rawValue
+                && (mutation.baseVersion == nil || mutation.baseVersion == 0) {
+                let remote: (
+                    payload: SyncMutationPayload,
+                    subject: UUID?,
+                    version: Int64?,
+                    deleted: Bool
+                )?
+                switch SyncMutationEntity(rawValue: mutation.entityType) {
+                case .treatment:
+                    remote = treatmentRows[mutation.entityId].map {
+                        (
+                            SyncMutationPayload($0),
+                            $0.profileId,
+                            $0.syncVersion,
+                            $0.deletedAt != nil
+                        )
+                    }
+                case .medicine:
+                    remote = medicineRows[mutation.entityId].map {
+                        (
+                            SyncMutationPayload($0),
+                            $0.profileId,
+                            $0.syncVersion,
+                            $0.deletedAt != nil
+                        )
+                    }
+                case .schedule:
+                    remote = scheduleRows[mutation.entityId].map {
+                        (
+                            SyncMutationPayload($0),
+                            $0.profileId,
+                            $0.syncVersion,
+                            $0.deletedAt != nil
+                        )
+                    }
+                case .doseLog:
+                    remote = logRows[mutation.entityId].map {
+                        (
+                            SyncMutationPayload($0),
+                            $0.profileId,
+                            $0.syncVersion,
+                            $0.deletedAt != nil
+                        )
+                    }
+                case nil:
+                    remote = nil
+                }
+
+                guard let remote else {
+                    if mutation.baseVersion == nil {
+                        mutation.baseVersion = 0
+                    }
+                    continue
+                }
+                guard let version = remote.version else {
+                    mutation.state = SyncMutationState.conflict.rawValue
+                    mutation.conflictReason = "missing_server_version"
+                    continue
+                }
+                guard mutation.subjectProfileId == remote.subject else {
+                    mutation.state = SyncMutationState.conflict.rawValue
+                    mutation.conflictReason = "subject_profile_mismatch"
+                    mutation.conflictData = try remote.payload.encodedData()
+                    continue
+                }
+                let operation = SyncMutationOperation(rawValue: mutation.operation)
+                if operation == .delete, remote.deleted {
+                    setServerVersion(
+                        version,
+                        entityType: mutation.entityType,
+                        entityId: mutation.entityId
+                    )
+                    context.delete(mutation)
+                    continue
+                }
+                if operation == .delete {
+                    guard let localData = mutation.payloadData,
+                          localData == (try remote.payload.encodedData()) else {
+                        mutation.state = SyncMutationState.conflict.rawValue
+                        mutation.conflictReason = "legacy_base_unknown"
+                        mutation.conflictData = try remote.payload.encodedData()
+                        continue
+                    }
+                    mutation.baseVersion = version
+                    continue
+                }
+                guard !remote.deleted,
+                      let localData = mutation.payloadData,
+                      localData == (try remote.payload.encodedData()) else {
+                    mutation.state = SyncMutationState.conflict.rawValue
+                    mutation.conflictReason = remote.deleted
+                        ? "server_tombstone"
+                        : "legacy_base_unknown"
+                    mutation.conflictData = try remote.payload.encodedData()
+                    continue
+                }
+                setServerVersion(
+                    version,
+                    entityType: mutation.entityType,
+                    entityId: mutation.entityId
+                )
+                context.delete(mutation)
+            }
+            let remaining = try SyncMutationOutbox.unresolved(ownerId: ownerId, in: context)
+            var protected: [SyncMutationEntity: Set<UUID>] = [:]
+            for mutation in remaining {
+                guard let entity = SyncMutationEntity(rawValue: mutation.entityType) else { continue }
+                protected[entity, default: []].insert(mutation.entityId)
+            }
+            return protected
+        } catch {
+            LaunchLog.error("versioned outbox reconciliation failed")
+            return Dictionary(
+                uniqueKeysWithValues: SyncMutationEntity.allCases.map { entity in
+                    (entity, Set(canonicalIds(for: entity)))
+                }
+            )
+        }
+    }
+
+    func applyRemoteReplica(
+        treatments: [TreatmentSnapshot],
+        medicines: [MedicineSnapshot],
+        schedules: [DoseScheduleSnapshot],
+        logs: [DoseLogSnapshot],
+        preservingLocalMutations: Bool = false
     ) async {
         let previous = suppressNotify
         suppressNotify = true
-        mergeTreatments(treatments)
+        let protected = preservingLocalMutations
+            ? reconcileVersionedOutbox(
+                treatments: treatments,
+                medicines: medicines,
+                schedules: schedules,
+                logs: logs
+            )
+            : [:]
+        mergeTreatments(treatments, protectedIds: protected[.treatment] ?? [])
         await Task.yield()
-        mergeMedicines(medicines)
-        await Task.yield()
-        mergeSchedules(schedules)
-        await Task.yield()
-        let cutoff = Date().addingTimeInterval(-36 * 60 * 60)
-        let recentLogs = logs.filter { row in
-            if row.status == DoseLogStatus.pending.rawValue
-                || row.status == DoseLogStatus.snoozed.rawValue {
-                return row.scheduledAt >= cutoff
-            }
-            return true
+        let medicineRows = preservingLocalMutations ? medicines : medicines.map { row in
+            var legacySafe = row
+            legacySafe.replicaIncludesCompleteFields = false
+            return legacySafe
         }
-        await mergeLogsYielding(recentLogs)
+        mergeMedicines(medicineRows, protectedIds: protected[.medicine] ?? [])
+        await Task.yield()
+        mergeSchedules(schedules, protectedIds: protected[.schedule] ?? [])
+        await Task.yield()
+        let logsToMerge: [DoseLogSnapshot]
+        if preservingLocalMutations {
+            // Versioned restoration is complete. Historical pending rows keep
+            // their server UUIDs so later same-slot aliases stay stable.
+            logsToMerge = logs
+        } else {
+            let cutoff = Date().addingTimeInterval(-36 * 60 * 60)
+            logsToMerge = logs.filter { row in
+                if row.status == DoseLogStatus.pending.rawValue
+                    || row.status == DoseLogStatus.snoozed.rawValue {
+                    return row.scheduledAt >= cutoff
+                }
+                return true
+            }
+        }
+        await mergeLogsYielding(
+            logsToMerge,
+            protectedIds: protected[.doseLog] ?? [],
+            resolveAliases: preservingLocalMutations
+        )
         suppressNotify = previous
     }
 
@@ -2754,11 +3053,203 @@ final class CheckMedStore {
         notify()
     }
 
-    private func mergeTreatments(_ rows: [TreatmentSnapshot]) {
+    func saveAfterVersionedSync() -> Bool {
+        let previous = suppressNotify
+        suppressNotify = true
+        logsEnsuredDay = nil
+        do {
+            try context.save()
+            invalidateCache()
+            suppressNotify = previous
+            notify()
+            return true
+        } catch {
+            context.rollback()
+            invalidateCache()
+            suppressNotify = previous
+            LaunchLog.error("versioned replica save failed")
+            return false
+        }
+    }
+
+    func prepareNextSyncMutation(
+        ownerId: UUID,
+        now: Date = Date()
+    ) throws -> SyncMutationWorkItem? {
+        do {
+            guard try !SyncMutationOutbox.hasConflict(ownerId: ownerId, in: context) else {
+                return nil
+            }
+            let ready = try SyncMutationOutbox.unresolved(ownerId: ownerId, in: context)
+                .filter {
+                    $0.state == SyncMutationState.pending.rawValue
+                        || $0.state == SyncMutationState.inFlight.rawValue
+                }
+                .sorted(by: syncMutationPrecedes)
+            guard let mutation = ready.first,
+                  let entity = SyncMutationEntity(rawValue: mutation.entityType),
+                  let operation = SyncMutationOperation(rawValue: mutation.operation)
+            else { return nil }
+
+            if mutation.payloadData == nil,
+               let record = canonicalRecord(entity: entity, id: mutation.entityId) {
+                mutation.payloadData = try SyncMutationOutbox.payload(for: record).encodedData()
+            }
+            guard mutation.subjectProfileId != nil else {
+                mutation.state = SyncMutationState.conflict.rawValue
+                mutation.conflictReason = "missing_subject"
+                try context.save()
+                return nil
+            }
+            guard let payloadData = mutation.payloadData,
+                  let baseVersion = mutation.baseVersion else {
+                mutation.state = SyncMutationState.conflict.rawValue
+                mutation.conflictReason = "legacy_base_unknown"
+                try context.save()
+                return nil
+            }
+            if mutation.state == SyncMutationState.pending.rawValue {
+                mutation.state = SyncMutationState.inFlight.rawValue
+            }
+            mutation.attemptCount += 1
+            mutation.lastAttemptAt = now
+            try context.save()
+            let transportId: UUID
+            if entity == .doseLog {
+                transportId = canonicalDoseLogId(forLocalId: mutation.entityId) ?? mutation.entityId
+            } else {
+                transportId = mutation.entityId
+            }
+            return SyncMutationWorkItem(
+                mutationId: mutation.id,
+                ownerId: mutation.ownerId,
+                subjectProfileId: mutation.subjectProfileId,
+                entityType: entity,
+                localEntityId: mutation.entityId,
+                transportEntityId: transportId,
+                operation: operation,
+                expectedVersion: baseVersion,
+                payload: try SyncMutationPayload.decode(payloadData)
+            )
+        } catch {
+            context.rollback()
+            LaunchLog.error("prepare versioned mutation failed")
+            throw error
+        }
+    }
+
+    @discardableResult
+    func acknowledgeSyncMutation(
+        _ work: SyncMutationWorkItem,
+        response: SyncMutationRPCResponse,
+        canonical: SyncCanonicalSnapshot?
+    ) -> Bool {
+        do {
+            guard SyncProtocolValidation.responseMatches(response, work: work) else {
+                return false
+            }
+            let rows = try SyncMutationOutbox.unresolved(ownerId: work.ownerId, in: context)
+            guard let mutation = rows.first(where: {
+                $0.id == work.mutationId
+                    && $0.entityType == work.entityType.rawValue
+                    && $0.entityId == work.localEntityId
+                    && $0.state == SyncMutationState.inFlight.rawValue
+            }) else { return false }
+
+            if work.entityType == .doseLog,
+               let canonicalId = response.canonicalEntityId,
+               canonicalId != work.localEntityId {
+                upsertDoseLogAlias(
+                    localId: work.localEntityId,
+                    canonicalId: canonicalId,
+                    ownerId: work.ownerId
+                )
+            }
+
+            let laterMutation = rows.first {
+                $0.id != mutation.id
+                    && $0.entityType == mutation.entityType
+                    && $0.entityId == mutation.entityId
+                    && $0.state == SyncMutationState.pending.rawValue
+            }
+            if let committedVersion = response.committedVersion {
+                setServerVersion(
+                    committedVersion,
+                    entityType: mutation.entityType,
+                    entityId: mutation.entityId
+                )
+                if let laterMutation,
+                   laterMutation.baseVersion == nil
+                    || laterMutation.baseVersion == work.expectedVersion {
+                    laterMutation.baseVersion = committedVersion
+                }
+            }
+            if laterMutation == nil, let canonical {
+                applyAcknowledgedCanonical(canonical, localEntityId: work.localEntityId)
+            }
+            context.delete(mutation)
+            acknowledgeCascadedDeletes(
+                response.affectedDescendants ?? [],
+                ownerId: work.ownerId,
+                excluding: work.mutationId
+            )
+            try context.save()
+            invalidateCache()
+            logsEnsuredDay = nil
+            notify()
+            return true
+        } catch {
+            context.rollback()
+            invalidateCache()
+            LaunchLog.error("local sync acknowledgement failed")
+            return false
+        }
+    }
+
+    @discardableResult
+    func retainSyncConflict(
+        _ work: SyncMutationWorkItem,
+        response: SyncMutationRPCResponse
+    ) -> Bool {
+        do {
+            let rows = try SyncMutationOutbox.unresolved(ownerId: work.ownerId, in: context)
+            guard let mutation = rows.first(where: { $0.id == work.mutationId }) else {
+                return false
+            }
+            if work.entityType == .doseLog,
+               let canonicalId = response.canonicalEntityId,
+               canonicalId != work.localEntityId {
+                upsertDoseLogAlias(
+                    localId: work.localEntityId,
+                    canonicalId: canonicalId,
+                    ownerId: work.ownerId
+                )
+            }
+            mutation.state = SyncMutationState.conflict.rawValue
+            mutation.conflictReason = response.reason ?? response.outcome.rawValue
+            mutation.conflictData = try SyncWireCodec.data(from: response.canonicalRow)
+            try context.save()
+            return true
+        } catch {
+            context.rollback()
+            LaunchLog.error("local sync conflict persistence failed")
+            return false
+        }
+    }
+
+    func hasPendingSyncConflict(ownerId: UUID) -> Bool {
+        (try? SyncMutationOutbox.hasConflict(ownerId: ownerId, in: context)) ?? true
+    }
+
+    private func mergeTreatments(
+        _ rows: [TreatmentSnapshot],
+        protectedIds: Set<UUID> = []
+    ) {
         guard !rows.isEmpty else { return }
         var byId = Dictionary(uniqueKeysWithValues: allTreatments().map { ($0.id, $0) })
         var inserted = false
         for row in rows {
+            guard !protectedIds.contains(row.id) else { continue }
             if let existing = byId[row.id] {
                 guard row.updatedAt >= existing.updatedAt else { continue }
                 existing.apply(row)
@@ -2772,11 +3263,15 @@ final class CheckMedStore {
         if inserted { invalidateCache() }
     }
 
-    private func mergeMedicines(_ rows: [MedicineSnapshot]) {
+    private func mergeMedicines(
+        _ rows: [MedicineSnapshot],
+        protectedIds: Set<UUID> = []
+    ) {
         guard !rows.isEmpty else { return }
         var byId = Dictionary(uniqueKeysWithValues: allMedicines().map { ($0.id, $0) })
         var inserted = false
         for row in rows {
+            guard !protectedIds.contains(row.id) else { continue }
             if let existing = byId[row.id] {
                 guard row.updatedAt >= existing.updatedAt else { continue }
                 existing.apply(row)
@@ -2790,11 +3285,15 @@ final class CheckMedStore {
         if inserted { invalidateCache() }
     }
 
-    private func mergeSchedules(_ rows: [DoseScheduleSnapshot]) {
+    private func mergeSchedules(
+        _ rows: [DoseScheduleSnapshot],
+        protectedIds: Set<UUID> = []
+    ) {
         guard !rows.isEmpty else { return }
         var byId = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
         var inserted = false
         for row in rows {
+            guard !protectedIds.contains(row.id) else { continue }
             if let existing = byId[row.id] {
                 guard row.updatedAt >= existing.updatedAt else { continue }
                 existing.apply(row)
@@ -2808,21 +3307,34 @@ final class CheckMedStore {
         if inserted { invalidateCache() }
     }
 
-    private func mergeLogs(_ rows: [DoseLogSnapshot]) {
+    private func mergeLogs(
+        _ rows: [DoseLogSnapshot],
+        protectedIds: Set<UUID> = [],
+        resolveAliases: Bool = false
+    ) {
         guard !rows.isEmpty else { return }
         var byId = Dictionary(uniqueKeysWithValues: allLogs().map { ($0.id, $0) })
-        let inserted = mergeLogs(rows, into: &byId)
+        let inserted = mergeLogs(
+            rows,
+            into: &byId,
+            protectedIds: protectedIds,
+            resolveAliases: resolveAliases
+        )
         if inserted { invalidateCache() }
     }
 
     @discardableResult
     private func mergeLogs(
         _ rows: [DoseLogSnapshot],
-        into byId: inout [UUID: DoseLogRecord]
+        into byId: inout [UUID: DoseLogRecord],
+        protectedIds: Set<UUID> = [],
+        resolveAliases: Bool = false
     ) -> Bool {
         var inserted = false
         for row in rows {
-            if let existing = byId[row.id] {
+            let localId = resolveAliases ? localDoseLogId(forCanonicalId: row.id) ?? row.id : row.id
+            guard !protectedIds.contains(localId) else { continue }
+            if let existing = byId[localId] {
                 guard row.updatedAt >= existing.updatedAt else { continue }
                 let statusChanging = existing.status != row.status
                 if statusChanging
@@ -2841,21 +3353,27 @@ final class CheckMedStore {
                     FreezeDiag.log("SWIFTDATA WRITE END source=mergeLogs.apply")
                 }
             } else {
-                let record = DoseLogRecord(snapshot: row)
+                var localSnapshot = row
+                localSnapshot.id = localId
+                let record = DoseLogRecord(snapshot: localSnapshot)
                 FreezeDiag.log("SWIFTDATA WRITE START source=mergeLogs.insert")
                 FreezeDiag.log(
                     "SWIFTDATA WRITE object=\(row.id) kind=insert medicine=- oldStatus=- newStatus=\(row.status) scheduledAt=\(row.scheduledAt)"
                 )
                 context.insert(record)
                 FreezeDiag.log("SWIFTDATA WRITE END source=mergeLogs.insert")
-                byId[row.id] = record
+                byId[localId] = record
                 inserted = true
             }
         }
         return inserted
     }
 
-    private func mergeLogsYielding(_ rows: [DoseLogSnapshot]) async {
+    private func mergeLogsYielding(
+        _ rows: [DoseLogSnapshot],
+        protectedIds: Set<UUID> = [],
+        resolveAliases: Bool = false
+    ) async {
         guard !rows.isEmpty else { return }
         var byId = Dictionary(uniqueKeysWithValues: allLogs().map { ($0.id, $0) })
         var inserted = false
@@ -2863,13 +3381,167 @@ final class CheckMedStore {
         var start = 0
         while start < rows.count {
             let end = min(start + chunk, rows.count)
-            if mergeLogs(Array(rows[start..<end]), into: &byId) {
+            if mergeLogs(
+                Array(rows[start..<end]),
+                into: &byId,
+                protectedIds: protectedIds,
+                resolveAliases: resolveAliases
+            ) {
                 inserted = true
             }
             start = end
             await Task.yield()
         }
         if inserted { invalidateCache() }
+    }
+
+    private func syncMutationPrecedes(
+        _ lhs: SyncMutationRecord,
+        _ rhs: SyncMutationRecord
+    ) -> Bool {
+        func rank(_ value: String) -> Int {
+            switch SyncMutationEntity(rawValue: value) {
+            case .treatment: 0
+            case .medicine: 1
+            case .schedule: 2
+            case .doseLog: 3
+            case nil: 4
+            }
+        }
+        let lhsRank = rank(lhs.entityType)
+        let rhsRank = rank(rhs.entityType)
+        if lhsRank != rhsRank { return lhsRank < rhsRank }
+        return lhs.createdAt < rhs.createdAt
+    }
+
+    private func canonicalRecord(
+        entity: SyncMutationEntity,
+        id: UUID
+    ) -> (any SyncOutboxCanonicalRecord)? {
+        switch entity {
+        case .treatment: allTreatments().first { $0.id == id }
+        case .medicine: allMedicines().first { $0.id == id }
+        case .schedule: allSchedules().first { $0.id == id }
+        case .doseLog: allLogs().first { $0.id == id }
+        }
+    }
+
+    private func canonicalIds(for entity: SyncMutationEntity) -> [UUID] {
+        switch entity {
+        case .treatment: allTreatments().map(\.id)
+        case .medicine: allMedicines().map(\.id)
+        case .schedule: allSchedules().map(\.id)
+        case .doseLog: allLogs().map(\.id)
+        }
+    }
+
+    private func setServerVersion(
+        _ version: Int64,
+        entityType: String,
+        entityId: UUID
+    ) {
+        guard let entity = SyncMutationEntity(rawValue: entityType) else { return }
+        canonicalRecord(entity: entity, id: entityId)?.serverVersion = version
+    }
+
+    private func canonicalDoseLogId(forLocalId localId: UUID) -> UUID? {
+        let target = localId
+        let descriptor = FetchDescriptor<DoseLogSyncAliasRecord>(
+            predicate: #Predicate { row in row.localLogId == target }
+        )
+        return try? context.fetch(descriptor).first?.canonicalLogId
+    }
+
+    private func localDoseLogId(forCanonicalId canonicalId: UUID) -> UUID? {
+        let target = canonicalId
+        let descriptor = FetchDescriptor<DoseLogSyncAliasRecord>(
+            predicate: #Predicate { row in row.canonicalLogId == target }
+        )
+        return try? context.fetch(descriptor).first?.localLogId
+    }
+
+    private func upsertDoseLogAlias(
+        localId: UUID,
+        canonicalId: UUID,
+        ownerId: UUID
+    ) {
+        let target = localId
+        let descriptor = FetchDescriptor<DoseLogSyncAliasRecord>(
+            predicate: #Predicate { row in row.localLogId == target }
+        )
+        if let existing = try? context.fetch(descriptor).first {
+            if existing.ownerId != ownerId { existing.ownerId = ownerId }
+            if existing.canonicalLogId != canonicalId {
+                existing.canonicalLogId = canonicalId
+            }
+        } else {
+            context.insert(
+                DoseLogSyncAliasRecord(
+                    localLogId: localId,
+                    ownerId: ownerId,
+                    canonicalLogId: canonicalId
+                )
+            )
+        }
+    }
+
+    private func applyAcknowledgedCanonical(
+        _ canonical: SyncCanonicalSnapshot,
+        localEntityId: UUID
+    ) {
+        switch canonical {
+        case .treatment(var snapshot):
+            snapshot.id = localEntityId
+            if let existing = allTreatments().first(where: { $0.id == localEntityId }) {
+                existing.apply(snapshot)
+            } else {
+                context.insert(TreatmentRecord(snapshot: snapshot))
+            }
+        case .medicine(var snapshot):
+            snapshot.id = localEntityId
+            if let existing = allMedicines().first(where: { $0.id == localEntityId }) {
+                existing.apply(snapshot)
+            } else {
+                context.insert(MedicineRecord(snapshot: snapshot))
+            }
+        case .schedule(var snapshot):
+            snapshot.id = localEntityId
+            if let existing = allSchedules().first(where: { $0.id == localEntityId }) {
+                existing.apply(snapshot)
+            } else {
+                context.insert(DoseScheduleRecord(snapshot: snapshot))
+            }
+        case .doseLog(var snapshot):
+            snapshot.id = localEntityId
+            if let existing = allLogs().first(where: { $0.id == localEntityId }) {
+                existing.apply(snapshot)
+            } else {
+                context.insert(DoseLogRecord(snapshot: snapshot))
+            }
+        }
+    }
+
+    private func acknowledgeCascadedDeletes(
+        _ affected: [SyncAffectedEntity],
+        ownerId: UUID,
+        excluding mutationId: UUID
+    ) {
+        guard !affected.isEmpty,
+              let rows = try? SyncMutationOutbox.unresolved(ownerId: ownerId, in: context)
+        else { return }
+        for item in affected {
+            setServerVersion(
+                item.committedVersion,
+                entityType: item.entityType,
+                entityId: item.entityId
+            )
+            for mutation in rows where mutation.id != mutationId
+                && mutation.entityType == item.entityType
+                && mutation.entityId == item.entityId
+                && mutation.operation == SyncMutationOperation.delete.rawValue {
+                context.delete(mutation)
+            }
+        }
     }
 
     private func allTreatments() -> [TreatmentRecord] {
@@ -3406,6 +4078,7 @@ final class CheckMedStore {
             DoseScheduleRecord.self,
             DoseLogRecord.self,
             SyncMutationRecord.self,
+            DoseLogSyncAliasRecord.self,
             FeelingRecord.self,
             RewardGrant.self,
             CommunityCommentRecord.self,
@@ -3427,6 +4100,7 @@ final class CheckMedStore {
             DoseScheduleRecord.self,
             DoseLogRecord.self,
             SyncMutationRecord.self,
+            DoseLogSyncAliasRecord.self,
             FeelingRecord.self,
             RewardGrant.self,
             CommunityCommentRecord.self,
@@ -3454,10 +4128,13 @@ final class CheckMedStore {
         var entityId: UUID
         var operation: String
         var baseVersion: Int64?
+        var state: String
+        var hasPayload: Bool
+        var conflictReason: String?
     }
 
     func debugPendingSyncMutations(ownerId: UUID) -> [DebugSyncMutation] {
-        ((try? SyncMutationOutbox.pending(ownerId: ownerId, in: context)) ?? []).map {
+        ((try? SyncMutationOutbox.unresolved(ownerId: ownerId, in: context)) ?? []).map {
             DebugSyncMutation(
                 id: $0.id,
                 ownerId: $0.ownerId,
@@ -3465,7 +4142,10 @@ final class CheckMedStore {
                 entityType: $0.entityType,
                 entityId: $0.entityId,
                 operation: $0.operation,
-                baseVersion: $0.baseVersion
+                baseVersion: $0.baseVersion,
+                state: $0.state,
+                hasPayload: $0.payloadData != nil,
+                conflictReason: $0.conflictReason
             )
         }
     }
@@ -3483,9 +4163,26 @@ final class CheckMedStore {
         try? context.save()
     }
 
+    func debugClearPendingSyncMutationSubject(
+        ownerId: UUID,
+        entityType: SyncMutationEntity,
+        entityId: UUID
+    ) {
+        guard let mutation = try? SyncMutationOutbox.pending(ownerId: ownerId, in: context).first(where: {
+            $0.entityType == entityType.rawValue && $0.entityId == entityId
+        }) else { return }
+        mutation.subjectProfileId = nil
+        try? context.save()
+    }
+
     func debugPersistDoseAction(id: UUID, action: DoseLoopAction, now: Date = Date()) {
         Self.persistDoseAction(id: id, action: action, now: now, container: container)
         invalidateCache()
+    }
+
+    func debugStageDoseLogMutation(id: UUID) {
+        guard let log = allLogs().first(where: { $0.id == id }) else { return }
+        _ = saveCanonicalMutation([log])
     }
 
     func debugContractBind(ownerId: UUID, profileId: UUID) {
@@ -3618,6 +4315,10 @@ final class CheckMedStore {
         allRewardGrants().count
     }
 
+    func debugDoseLogAlias(localId: UUID) -> UUID? {
+        canonicalDoseLogId(forLocalId: localId)
+    }
+
     func debugTreatmentCompleteGrantCount() -> Int {
         allRewardGrants().filter { $0.kind == RewardCatalog.XPEvent.treatmentComplete.rawValue }.count
     }
@@ -3653,7 +4354,7 @@ final class CheckMedStore {
     }
 
     func pendingSyncMutationCount(ownerId: UUID) -> Int {
-        (try? SyncMutationOutbox.pending(ownerId: ownerId, in: context).count) ?? 0
+        (try? SyncMutationOutbox.unresolved(ownerId: ownerId, in: context).count) ?? 0
     }
 
     private func notify() {

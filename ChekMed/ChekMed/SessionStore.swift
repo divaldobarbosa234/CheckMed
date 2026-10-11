@@ -316,6 +316,15 @@ final class SessionStore {
     /// Persist Phil plan status with the treatments store (SwiftData + Keychain).
     @ObservationIgnored
     var onPhilPlanPersist: ((PhilPlanStatus) -> Void)?
+    /// Invalidates in-flight sync before the Auth session starts changing.
+    @ObservationIgnored
+    var onWillSignOut: (() -> Void)?
+    /// Quiesces owner-scoped writes before remote account deletion.
+    @ObservationIgnored
+    var onPrepareAccountDeletion: ((UUID) async -> Void)?
+    /// Re-enables sync when remote account deletion fails.
+    @ObservationIgnored
+    var onCancelAccountDeletion: ((UUID) -> Void)?
 
     // MARK: - Single root router
 
@@ -1187,6 +1196,7 @@ final class SessionStore {
     }
 
     func signOut() {
+        onWillSignOut?()
         markSignedOutForWelcomeBack()
         resetFirstTimePathAfterLogout()
         Task { await auth.signOut() }
@@ -1221,10 +1231,12 @@ final class SessionStore {
         }
         isDeletingAccount = true
         defer { isDeletingAccount = false }
+        await onPrepareAccountDeletion?(userId)
         let deletedRemotely = await auth.deleteOwnAuthenticatedAccount(
             appleAuthorizationCode: appleAuthorizationCode
         )
         guard deletedRemotely else {
+            onCancelAccountDeletion?(userId)
             auth.presentError(t(.profileDeleteFailed))
             return
         }

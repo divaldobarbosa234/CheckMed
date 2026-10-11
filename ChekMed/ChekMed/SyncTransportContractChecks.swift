@@ -180,6 +180,28 @@ enum SyncTransportContractChecks {
         expect(await laterRetry.value, "sync: completed failure does not block a later retry")
         expect(failureRuns == 3, "sync: later retry starts a fresh cycle")
 
+        var suspendedRan = false
+        let suspendedCoordinator = SyncCycleCoordinator { _ in
+            suspendedRan = true
+            return true
+        }
+        suspendedCoordinator.suspend()
+        expect(
+            !(await suspendedCoordinator.enqueue(
+                SyncCycleCoordinator.Request(logSince: nil, shouldPush: true)
+            ).value),
+            "sync: sign-out/deletion suspension rejects new cycles"
+        )
+        expect(!suspendedRan, "sync: suspended coordinator does not start a cycle")
+        suspendedCoordinator.resume()
+        expect(
+            await suspendedCoordinator.enqueue(
+                SyncCycleCoordinator.Request(logSince: nil, shouldPush: false)
+            ).value,
+            "sync: cancelled deletion can safely resume coordination"
+        )
+        expect(suspendedRan, "sync: resumed coordinator can start a later cycle")
+
         return failures
     }
 }
