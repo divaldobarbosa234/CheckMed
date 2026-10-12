@@ -11,8 +11,18 @@ enum TH1LocalVerification {
     /// DEBUG-only. Runs in-memory TreatmentLifecycleContractChecks on the TH-1 host.
     /// Never selected in Release. Does not start RootView, auth, or ReminderScheduler.
     static let lifecycleContractsFlag = "CHECKMED_LIFECYCLE_CONTRACTS"
+    /// DEBUG-only. Opens Treatment Detail on the isolated host with a synthetic scene.
+    static let detailSceneFlag = "CHECKMED_TH2_DETAIL"
+    static let detailTabFlag = "CHECKMED_TH2_TAB"
     static let fixtureOwnerId = UUID(uuidString: "D34130F1-0000-4000-8000-000000000001")!
     static let fixtureProfileId = UUID(uuidString: "D34130F1-0000-4000-8000-000000000002")!
+
+    enum DetailScene: String {
+        case completed
+        case current
+        case future
+        case empty
+    }
 
     /// Process environment from CoreSimulator / `SIMCTL_CHILD_*`, not assumed from the outer shell.
     static var simulatorUDID: String? {
@@ -31,6 +41,11 @@ enum TH1LocalVerification {
 
     static var wantsLifecycleContracts: Bool {
         isAllowed && ProcessInfo.processInfo.environment[lifecycleContractsFlag] == "1"
+    }
+
+    static var detailScene: DetailScene? {
+        guard isAllowed else { return nil }
+        return DetailScene(rawValue: ProcessInfo.processInfo.environment[detailSceneFlag] ?? "")
     }
 
     static var isSimulatorRuntime: Bool {
@@ -134,7 +149,9 @@ struct TH1LocalVerificationHost: View {
                 let status = failures.contains { $0.contains(tag) } ? "FAIL" : "PASS"
                 return "\(tag) \(status) \(title)"
             }
-            let existingFailed = failures.contains { !$0.contains("finish ") }
+            let existingFailed = failures.contains { message in
+                !message.contains("finish ") && !message.contains("dose ")
+            }
             var rows = [
                 failures.isEmpty
                     ? "TreatmentLifecycle allEmpty=true"
@@ -149,6 +166,8 @@ struct TH1LocalVerificationHost: View {
                 "H \(existingFailed ? "FAIL" : "PASS") existing lifecycle contracts",
                 line("finish I:", "cancel is mutation-free"),
                 line("finish cmd:", "success/failure follow-up"),
+                line("dose A:", "scoped DoseLog query excludes sibling treatment"),
+                line("dose mix:", "statuses preserved; deleted and foreign excluded"),
             ]
             rows.append(contentsOf: failures.map { "FAIL \($0)" })
             let report = rows.joined(separator: "\n")
@@ -160,6 +179,14 @@ struct TH1LocalVerificationHost: View {
                     options: .atomic
                 )
             }
+        }
+        if let scene = TH1LocalVerification.detailScene {
+            guard !didSeed else { return }
+            didSeed = true
+            let id = Self.seedTH2Scene(scene, into: treatments)
+            print("[TH1-VERIFY] TH-2 scene=\(scene.rawValue) open detail \(id.uuidString)")
+            path.append(AppRoute.treatmentDetail(id))
+            return
         }
         guard !TH1LocalVerification.wantsEmptyHistory else {
             print("[TH1-VERIFY] empty-history mode — no fixtures inserted")
@@ -174,6 +201,10 @@ struct TH1LocalVerificationHost: View {
         let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let wantsTH2Store = ProcessInfo.processInfo.environment[TH1LocalVerification.detailSceneFlag] != nil
+        if wantsTH2Store {
+            return folder.appendingPathComponent("th2-verify.store")
+        }
         return folder.appendingPathComponent("th1-verify.store")
     }
 
@@ -182,6 +213,8 @@ struct TH1LocalVerificationHost: View {
         if TH1LocalVerification.wantsEmptyHistory {
             removeStoreFiles(at: url)
             UserDefaults.standard.removeObject(forKey: seedDefaultsKey)
+        } else if ProcessInfo.processInfo.environment[TH1LocalVerification.detailSceneFlag] != nil {
+            removeStoreFiles(at: url)
         }
         do {
             return try CheckMedStore(contractStoreURL: url)
@@ -322,6 +355,212 @@ struct TH1LocalVerificationHost: View {
             "[TH1-VERIFY] seeded current=\(snapshot.current.count) future=\(snapshot.future.count) past=\(snapshot.past.count)"
         )
         UserDefaults.standard.set(true, forKey: seedDefaultsKey)
+    }
+
+    @discardableResult
+    private static func seedTH2Scene(
+        _ scene: TH1LocalVerification.DetailScene,
+        into store: CheckMedStore
+    ) -> UUID {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let at: (Int, Int, Int, Int, Int) -> Date = { y, m, d, h, min in
+            calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min))!
+        }
+        let owner = TH1LocalVerification.fixtureOwnerId
+        let profile = TH1LocalVerification.fixtureProfileId
+        let foreignOwner = UUID(uuidString: "D34130F1-0000-4000-8000-000000000099")!
+        let foreignProfile = UUID(uuidString: "D34130F1-0000-4000-8000-000000000098")!
+
+        func plan(
+            title: String,
+            status: String,
+            start: Date,
+            end: Date?,
+            medicine: String,
+            ownerId: UUID = owner,
+            profileId: UUID = profile
+        ) -> (treatmentId: UUID, medicineId: UUID) {
+            let ids = store.debugInsertPlan(
+                title: title,
+                status: status,
+                startDate: start,
+                endDate: end,
+                medicineName: medicine,
+                ownerId: ownerId,
+                profileId: profileId
+            )
+            return (ids.treatmentId, ids.medicineId)
+        }
+
+        func extraMedicine(on treatmentId: UUID, name: String, time: String = "08:00") {
+            _ = store.debugInsertMedicine(
+                treatmentId: treatmentId,
+                name: name,
+                ownerId: owner,
+                profileId: profile,
+                scheduleTime: time
+            )
+        }
+
+        switch scene {
+        case .completed:
+            let start = at(2026, 9, 26, 12, 0)
+            let end = at(2026, 10, 3, 12, 0)
+            let row = plan(
+                title: "September combo",
+                status: "completed",
+                start: start,
+                end: end,
+                medicine: "Amoxicilina 500mg"
+            )
+            extraMedicine(on: row.treatmentId, name: "Ibuprofeno 400mg")
+            for day in [30, 1, 2, 3] {
+                let month = day >= 26 ? 9 : 10
+                let scheduled = at(2026, month == 9 && day >= 26 ? 9 : 10, day == 30 ? 30 : day, 8, 0)
+                let confirmed = at(2026, month == 9 && day >= 26 ? 9 : 10, day == 30 ? 30 : day, 8, 12)
+                _ = store.debugInsertDoseLog(
+                    treatmentId: row.treatmentId,
+                    medicineName: "Amoxicilina 500mg",
+                    scheduledAt: scheduled,
+                    status: DoseLogStatus.taken.rawValue,
+                    loggedAt: confirmed,
+                    ownerId: owner,
+                    profileId: profile
+                )
+                _ = store.debugInsertDoseLog(
+                    treatmentId: row.treatmentId,
+                    medicineName: "Ibuprofeno 400mg",
+                    scheduledAt: scheduled,
+                    status: DoseLogStatus.taken.rawValue,
+                    loggedAt: confirmed,
+                    ownerId: owner,
+                    profileId: profile
+                )
+            }
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Amoxicilina 500mg",
+                scheduledAt: at(2026, 10, 2, 8, 0),
+                status: DoseLogStatus.taken.rawValue,
+                loggedAt: at(2026, 10, 2, 8, 5),
+                deletedAt: at(2026, 10, 2, 9, 0),
+                ownerId: owner,
+                profileId: profile
+            )
+            print("[TH1-VERIFY] TH-2 completed id=\(row.treatmentId.uuidString)")
+            return row.treatmentId
+
+        case .current:
+            let start = at(2026, 10, 5, 12, 0)
+            let row = plan(
+                title: "Current combo",
+                status: "active",
+                start: start,
+                end: at(2026, 11, 5, 12, 0),
+                medicine: "Metformin"
+            )
+            extraMedicine(on: row.treatmentId, name: "Lisinopril", time: "20:00")
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Metformin",
+                scheduledAt: at(2026, 10, 10, 8, 0),
+                status: DoseLogStatus.taken.rawValue,
+                loggedAt: at(2026, 10, 10, 8, 4),
+                ownerId: owner,
+                profileId: profile
+            )
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Lisinopril",
+                scheduledAt: at(2026, 10, 10, 20, 0),
+                status: DoseLogStatus.takenLate.rawValue,
+                loggedAt: at(2026, 10, 10, 21, 10),
+                ownerId: owner,
+                profileId: profile
+            )
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Metformin",
+                scheduledAt: at(2026, 10, 11, 8, 0),
+                status: DoseLogStatus.missed.rawValue,
+                ownerId: owner,
+                profileId: profile
+            )
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Lisinopril",
+                scheduledAt: at(2026, 10, 11, 20, 0),
+                status: DoseLogStatus.skipped.rawValue,
+                ownerId: owner,
+                profileId: profile
+            )
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Metformin",
+                scheduledAt: at(2026, 10, 12, 8, 0),
+                status: DoseLogStatus.pending.rawValue,
+                ownerId: owner,
+                profileId: profile
+            )
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Lisinopril",
+                scheduledAt: at(2026, 10, 20, 8, 0),
+                status: DoseLogStatus.pending.rawValue,
+                ownerId: owner,
+                profileId: profile
+            )
+            let sibling = plan(
+                title: "Sibling course",
+                status: "active",
+                start: start,
+                end: nil,
+                medicine: "SiblingMed"
+            )
+            _ = store.debugInsertDoseLog(
+                treatmentId: sibling.treatmentId,
+                medicineName: "SiblingMed",
+                scheduledAt: at(2026, 10, 11, 9, 0),
+                status: DoseLogStatus.taken.rawValue,
+                loggedAt: at(2026, 10, 11, 9, 1),
+                ownerId: owner,
+                profileId: profile
+            )
+            _ = store.debugInsertDoseLog(
+                treatmentId: row.treatmentId,
+                medicineName: "Metformin",
+                scheduledAt: at(2026, 10, 11, 8, 0),
+                status: DoseLogStatus.taken.rawValue,
+                loggedAt: at(2026, 10, 11, 8, 1),
+                ownerId: foreignOwner,
+                profileId: foreignProfile
+            )
+            print("[TH1-VERIFY] TH-2 current id=\(row.treatmentId.uuidString)")
+            return row.treatmentId
+
+        case .future:
+            let row = plan(
+                title: "Upcoming winter",
+                status: "active",
+                start: at(2026, 12, 1, 12, 0),
+                end: at(2026, 12, 31, 12, 0),
+                medicine: "Vitamina D"
+            )
+            print("[TH1-VERIFY] TH-2 future id=\(row.treatmentId.uuidString)")
+            return row.treatmentId
+
+        case .empty:
+            let row = plan(
+                title: "Empty doses plan",
+                status: "active",
+                start: at(2026, 10, 1, 12, 0),
+                end: at(2026, 10, 31, 12, 0),
+                medicine: "Omeprazol"
+            )
+            print("[TH1-VERIFY] TH-2 empty-doses id=\(row.treatmentId.uuidString)")
+            return row.treatmentId
+        }
     }
 }
 #endif

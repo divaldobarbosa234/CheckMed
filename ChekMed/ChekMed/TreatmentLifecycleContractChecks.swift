@@ -731,6 +731,129 @@ enum TreatmentTitleContractChecks {
         expect(bulk.debugTreatmentStatus(bulkA.treatmentId) == "completed", "finish G: bulk still completes A")
         expect(bulk.debugTreatmentStatus(bulkB.treatmentId) == "completed", "finish G: bulk still completes B")
 
+        // MARK: TH-2 scoped read-only dose events
+        let doseOwner = UUID()
+        let doseProfile = UUID()
+        let doseStore = CheckMedStore(isolatedInMemoryForContracts: true)
+        doseStore.debugContractBind(ownerId: doseOwner, profileId: doseProfile)
+        let doseA = doseStore.debugInsertPlan(
+            title: "Dose A",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "DoseMedA",
+            ownerId: doseOwner,
+            profileId: doseProfile,
+            scheduleTime: "08:00",
+            logStatus: DoseLogStatus.taken.rawValue,
+            logScheduledAt: finishNow.addingTimeInterval(-3600)
+        )
+        let doseB = doseStore.debugInsertPlan(
+            title: "Dose B",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "DoseMedB",
+            ownerId: doseOwner,
+            profileId: doseProfile,
+            scheduleTime: "20:00",
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: finishNow.addingTimeInterval(7200)
+        )
+        let eventsA = doseStore.doseEvents(forTreatmentId: doseA.treatmentId)
+        expect(eventsA.count == 1, "dose A: only A's log")
+        expect(eventsA.allSatisfy { $0.treatmentId == doseA.treatmentId }, "dose A: UUID scope")
+        expect(eventsA.allSatisfy { $0.medicineName == "DoseMedA" }, "dose A: excludes sibling medicine")
+        expect(eventsA.first?.status == .taken, "dose A: preserves taken")
+        expect(
+            doseStore.doseEvents(forTreatmentId: doseB.treatmentId).allSatisfy { $0.medicineName == "DoseMedB" },
+            "dose B: B events stay on B"
+        )
+        expect(
+            doseStore.doseEvents(forTreatmentId: UUID()).isEmpty,
+            "dose missing: unknown UUID returns []"
+        )
+        let beforeStatus = eventsA.first?.statusRaw
+        _ = doseStore.treatmentDetailSnapshot(id: doseA.treatmentId)
+        expect(
+            doseStore.doseEvents(forTreatmentId: doseA.treatmentId).first?.statusRaw == beforeStatus,
+            "dose query: snapshot does not mutate logs"
+        )
+        doseStore.debugContractBind(ownerId: UUID(), profileId: UUID())
+        expect(
+            doseStore.doseEvents(forTreatmentId: doseA.treatmentId).isEmpty,
+            "dose E: wrong-owner/profile sees no events"
+        )
+
+        doseStore.debugContractBind(ownerId: doseOwner, profileId: doseProfile)
+        let mixed = CheckMedStore(isolatedInMemoryForContracts: true)
+        mixed.debugContractBind(ownerId: doseOwner, profileId: doseProfile)
+        let mixedPlan = mixed.debugInsertPlan(
+            title: "Mixed",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "MixedMed",
+            ownerId: doseOwner,
+            profileId: doseProfile
+        )
+        _ = mixed.debugInsertDoseLog(
+            treatmentId: mixedPlan.treatmentId,
+            medicineName: "MixedMed",
+            scheduledAt: finishNow.addingTimeInterval(-7200),
+            status: DoseLogStatus.takenLate.rawValue,
+            loggedAt: finishNow.addingTimeInterval(-3600),
+            ownerId: doseOwner,
+            profileId: doseProfile
+        )
+        _ = mixed.debugInsertDoseLog(
+            treatmentId: mixedPlan.treatmentId,
+            medicineName: "MixedMed",
+            scheduledAt: finishNow.addingTimeInterval(-86400),
+            status: DoseLogStatus.missed.rawValue,
+            ownerId: doseOwner,
+            profileId: doseProfile
+        )
+        _ = mixed.debugInsertDoseLog(
+            treatmentId: mixedPlan.treatmentId,
+            medicineName: "MixedMed",
+            scheduledAt: finishNow.addingTimeInterval(-172800),
+            status: DoseLogStatus.skipped.rawValue,
+            ownerId: doseOwner,
+            profileId: doseProfile
+        )
+        let deletedId = mixed.debugInsertDoseLog(
+            treatmentId: mixedPlan.treatmentId,
+            medicineName: "MixedMed",
+            scheduledAt: finishNow.addingTimeInterval(-4000),
+            status: DoseLogStatus.taken.rawValue,
+            loggedAt: finishNow.addingTimeInterval(-3900),
+            deletedAt: finishNow,
+            ownerId: doseOwner,
+            profileId: doseProfile
+        )
+        _ = mixed.debugInsertDoseLog(
+            treatmentId: mixedPlan.treatmentId,
+            medicineName: "MixedMed",
+            scheduledAt: finishNow.addingTimeInterval(-3000),
+            status: DoseLogStatus.taken.rawValue,
+            loggedAt: finishNow.addingTimeInterval(-2900),
+            ownerId: UUID(),
+            profileId: UUID()
+        )
+        let mixedEvents = mixed.doseEvents(forTreatmentId: mixedPlan.treatmentId)
+        expect(
+            mixedEvents.contains { $0.status == .takenLate }
+                && mixedEvents.contains { $0.status == .missed }
+                && mixedEvents.contains { $0.status == .skipped },
+            "dose mix: takenLate/missed/skipped preserved"
+        )
+        expect(mixedEvents.allSatisfy { $0.id != deletedId }, "dose mix: deleted log excluded")
+        expect(
+            !mixedEvents.contains(where: { $0.status == .taken && $0.scheduledAt == finishNow.addingTimeInterval(-3000) }),
+            "dose mix: wrong-owner log excluded"
+        )
+
         return failures
     }
 
@@ -749,9 +872,11 @@ enum TreatmentTitleContractChecks {
             "E \(status("finish E:")) wrong-owner/wrong-profile refused",
             "F \(status("finish F:")) reminder drafts keep remaining current treatment",
             "G \(status("finish G:")) bulk completeAll still completes all active",
-            "H \(failures.filter { !$0.contains("finish ") }.isEmpty ? "PASS" : "FAIL") existing lifecycle contracts",
+            "H \(failures.filter { !$0.contains("finish ") && !$0.contains("dose ") }.isEmpty ? "PASS" : "FAIL") existing lifecycle contracts",
             "I \(status("finish I:")) cancel is mutation-free",
             "cmd \(status("finish cmd:")) success/failure follow-up (no false navigate/reschedule)",
+            "dose \(status("dose A:")) scoped DoseLog query excludes sibling treatment",
+            "dose \(status("dose mix:")) statuses preserved; deleted and foreign excluded",
         ]
         let header = failures.isEmpty
             ? "TreatmentLifecycle allEmpty=true"

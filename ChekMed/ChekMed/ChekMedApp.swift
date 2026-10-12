@@ -158,6 +158,7 @@ struct ChekMedApp: App {
                 TH1LocalVerificationHost()
                     .environment(session)
                     .environment(entitlements)
+                    .environment(path)
                     .environment(\.locale, session.locale.foundationLocale)
             } else if TH1LocalVerification.isMisconfiguredRequest {
                 TH1LocalVerificationDeniedHost()

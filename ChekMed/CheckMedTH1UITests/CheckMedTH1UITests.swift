@@ -106,8 +106,13 @@ final class CheckMedTH1UITests: XCTestCase {
         let current = row(in: app, containing: "Metformin")
         XCTAssertTrue(current.waitForExistence(timeout: 8))
         current.tap()
-        let detail = app.navigationBars["Current combo"]
-        XCTAssertTrue(detail.waitForExistence(timeout: 6), "TreatmentDetailScreen title is the treatment record title")
+        XCTAssertTrue(
+            app.navigationBars["Treatment details"].waitForExistence(timeout: 6)
+                || app.otherElements.matching(NSPredicate(format: "identifier BEGINSWITH %@", "treatment-detail-")).firstMatch.waitForExistence(timeout: 2),
+            "TreatmentDetailScreen destination must open"
+        )
+        XCTAssertTrue(app.staticTexts["Current combo"].waitForExistence(timeout: 4)
+            || app.otherElements["treatment-detail-title"].waitForExistence(timeout: 2))
         XCTAssertTrue(app.staticTexts["Metformin"].waitForExistence(timeout: 4))
         XCTAssertTrue(app.staticTexts["Lisinopril"].exists)
 

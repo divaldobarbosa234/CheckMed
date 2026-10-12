@@ -366,69 +366,61 @@ struct TreatmentsRootScreen: View {
 }
 
 struct TreatmentDetailScreen: View {
+    private enum Pane: Hashable {
+        case overview
+        case doses
+    }
+
     var go: (AppRoute) -> Void
     var treatmentId: UUID
     @Environment(CheckMedStore.self) private var treatments
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
+    @State private var pane: Pane = .overview
+    @State private var didApplyDebugPane = false
     @State private var showFinishConfirm = false
     @State private var showRename = false
     @State private var renameDraft = ""
     @State private var finishTargetId: UUID?
     @State private var showFinishRefused = false
 
-    private var branch: CheckMedStore.JourneyTreeBranch? {
-        let tree = treatments.journeyTreeSnapshot()
-        return (tree.current + tree.future + tree.past).first { $0.id == treatmentId }
+    private var snapshot: CheckMedStore.TreatmentDetailSnapshot? {
+        treatments.treatmentDetailSnapshot(id: treatmentId)
     }
 
-    private var medicines: [CheckMedStore.MedicineSummary] {
-        treatments.reportMedicineSummaries().filter { $0.treatmentId == treatmentId }
-    }
-
-    private var report: JourneyReport? {
-        treatments.journeyReport(treatmentId: treatmentId)
-    }
-
-    private var isCurrent: Bool { treatments.isCurrentOnJourneyHistory(treatmentId: treatmentId) }
+    private var isCurrent: Bool { snapshot?.kind == .current }
     private var remainingSlots: Int {
         entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount)
     }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 16) {
-                if let branch {
-                    header(branch)
-                    medicinesSection
-                    if isCurrent {
-                        addMedicineButton
-                    }
-                    infoSection(branch)
-                    if isCurrent {
-                        CheckMedButton(title: session.t(.completeTreatment), style: .ghost) {
-                            finishTargetId = treatmentId
-                            showFinishConfirm = true
-                        }
-                    }
-                } else {
+        Group {
+            if let snapshot {
+                tabContent(snapshot)
+            } else {
+                ScrollView(showsIndicators: false) {
                     Text(session.t(.todayNothing))
                         .font(.system(.body, design: .rounded).weight(.bold))
+                        .padding(16)
+                    SafetyCaption().frame(maxWidth: .infinity)
                 }
-                SafetyCaption().frame(maxWidth: .infinity)
             }
-            .padding(16)
-            .padding(.bottom, TreatmentsChrome.fabClearance)
+        }
+        .background(CheckMedTheme.background)
+        .onAppear { applyDebugPaneIfRequested() }
+        .navigationTitle(session.t(.treatmentDetailsTitle))
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("treatment-detail-\(treatmentId.uuidString)")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                overflowMenu
+            }
         }
         .alert(session.t(.finishTreatmentCouldNotComplete), isPresented: $showFinishRefused) {
             Button(session.t(.tryAgain), role: .cancel) {}
         } message: {
             Text(session.t(.finishTreatmentCouldNotCompleteBody))
         }
-        .background(CheckMedTheme.background)
-        .navigationTitle(branch?.title ?? session.t(.tabTreatments))
-        .navigationBarTitleDisplayMode(.inline)
-        .accessibilityIdentifier("treatment-detail-\(treatmentId.uuidString)")
         .alert(session.t(.treatmentsRename), isPresented: $showRename) {
             TextField(session.t(.treatmentsRenamePrompt), text: $renameDraft)
             Button(session.t(.cancel), role: .cancel) {}
@@ -468,72 +460,260 @@ struct TreatmentDetailScreen: View {
         }
     }
 
-    private func header(_ branch: CheckMedStore.JourneyTreeBranch) -> some View {
-        let weeks = weekProgress(start: branch.startDate, end: branch.endDate, calendar: session.foundationCalendar)
-        let progress = dateProgress(start: branch.startDate, end: branch.endDate, calendar: session.foundationCalendar)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(branch.title)
-                        .font(.system(size: 28, weight: .black, design: .rounded))
-                        .accessibilityIdentifier("treatment-detail-title")
-                    if isCurrent {
-                        Text(session.t(.treatmentsInCourse))
-                            .font(.system(.caption, design: .rounded).weight(.heavy))
-                            .foregroundStyle(CheckMedTheme.primaryShadow)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(CheckMedTheme.mintWash, in: Capsule())
-                    }
+    @ViewBuilder
+    private func tabContent(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        ScrollView(showsIndicators: false) {
+            LazyVStack(alignment: .leading, spacing: 12, pinnedViews: []) {
+                if pane == .overview {
+                    overviewHero(snapshot)
+                } else {
+                    dosesIdentity(snapshot)
                 }
-                Spacer()
+                panePicker
+                if pane == .overview {
+                    overviewBody(snapshot)
+                } else {
+                    dosesBody(snapshot)
+                }
+                SafetyCaption().frame(maxWidth: .infinity)
+            }
+            .padding(16)
+            .padding(.bottom, TreatmentsChrome.fabClearance)
+        }
+    }
+
+    private var overflowMenu: some View {
+        Menu {
+            Button {
+                renameDraft = snapshot?.title ?? ""
+                showRename = true
+            } label: {
+                Label(session.t(.treatmentsRename), systemImage: "pencil")
+            }
+            if isCurrent {
+                Button(action: attemptAdd) {
+                    Label(session.t(.treatmentsAddMedicine), systemImage: "plus")
+                }
                 Button {
-                    renameDraft = branch.title
-                    showRename = true
+                    finishTargetId = treatmentId
+                    showFinishConfirm = true
                 } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(CheckMedTheme.muted)
-                        .frame(width: 36, height: 36)
-                        .background(CheckMedTheme.surface, in: Circle())
+                    Label(session.t(.completeTreatment), systemImage: "checkmark.circle")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(session.t(.treatmentsRename))
             }
-            if let start = optionalRange(branch) {
-                Text(start)
-                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(CheckMedTheme.navy)
+                .frame(width: 36, height: 36)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("treatment-detail-overflow")
+        .accessibilityLabel(session.t(.treatmentDetailsTitle))
+    }
+
+    private var panePicker: some View {
+        HStack(spacing: 8) {
+            paneChip(.overview, title: session.t(.treatmentDetailTabOverview))
+            paneChip(.doses, title: session.t(.treatmentDetailTabDoses))
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func paneChip(_ value: Pane, title: String) -> some View {
+        let selected = pane == value
+        return Button {
+            pane = value
+        } label: {
+            Text(title)
+                .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                .foregroundStyle(selected ? Color.white : CheckMedTheme.muted)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(selected ? CheckMedTheme.navy : Color.clear, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier(value == .overview ? "treatment-detail-tab-overview" : "treatment-detail-tab-doses")
+    }
+
+    private func overviewHero(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
+                lifecycleChip(snapshot)
+                Text(snapshot.title)
+                    .font(.system(.title2, design: .rounded).weight(.black))
+                    .foregroundStyle(CheckMedTheme.navy)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("treatment-detail-title")
+                Text(periodText(snapshot))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if let weeks {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(CheckMedTheme.mintWash)
-                        Capsule().fill(CheckMedTheme.primary).frame(width: max(8, geo.size.width * progress))
-                    }
+            Spacer(minLength: 4)
+            CooperLibraryImage(asset: "phil_doctor_2d", size: 128)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func dosesIdentity(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                lifecycleChip(snapshot)
+                Text(snapshot.title)
+                    .font(.system(.headline, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.navy)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 4)
+            CooperLibraryImage(asset: "phil_doctor_2d", size: 76)
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("treatment-detail-doses-identity")
+    }
+
+    private func lifecycleChip(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        let title: String
+        let tint: Color
+        let wash: Color
+        let icon: String
+        switch snapshot.kind {
+        case .past:
+            title = session.t(.treatmentsCompletedTab)
+            tint = CheckMedTheme.primaryShadow
+            wash = CheckMedTheme.mintWash
+            icon = "checkmark.circle.fill"
+        case .current:
+            title = session.t(.treatmentsInCourse)
+            tint = CheckMedTheme.primaryShadow
+            wash = CheckMedTheme.mintWash
+            icon = "circle.fill"
+        case .future:
+            title = session.t(.treatmentsUpcomingTitle)
+            tint = CheckMedTheme.navy
+            wash = CheckMedTheme.blueWash
+            icon = "clock.fill"
+        }
+        return HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12, weight: .bold))
+            Text(title)
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(wash, in: Capsule())
+    }
+
+    private func overviewBody(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if snapshot.kind == .past {
+                encouragement(snapshot)
+            }
+            summaryCard(snapshot)
+            medicinesSection(snapshot.medicines)
+            if isCurrent {
+                addMedicineButton
+            }
+            if snapshot.kind != .past {
+                encouragement(snapshot)
+            }
+            reportButton
+            if isCurrent {
+                CheckMedButton(title: session.t(.completeTreatment), style: .ghost) {
+                    finishTargetId = treatmentId
+                    showFinishConfirm = true
                 }
-                .frame(height: 10)
-                HStack {
-                    Text(session.t(.treatmentsWeekOf, weeks.current, weeks.total))
-                    Spacer()
-                    Text(weeks.remaining == 1 ? session.t(.treatmentsWeeksLeftOne) : session.t(.treatmentsWeeksLeftMany, weeks.remaining))
+            }
+        }
+    }
+
+    private func summaryCard(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        let weeks = weekProgress(
+            start: snapshot.startDate,
+            end: snapshot.endDate,
+            calendar: session.foundationCalendar
+        )
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(session.t(.treatmentsSummary))
+                .font(.system(.headline, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.navy)
+            summaryRow("calendar", session.t(.treatmentDetailPeriod), periodText(snapshot))
+            summaryRow(
+                "pills.fill",
+                session.t(.treatmentsMedicinesHeader),
+                snapshot.medicines.map(\.name).joined(separator: " + ")
+            )
+            summaryRow(
+                "checkmark.circle.fill",
+                session.t(.treatmentDetailTaken),
+                session.t(.treatmentDetailTakenValueFormat, snapshot.takenCount, snapshot.percent),
+                tint: CheckMedTheme.primary
+            )
+            summaryRow(
+                "xmark.circle.fill",
+                session.t(.treatmentDetailSkipped),
+                "\(snapshot.skippedCount)",
+                tint: CheckMedTheme.danger
+            )
+            VStack(alignment: .leading, spacing: 6) {
+                summaryRow(
+                    "list.bullet.rectangle",
+                    session.t(.treatmentDetailPlannedDoses),
+                    session.t(.treatmentDetailPerDayFormat, snapshot.timesPerDay)
+                )
+                if let days = durationDays(
+                    start: snapshot.startDate,
+                    end: snapshot.endDate,
+                    calendar: session.foundationCalendar
+                ) {
+                    summaryRow("clock", session.t(.treatmentsDurationDays), "\(days)")
                 }
-                .font(.system(.subheadline, design: .rounded).weight(.bold))
+                if let weeks {
+                    summaryRow(
+                        "chart.bar",
+                        session.t(.treatmentsWeekOf, weeks.current, weeks.total),
+                        weeks.remaining == 1
+                            ? session.t(.treatmentsWeeksLeftOne)
+                            : session.t(.treatmentsWeeksLeftMany, weeks.remaining)
+                    )
+                }
+            }
+            .padding(.top, 2)
+            .opacity(0.92)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: TreatmentsChrome.cardRadius, style: .continuous))
+        .shadow(color: CheckMedTheme.navy.opacity(0.05), radius: 10, y: 4)
+    }
+
+    private func summaryRow(_ icon: String, _ label: String, _ value: String, tint: Color? = nil) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(tint ?? CheckMedTheme.navy.opacity(0.7))
+                .frame(width: 18)
+            Text(label)
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
                 .foregroundStyle(CheckMedTheme.muted)
-            }
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.navy)
+                .multilineTextAlignment(.trailing)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
     }
 
-    private func optionalRange(_ branch: CheckMedStore.JourneyTreeBranch) -> String? {
-        let locale = session.locale.foundationLocale
-        let start = treatmentsDate(branch.startDate, locale: locale)
-        if let end = branch.endDate {
-            return "\(start) – \(treatmentsDate(end, locale: locale))"
-        }
-        return start
-    }
-
-    private var medicinesSection: some View {
+    private func medicinesSection(_ medicines: [CheckMedStore.MedicineSummary]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(session.t(.treatmentsMedicinesHeader))
@@ -559,12 +739,14 @@ struct TreatmentDetailScreen: View {
                             .font(.system(size: 13, weight: .bold))
                             .foregroundStyle(CheckMedTheme.muted)
                     }
-                    .padding(14)
+                    .padding(12)
                     .background(CheckMedTheme.surface)
                     .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     .shadow(color: CheckMedTheme.navy.opacity(0.04), radius: 8, y: 3)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("treatment-medicine-\(med.id.uuidString)")
+                .accessibilityLabel(med.name)
             }
         }
     }
@@ -587,37 +769,236 @@ struct TreatmentDetailScreen: View {
         .buttonStyle(.plain)
     }
 
-    private func infoSection(_ branch: CheckMedStore.JourneyTreeBranch) -> some View {
+    private func encouragement(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        let title: String
+        let body: String
+        switch snapshot.kind {
+        case .past where isFullyTakenOnTime(snapshot):
+            title = session.t(.treatmentsCompletedHeadline)
+            body = session.t(.treatmentDetailCompletedOnTime)
+        case .past:
+            title = session.t(.treatmentsCompletedHeadline)
+            body = session.t(.treatmentsCompletedSupport)
+        case .future:
+            title = session.t(.treatmentsUpcomingTitle)
+            body = session.t(.treatmentsUpcomingHint)
+        case .current:
+            title = session.t(.treatmentsEncourageTitle)
+            body = session.t(.treatmentsEncourageBody)
+        }
+        return HStack(alignment: .center, spacing: 12) {
+            CooperLibraryImage(asset: snapshot.kind == .past ? "phil_heart" : "phil_wink", size: 64)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.navy)
+                Text(body)
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(CheckMedTheme.sunshineWash.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private var reportButton: some View {
+        Button { go(.journeyReport) } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "doc.text")
+                    .font(.system(size: 16, weight: .bold))
+                Text(session.t(.treatmentDetailViewReport))
+                    .font(.system(.body, design: .rounded).weight(.heavy))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundStyle(CheckMedTheme.navy)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(CheckMedTheme.surface)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(CheckMedTheme.navy.opacity(0.12), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(session.t(.treatmentsViewMedicalReport))
+    }
+
+    private func dosesBody(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(session.t(.treatmentsInfoHeader))
-                .font(.system(.headline, design: .rounded).weight(.heavy))
-            infoRow(session.t(.treatmentsStartDate), treatmentsDate(branch.startDate, locale: session.locale.foundationLocale))
-            if let end = branch.endDate {
-                infoRow(session.t(.treatmentsExpectedEnd), treatmentsDate(end, locale: session.locale.foundationLocale))
+            if isFullyTakenOnTime(snapshot) {
+                compactDosesCelebration()
             }
-            if let days = durationDays(start: branch.startDate, end: branch.endDate, calendar: session.foundationCalendar) {
-                infoRow(session.t(.treatmentsDurationDays), "\(days)")
+            doseProgressCard(snapshot)
+            if snapshot.events.isEmpty {
+                Text(session.t(.treatmentDetailEmptyDoses))
+                    .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(CheckMedTheme.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            } else {
+                ForEach(doseDays(snapshot.events), id: \.day) { group in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(treatmentsDate(group.day, locale: session.locale.foundationLocale))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.navy)
+                            .padding(.top, 4)
+                        ForEach(group.events) { event in
+                            doseRow(event)
+                        }
+                    }
+                }
             }
-            infoRow(session.t(.treatmentsMedicinesHeader), medicineCountLabel(medicines.count, session: session))
-            if let report {
-                infoRow(session.t(.treatmentsDosesConfirmed), "\(report.takenCount)/\(report.plannedCount) (\(report.percent)%)")
+        }
+        .accessibilityIdentifier("treatment-detail-doses")
+    }
+
+    private func compactDosesCelebration() -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            CooperLibraryImage(asset: "phil_heart", size: 52)
+            Text(session.t(.treatmentDetailAllDosesOnTime))
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.navy)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(CheckMedTheme.sunshineWash.opacity(0.65))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func doseProgressCard(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> some View {
+        let fraction = snapshot.dueCount == 0 ? 0 : CGFloat(snapshot.takenCount) / CGFloat(snapshot.dueCount)
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(session.t(.treatmentDetailDoseHistory))
+                .font(.system(.title3, design: .rounded).weight(.black))
+                .foregroundStyle(CheckMedTheme.navy)
+            Text(session.t(.treatmentDetailDoseProgressFormat, snapshot.takenCount, snapshot.dueCount, snapshot.percent))
+                .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(CheckMedTheme.mintWash)
+                    Capsule()
+                        .fill(CheckMedTheme.primary)
+                        .frame(width: max(snapshot.dueCount == 0 ? 0 : 8, geo.size.width * min(1, fraction)))
+                }
             }
+            .frame(height: 10)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(CheckMedTheme.blueWash.opacity(0.55))
+        .background(CheckMedTheme.surface)
         .clipShape(RoundedRectangle(cornerRadius: TreatmentsChrome.cardRadius, style: .continuous))
+        .shadow(color: CheckMedTheme.navy.opacity(0.05), radius: 10, y: 4)
     }
 
-    private func infoRow(_ label: String, _ value: String) -> some View {
-        HStack {
-            Text(label)
-                .font(.system(.subheadline, design: .rounded).weight(.semibold))
-                .foregroundStyle(CheckMedTheme.muted)
-            Spacer()
-            Text(value)
-                .font(.system(.subheadline, design: .rounded).weight(.heavy))
+    private func doseRow(_ event: CheckMedStore.TreatmentDoseEvent) -> some View {
+        Button { go(.medicationDetail(event.medicineId)) } label: {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: doseSymbol(event.status))
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(doseTint(event.status))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(event.scheduledAt.formatted(.dateTime.hour().minute().locale(session.locale.foundationLocale)))
+                            .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                            .foregroundStyle(CheckMedTheme.navy)
+                            .monospacedDigit()
+                        Text(event.medicineName)
+                            .font(.system(.subheadline, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.navy)
+                            .multilineTextAlignment(.leading)
+                    }
+                    if let confirmed = event.confirmedAt, event.status.isConfirmedTaken {
+                        Text(session.t(.treatmentDetailConfirmedAt, confirmed.formatted(.dateTime.hour().minute().locale(session.locale.foundationLocale))))
+                            .font(.system(.caption2, design: .rounded).weight(.semibold))
+                            .foregroundStyle(CheckMedTheme.muted)
+                    }
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.muted)
+            }
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("treatment-dose-\(event.id.uuidString)")
+            .accessibilityLabel("\(event.medicineName), \(event.status.rawValue)")
+            .accessibilityValue(event.status.rawValue)
         }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("treatment-dose-\(event.id.uuidString)")
+        .accessibilityLabel("\(event.medicineName), \(event.status.rawValue)")
+        .accessibilityValue(event.status.rawValue)
+    }
+
+    private func applyDebugPaneIfRequested() {
+        #if DEBUG
+        guard !didApplyDebugPane else { return }
+        guard TH1LocalVerification.isAllowed else { return }
+        guard ProcessInfo.processInfo.environment["CHECKMED_TH2_TAB"] == "doses" else { return }
+        didApplyDebugPane = true
+        pane = .doses
+        #endif
+    }
+
+    private func doseDays(
+        _ events: [CheckMedStore.TreatmentDoseEvent]
+    ) -> [(day: Date, events: [CheckMedStore.TreatmentDoseEvent])] {
+        let calendar = session.foundationCalendar
+        var grouped: [(Date, [CheckMedStore.TreatmentDoseEvent])] = []
+        var index: [Date: Int] = [:]
+        for event in events {
+            let day = calendar.startOfDay(for: event.scheduledAt)
+            if let i = index[day] {
+                grouped[i].1.append(event)
+            } else {
+                index[day] = grouped.count
+                grouped.append((day, [event]))
+            }
+        }
+        return grouped.map { (day: $0.0, events: $0.1) }
+    }
+
+    private func isFullyTaken(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> Bool {
+        snapshot.kind == .past
+            && snapshot.dueCount > 0
+            && snapshot.skippedCount == 0
+            && snapshot.takenCount == snapshot.dueCount
+    }
+
+    private func isFullyTakenOnTime(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> Bool {
+        isFullyTaken(snapshot)
+            && !snapshot.events.isEmpty
+            && snapshot.events.allSatisfy { $0.status == .taken }
+    }
+
+    private func doseSymbol(_ status: DoseLogStatus) -> String {
+        if status.isConfirmedTaken { return "checkmark.circle.fill" }
+        if status.isMissedLike { return "xmark.circle.fill" }
+        return "clock.circle"
+    }
+
+    private func doseTint(_ status: DoseLogStatus) -> Color {
+        if status.isConfirmedTaken { return CheckMedTheme.primary }
+        if status.isMissedLike { return CheckMedTheme.danger }
+        return CheckMedTheme.muted
+    }
+
+    private func periodText(_ snapshot: CheckMedStore.TreatmentDetailSnapshot) -> String {
+        let locale = session.locale.foundationLocale
+        let start = treatmentsDate(snapshot.startDate, locale: locale)
+        if let end = snapshot.endDate {
+            return "\(start) – \(treatmentsDate(end, locale: locale))"
+        }
+        return start
     }
 
     private func attemptAdd() {
@@ -702,6 +1083,7 @@ struct TreatmentsMedicationDetailScreen: View {
         }
         .background(CheckMedTheme.background)
         .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("treatment-medicine-detail-\(medicineId.uuidString)")
         .toolbar {
             if let medicine, isCurrent {
                 ToolbarItem(placement: .topBarTrailing) {

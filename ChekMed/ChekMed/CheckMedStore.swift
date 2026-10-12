@@ -2506,6 +2506,110 @@ final class CheckMedStore {
         return journeyReport(for: treatment)
     }
 
+    /// One existing DoseLog for a visible, owned, non-deleted treatment. Read-only.
+    struct TreatmentDoseEvent: Identifiable, Equatable, Sendable {
+        var id: UUID
+        var treatmentId: UUID
+        var medicineId: UUID
+        var medicineName: String
+        var scheduledAt: Date
+        var confirmedAt: Date?
+        var statusRaw: String
+
+        var status: DoseLogStatus {
+            DoseLogStatus(rawValue: statusRaw) ?? .pending
+        }
+    }
+
+    /// Scoped Detail read. Does not scan every treatment for Journey Tree or Report lists.
+    struct TreatmentDetailSnapshot {
+        var id: UUID
+        var title: String
+        var status: String
+        var kind: TreatmentJourneyKind
+        var startDate: Date
+        var endDate: Date?
+        var medicines: [MedicineSummary]
+        var events: [TreatmentDoseEvent]
+        var takenCount: Int
+        var skippedCount: Int
+        var dueCount: Int
+        var percent: Int
+        var timesPerDay: Int
+    }
+
+    /// Canonical DoseLogs whose schedule → medicine → `treatmentId`. No invented rows.
+    func doseEvents(forTreatmentId treatmentId: UUID) -> [TreatmentDoseEvent] {
+        _ = revision
+        guard treatments().contains(where: { $0.id == treatmentId }) else { return [] }
+        let meds = medicines(for: treatmentId)
+        guard !meds.isEmpty else { return [] }
+        let medById = Dictionary(uniqueKeysWithValues: meds.map { ($0.id, $0) })
+        let medIds = Set(meds.map(\.id))
+        let scheds = schedules().filter { medIds.contains($0.medicineId) }
+        let schedById = Dictionary(uniqueKeysWithValues: scheds.map { ($0.id, $0) })
+        let scheduleIds = Set(scheds.map(\.id))
+        return logs()
+            .filter { scheduleIds.contains($0.scheduleId) }
+            .compactMap { log -> TreatmentDoseEvent? in
+                guard let schedule = schedById[log.scheduleId],
+                      let medicine = medById[schedule.medicineId] else { return nil }
+                return TreatmentDoseEvent(
+                    id: log.id,
+                    treatmentId: treatmentId,
+                    medicineId: medicine.id,
+                    medicineName: medicine.name,
+                    scheduledAt: log.scheduledAt,
+                    confirmedAt: log.loggedAt,
+                    statusRaw: log.status
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.scheduledAt != rhs.scheduledAt { return lhs.scheduledAt > rhs.scheduledAt }
+                return lhs.medicineName.localizedStandardCompare(rhs.medicineName) == .orderedAscending
+            }
+    }
+
+    func treatmentDetailSnapshot(id: UUID, now: Date = Date()) -> TreatmentDetailSnapshot? {
+        _ = revision
+        guard let treatment = treatments().first(where: { $0.id == id }) else { return nil }
+        guard let kind = TreatmentJourneyClassification.classify(
+            deletedAt: treatment.deletedAt,
+            status: treatment.status,
+            startDate: treatment.startDate,
+            endDate: treatment.endDate,
+            now: now,
+            calendar: calendar
+        ) else { return nil }
+        let medSummaries = summaries(
+            treatments: [treatment],
+            requireSurfacesPlan: false,
+            applyDoseDefaults: false
+        )
+        let events = doseEvents(forTreatmentId: id)
+        let due = events.filter { $0.scheduledAt <= now }
+        let taken = due.filter { $0.status.isConfirmedTaken }.count
+        let skipped = due.filter { $0.status.isMissedLike }.count
+        let planned = due.count
+        let percent = planned == 0 ? 0 : Int((Double(taken) / Double(planned) * 100).rounded())
+        let timesPerDay = medSummaries.reduce(0) { $0 + max(0, $1.timesPerDay) }
+        return TreatmentDetailSnapshot(
+            id: treatment.id,
+            title: treatment.title,
+            status: treatment.status,
+            kind: kind,
+            startDate: treatment.startDate,
+            endDate: treatment.endDate,
+            medicines: medSummaries,
+            events: events,
+            takenCount: taken,
+            skippedCount: skipped,
+            dueCount: planned,
+            percent: percent,
+            timesPerDay: timesPerDay
+        )
+    }
+
     func finishedJourneyReports() -> [JourneyReport] {
         _ = revision
         return finishedTreatments().compactMap { journeyReport(for: $0) }
@@ -4277,6 +4381,77 @@ final class CheckMedStore {
         }
         save()
         return (treatment.id, medicine.id, insertedLogId)
+    }
+
+    @discardableResult
+    func debugInsertMedicine(
+        treatmentId: UUID,
+        name: String,
+        ownerId: UUID,
+        profileId: UUID,
+        scheduleTime: String = "08:00"
+    ) -> UUID? {
+        guard allTreatments().contains(where: { $0.id == treatmentId }) else { return nil }
+        let now = Date()
+        let medicine = MedicineRecord(
+            treatmentId: treatmentId,
+            ownerId: ownerId,
+            profileId: profileId,
+            name: name,
+            doseLabel: "1 tablet",
+            frequency: "1x daily",
+            duration: "7 days",
+            updatedAt: now
+        )
+        context.insert(medicine)
+        stamp(medicine)
+        let schedule = DoseScheduleRecord(
+            medicineId: medicine.id,
+            ownerId: ownerId,
+            profileId: profileId,
+            timeOfDay: scheduleTime,
+            period: "morning",
+            updatedAt: now
+        )
+        context.insert(schedule)
+        stamp(schedule)
+        save()
+        invalidateCache()
+        return medicine.id
+    }
+
+    /// DEBUG fixture helper. Does not run in Release. Does not invent production DoseLogs.
+    @discardableResult
+    func debugInsertDoseLog(
+        treatmentId: UUID,
+        medicineName: String,
+        scheduledAt: Date,
+        status: String,
+        loggedAt: Date? = nil,
+        deletedAt: Date? = nil,
+        ownerId: UUID,
+        profileId: UUID
+    ) -> UUID? {
+        let medicine = allMedicines().first {
+            $0.treatmentId == treatmentId && $0.name == medicineName && $0.deletedAt == nil
+        }
+        guard let medicine else { return nil }
+        let schedule = allSchedules().first { $0.medicineId == medicine.id && $0.deletedAt == nil }
+        guard let schedule else { return nil }
+        let log = DoseLogRecord(
+            scheduleId: schedule.id,
+            ownerId: ownerId,
+            profileId: profileId,
+            scheduledAt: scheduledAt,
+            status: status,
+            loggedAt: loggedAt,
+            updatedAt: Date(),
+            deletedAt: deletedAt
+        )
+        context.insert(log)
+        save()
+        invalidateCache()
+        return log.id
     }
 
     func debugActiveTreatmentIds() -> [UUID] {
