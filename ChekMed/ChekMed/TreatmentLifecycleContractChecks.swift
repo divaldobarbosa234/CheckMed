@@ -500,7 +500,263 @@ enum TreatmentTitleContractChecks {
             history.journeyTreeSnapshot(now: now).past.contains(where: { $0.id == past.treatmentId && $0.title == "Arquivo 2025" }),
             "title: history tree uses renamed title"
         )
+
+        // MARK: Detail Finish scoped completion (TreatmentDetailFinishCommand)
+        let finishOwner = UUID()
+        let finishProfile = UUID()
+        let finishNow = Date()
+        let finishStart = calendar.date(byAdding: .day, value: -10, to: calendar.startOfDay(for: finishNow))!
+        let finishEnd = calendar.date(byAdding: .day, value: 30, to: calendar.startOfDay(for: finishNow))!
+        let dueSoon = finishNow.addingTimeInterval(3600)
+
+        let scoped = CheckMedStore(isolatedInMemoryForContracts: true)
+        scoped.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
+        let treatmentA = scoped.debugInsertPlan(
+            title: "Finish A",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "FinishMedA",
+            ownerId: finishOwner,
+            profileId: finishProfile,
+            scheduleTime: "08:00",
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: dueSoon
+        )
+        let treatmentB = scoped.debugInsertPlan(
+            title: "Finish B",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "FinishMedB",
+            ownerId: finishOwner,
+            profileId: finishProfile,
+            scheduleTime: "20:00",
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: dueSoon
+        )
+        expect(scoped.debugLifecycleKind(treatmentId: treatmentA.treatmentId) == .current, "finish A: A is current")
+        expect(scoped.debugLifecycleKind(treatmentId: treatmentB.treatmentId) == .current, "finish A: B is current")
+        expect(
+            scoped.incompleteMedicineNames(forTreatmentId: treatmentA.treatmentId).contains("FinishMedA"),
+            "finish B: selected incomplete names include A"
+        )
+        expect(
+            !scoped.incompleteMedicineNames(forTreatmentId: treatmentA.treatmentId).contains("FinishMedB"),
+            "finish B: selected incomplete names exclude sibling B"
+        )
+        expect(
+            scoped.incompleteMedicineNamesForActivePlan().contains("FinishMedA")
+                && scoped.incompleteMedicineNamesForActivePlan().contains("FinishMedB"),
+            "finish B: global helper still lists both active-plan medicines"
+        )
+        let statusALog = treatmentA.logId.flatMap { scoped.debugDoseStatus($0) }
+        let capturedId = treatmentA.treatmentId
+        let confirmed = TreatmentDetailFinishCommand.apply(
+            .confirm,
+            store: scoped,
+            treatmentId: capturedId
+        )
+        expect(confirmed == .completed, "finish A: confirm completes displayed UUID")
+        let successFollow = TreatmentDetailFinishCommand.followUp(for: confirmed, successRoute: .journeyReport)
+        expect(successFollow.rescheduleReminders, "finish cmd: success schedules reminder rebuild")
+        expect(successFollow.navigate == .journeyReport, "finish cmd: success navigates")
+        expect(!successFollow.showRefusalAlert, "finish cmd: success does not show refusal")
+        expect(capturedId == treatmentA.treatmentId, "finish cmd: captured UUID remains stable")
+        expect(scoped.debugTreatmentStatus(treatmentA.treatmentId) == "completed", "finish A: A completed")
+        expect(scoped.debugTreatmentStatus(treatmentB.treatmentId) == "active", "finish A: B remains active")
+        expect(scoped.debugLifecycleKind(treatmentId: treatmentB.treatmentId) == .current, "finish A: B stays current")
+        expect(scoped.debugLifecycleKind(treatmentId: treatmentA.treatmentId) == .past, "finish A: A is past")
+        expect(statusALog == DoseLogStatus.pending.rawValue, "finish A: DoseLogs not rewritten")
+        expect(
+            treatmentA.logId.flatMap { scoped.debugDoseStatus($0) } == DoseLogStatus.pending.rawValue,
+            "finish A: A log still pending"
+        )
+        expect(scoped.debugTreatmentCompleteGrantCount() == 1, "finish C: first complete grants once")
+
+        let updatedAtAfterFirst = scoped.debugTreatmentUpdatedAt(treatmentA.treatmentId)
+        let grantsAfterFirst = scoped.debugTreatmentCompleteGrantCount()
+        let repeatResult = TreatmentDetailFinishCommand.apply(
+            .confirm,
+            store: scoped,
+            treatmentId: treatmentA.treatmentId
+        )
+        expect(repeatResult == .refused, "finish C: repeat confirm is no-op")
+        let repeatFollow = TreatmentDetailFinishCommand.followUp(for: repeatResult, successRoute: .addPrescription)
+        expect(!repeatFollow.rescheduleReminders, "finish cmd: refused does not reschedule")
+        expect(repeatFollow.navigate == nil, "finish cmd: refused does not navigate")
+        expect(repeatFollow.showRefusalAlert, "finish cmd: refused shows alert")
+        expect(scoped.debugTreatmentUpdatedAt(treatmentA.treatmentId) == updatedAtAfterFirst, "finish C: updatedAt unchanged")
+        expect(scoped.debugTreatmentCompleteGrantCount() == grantsAfterFirst, "finish C: no duplicate XP")
+
+        let drafts = scoped.reminderDrafts(now: finishNow)
+        expect(
+            drafts.contains(where: { $0.medicine == "FinishMedB" }),
+            "finish F: remaining current treatment keeps reminder drafts"
+        )
+        expect(
+            !drafts.contains(where: { $0.medicine == "FinishMedA" }),
+            "finish F: completed A excluded from reminder drafts"
+        )
+
+        let cancelled = CheckMedStore(isolatedInMemoryForContracts: true)
+        cancelled.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
+        let cancelPlan = cancelled.debugInsertPlan(
+            title: "Cancel me",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "CancelMed",
+            ownerId: finishOwner,
+            profileId: finishProfile
+        )
+        let cancelUpdated = cancelled.debugTreatmentUpdatedAt(cancelPlan.treatmentId)
+        let cancelApplied = TreatmentDetailFinishCommand.apply(
+            .cancel,
+            store: cancelled,
+            treatmentId: cancelPlan.treatmentId
+        )
+        expect(cancelApplied == .cancelled, "finish I: cancel returns cancelled")
+        let cancelFollow = TreatmentDetailFinishCommand.followUp(for: cancelApplied, successRoute: .journeyReport)
+        expect(!cancelFollow.rescheduleReminders && cancelFollow.navigate == nil, "finish cmd: cancel has no effects")
+        expect(cancelled.debugTreatmentStatus(cancelPlan.treatmentId) == "active", "finish I: cancel does not complete")
+        expect(cancelled.debugTreatmentUpdatedAt(cancelPlan.treatmentId) == cancelUpdated, "finish I: cancel does not write")
+        expect(cancelled.debugTreatmentCompleteGrantCount() == 0, "finish I: cancel grants no XP")
+
+        let futureStore = CheckMedStore(isolatedInMemoryForContracts: true)
+        futureStore.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
+        let currentSibling = futureStore.debugInsertPlan(
+            title: "Current sibling",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "CurrentSibling",
+            ownerId: finishOwner,
+            profileId: finishProfile
+        )
+        let futureSibling = futureStore.debugInsertPlan(
+            title: "Future sibling",
+            status: "active",
+            startDate: calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: finishNow))!,
+            endDate: finishEnd,
+            medicineName: "FutureSibling",
+            ownerId: finishOwner,
+            profileId: finishProfile
+        )
+        _ = TreatmentDetailFinishCommand.apply(
+            .confirm,
+            store: futureStore,
+            treatmentId: currentSibling.treatmentId
+        )
+        expect(futureStore.debugTreatmentStatus(futureSibling.treatmentId) == "active", "finish D: future stays active")
+        expect(futureStore.debugLifecycleKind(treatmentId: futureSibling.treatmentId) == .future, "finish D: future stays future")
+
+        let isolation = CheckMedStore(isolatedInMemoryForContracts: true)
+        let otherOwner = UUID()
+        let otherProfile = UUID()
+        isolation.debugContractBind(ownerId: otherOwner, profileId: otherProfile)
+        let foreign = isolation.debugInsertPlan(
+            title: "Foreign",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "ForeignMed",
+            ownerId: otherOwner,
+            profileId: otherProfile
+        )
+        isolation.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
+        let local = isolation.debugInsertPlan(
+            title: "Local",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "LocalMed",
+            ownerId: finishOwner,
+            profileId: finishProfile
+        )
+        let foreignConfirm = TreatmentDetailFinishCommand.apply(
+            .confirm,
+            store: isolation,
+            treatmentId: foreign.treatmentId
+        )
+        expect(foreignConfirm == .refused, "finish E: wrong-owner UUID refused")
+        let foreignFollow = TreatmentDetailFinishCommand.followUp(for: foreignConfirm, successRoute: .addPrescription)
+        expect(!foreignFollow.rescheduleReminders && foreignFollow.navigate == nil, "finish cmd: wrong-owner has no success effects")
+        expect(isolation.debugStoredTreatmentStatus(foreign.treatmentId) == "active", "finish E: foreign row stays active")
+        expect(isolation.debugTreatmentStatus(local.treatmentId) == "active", "finish E: local row untouched")
+
+        isolation.debugContractBind(ownerId: finishOwner, profileId: otherProfile)
+        let otherProfilePlan = isolation.debugInsertPlan(
+            title: "Other profile",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "OtherProfileMed",
+            ownerId: finishOwner,
+            profileId: otherProfile
+        )
+        isolation.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
+        let wrongProfileConfirm = TreatmentDetailFinishCommand.apply(
+            .confirm,
+            store: isolation,
+            treatmentId: otherProfilePlan.treatmentId
+        )
+        expect(wrongProfileConfirm == .refused, "finish E: wrong-profile UUID refused")
+        expect(
+            isolation.debugStoredTreatmentStatus(otherProfilePlan.treatmentId) == "active",
+            "finish E: other-profile row stays active"
+        )
+
+        let bulk = CheckMedStore(isolatedInMemoryForContracts: true)
+        bulk.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
+        let bulkA = bulk.debugInsertPlan(
+            title: "Bulk A",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "BulkMedA",
+            ownerId: finishOwner,
+            profileId: finishProfile
+        )
+        let bulkB = bulk.debugInsertPlan(
+            title: "Bulk B",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "BulkMedB",
+            ownerId: finishOwner,
+            profileId: finishProfile
+        )
+        bulk.completeAllActiveTreatments()
+        expect(bulk.debugTreatmentStatus(bulkA.treatmentId) == "completed", "finish G: bulk still completes A")
+        expect(bulk.debugTreatmentStatus(bulkB.treatmentId) == "completed", "finish G: bulk still completes B")
+
         return failures
+    }
+
+    /// Isolated DEBUG report. Does not touch live stores, reminders, or the network.
+    @MainActor
+    static func runtimeEvidence() -> String {
+        let failures = failures()
+        func status(_ tag: String) -> String {
+            failures.contains { $0.contains(tag) } ? "FAIL" : "PASS"
+        }
+        let finishRows = [
+            "A \(status("finish A:")) two current treatments, complete selected UUID only",
+            "B \(status("finish B:")) incomplete warning excludes sibling medicines",
+            "C \(status("finish C:")) repeat complete is no-op, no duplicate XP",
+            "D \(status("finish D:")) future sibling stays future and active",
+            "E \(status("finish E:")) wrong-owner/wrong-profile refused",
+            "F \(status("finish F:")) reminder drafts keep remaining current treatment",
+            "G \(status("finish G:")) bulk completeAll still completes all active",
+            "H \(failures.filter { !$0.contains("finish ") }.isEmpty ? "PASS" : "FAIL") existing lifecycle contracts",
+            "I \(status("finish I:")) cancel is mutation-free",
+            "cmd \(status("finish cmd:")) success/failure follow-up (no false navigate/reschedule)",
+        ]
+        let header = failures.isEmpty
+            ? "TreatmentLifecycle allEmpty=true"
+            : "TreatmentLifecycle allEmpty=false count=\(failures.count)"
+        return ([header] + finishRows + failures.map { "FAIL \($0)" }).joined(separator: "\n")
     }
 }
 

@@ -277,6 +277,7 @@ enum L10n {
         case notesOnDevice, completeTreatment, planOnlyBubble, planOnlyDisclaimer, howYouTakeIt
         case finishTreatmentConfirmTitle, finishTreatmentConfirmBody, finishTreatmentMissWarning
         case finishTreatmentScanNew, finishTreatmentSeeReport
+        case finishTreatmentCouldNotComplete, finishTreatmentCouldNotCompleteBody
         case journeyShare, notificationRefillTitle, notificationRefillBody, pharmacyCall
         case notificationStockRefillTitle, notificationStockRefillBody, notificationStockDaysTitle, notificationStockDaysBody
         case refillHeadline, refillSubhead, refillEmpty, refillDisclaimer, refillDaysLeftFormat, refillDaysLeftFormatOne, refillLessThanDay
@@ -1304,10 +1305,12 @@ enum L10n {
         .notesOnDevice: "Notes on this iPhone",
         .completeTreatment: "Mark this treatment finished",
         .finishTreatmentConfirmTitle: "Finish this treatment?",
-        .finishTreatmentConfirmBody: "Are you sure you already finished this treatment? This closes the current plan on Home.",
+        .finishTreatmentConfirmBody: "Are you sure you already finished this treatment? Only this treatment is closed. Other treatments stay active.",
         .finishTreatmentMissWarning: "You will lose this journey — you didn’t take all your medicine. Missing: “%@”.",
         .finishTreatmentScanNew: "Scan a new medicine",
         .finishTreatmentSeeReport: "See the report",
+        .finishTreatmentCouldNotComplete: "This treatment could not be closed",
+        .finishTreatmentCouldNotCompleteBody: "Nothing was changed. Other treatments stay as they are.",
         .planOnlyBubble: "Cooper: This is your saved plan. I don't invent what a medicine is.",
         .planOnlyDisclaimer: "Follow the prescription and your pharmacist. Conny Cooper is not a medical encyclopedia.",
         .howYouTakeIt: "How you take it",
@@ -2414,10 +2417,12 @@ enum L10n {
         .notesOnDevice: "Notas neste iPhone",
         .completeTreatment: "Marcar este tratamento como concluído",
         .finishTreatmentConfirmTitle: "Concluir este tratamento?",
-        .finishTreatmentConfirmBody: "Tem certeza de que já terminou este tratamento? Isso fecha o plano atual na Início.",
+        .finishTreatmentConfirmBody: "Tem certeza de que já terminou este tratamento? Só este tratamento é encerrado. Os outros continuam ativos.",
         .finishTreatmentMissWarning: "Você vai perder esta jornada — não tomou todo o medicamento. Falta: “%@”.",
         .finishTreatmentScanNew: "Escanear um novo medicamento",
         .finishTreatmentSeeReport: "Ver o relatório",
+        .finishTreatmentCouldNotComplete: "Não foi possível encerrar este tratamento",
+        .finishTreatmentCouldNotCompleteBody: "Nada foi alterado. Os outros tratamentos continuam como estão.",
         .planOnlyBubble: "Cooper: Este é o seu plano salvo. Eu não invento o que um medicamento é.",
         .planOnlyDisclaimer: "Siga a receita e o seu farmacêutico. O Conny Cooper não é uma enciclopédia médica.",
         .howYouTakeIt: "Como você toma",
@@ -3524,10 +3529,12 @@ enum L10n {
         .notesOnDevice: "Notas en este iPhone",
         .completeTreatment: "Marcar este tratamiento como terminado",
         .finishTreatmentConfirmTitle: "¿Terminar este tratamiento?",
-        .finishTreatmentConfirmBody: "¿Seguro que ya terminaste este tratamiento? Esto cierra el plan actual en Inicio.",
+        .finishTreatmentConfirmBody: "¿Seguro que ya terminaste este tratamiento? Solo se cierra este tratamiento. Los demás siguen activos.",
         .finishTreatmentMissWarning: "Perderás este recorrido — no tomaste toda la medicina. Falta: “%@”.",
         .finishTreatmentScanNew: "Escanear una medicina nueva",
         .finishTreatmentSeeReport: "Ver el informe",
+        .finishTreatmentCouldNotComplete: "No se pudo cerrar este tratamiento",
+        .finishTreatmentCouldNotCompleteBody: "No se cambió nada. Los demás tratamientos siguen igual.",
         .planOnlyBubble: "Cooper: Este es tu plan guardado. No invento qué es un medicamento.",
         .planOnlyDisclaimer: "Sigue la receta y a tu farmacéutico. Conny Cooper no es una enciclopedia médica.",
         .howYouTakeIt: "Cómo lo tomas",
@@ -4634,10 +4641,12 @@ enum L10n {
         .notesOnDevice: "Notes sur cet iPhone",
         .completeTreatment: "Marquer ce traitement comme terminé",
         .finishTreatmentConfirmTitle: "Terminer ce traitement ?",
-        .finishTreatmentConfirmBody: "Êtes-vous sûr d’avoir déjà terminé ce traitement ? Cela ferme le plan actuel sur l’accueil.",
+        .finishTreatmentConfirmBody: "Êtes-vous sûr d’avoir déjà terminé ce traitement ? Seul ce traitement est clôturé. Les autres restent actifs.",
         .finishTreatmentMissWarning: "Vous allez perdre ce parcours — vous n’avez pas pris tout le médicament. Manque : « %@ ».",
         .finishTreatmentScanNew: "Scanner un nouveau médicament",
         .finishTreatmentSeeReport: "Voir le rapport",
+        .finishTreatmentCouldNotComplete: "Ce traitement n’a pas pu être clôturé",
+        .finishTreatmentCouldNotCompleteBody: "Rien n’a été modifié. Les autres traitements restent inchangés.",
         .planOnlyBubble: "Cooper : C’est votre plan enregistré. Je n’invente pas ce qu’est un médicament.",
         .planOnlyDisclaimer: "Suivez l’ordonnance et votre pharmacien. Conny Cooper n’est pas une encyclopédie médicale.",
         .howYouTakeIt: "Comment vous le prenez",

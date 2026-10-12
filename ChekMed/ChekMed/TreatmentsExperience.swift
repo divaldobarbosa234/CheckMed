@@ -45,6 +45,54 @@ func completedSkippedCountText(_ count: Int, session: SessionStore) -> String {
     count == 1 ? session.t(.journeySkippedOne) : session.t(.journeySkipped, count)
 }
 
+/// Detail Finish mutation boundary. Captures the treatment UUID explicitly so a later
+/// session/profile bind cannot complete a different row. Reminder rebuild stays on the screen.
+enum TreatmentDetailFinishCommand {
+    enum Decision: Equatable {
+        case confirm
+        case cancel
+    }
+
+    enum Outcome: Equatable {
+        case cancelled
+        case refused
+        case completed
+    }
+
+    /// Presentation effects derived from `Outcome`. Does not call ReminderScheduler.
+    struct FollowUp: Equatable {
+        var rescheduleReminders: Bool
+        var navigate: AppRoute?
+        var showRefusalAlert: Bool
+    }
+
+    @MainActor
+    @discardableResult
+    static func apply(
+        _ decision: Decision,
+        store: CheckMedStore,
+        treatmentId: UUID
+    ) -> Outcome {
+        switch decision {
+        case .cancel:
+            return .cancelled
+        case .confirm:
+            return store.completeTreatment(id: treatmentId) ? .completed : .refused
+        }
+    }
+
+    static func followUp(for outcome: Outcome, successRoute: AppRoute) -> FollowUp {
+        switch outcome {
+        case .cancelled:
+            return FollowUp(rescheduleReminders: false, navigate: nil, showRefusalAlert: false)
+        case .refused:
+            return FollowUp(rescheduleReminders: false, navigate: nil, showRefusalAlert: true)
+        case .completed:
+            return FollowUp(rescheduleReminders: true, navigate: successRoute, showRefusalAlert: false)
+        }
+    }
+}
+
 struct TreatmentsRootScreen: View {
     var go: (AppRoute) -> Void
     @Environment(CheckMedStore.self) private var treatments
@@ -326,6 +374,8 @@ struct TreatmentDetailScreen: View {
     @State private var showFinishConfirm = false
     @State private var showRename = false
     @State private var renameDraft = ""
+    @State private var finishTargetId: UUID?
+    @State private var showFinishRefused = false
 
     private var branch: CheckMedStore.JourneyTreeBranch? {
         let tree = treatments.journeyTreeSnapshot()
@@ -357,6 +407,7 @@ struct TreatmentDetailScreen: View {
                     infoSection(branch)
                     if isCurrent {
                         CheckMedButton(title: session.t(.completeTreatment), style: .ghost) {
+                            finishTargetId = treatmentId
                             showFinishConfirm = true
                         }
                     }
@@ -369,9 +420,15 @@ struct TreatmentDetailScreen: View {
             .padding(16)
             .padding(.bottom, TreatmentsChrome.fabClearance)
         }
+        .alert(session.t(.finishTreatmentCouldNotComplete), isPresented: $showFinishRefused) {
+            Button(session.t(.tryAgain), role: .cancel) {}
+        } message: {
+            Text(session.t(.finishTreatmentCouldNotCompleteBody))
+        }
         .background(CheckMedTheme.background)
         .navigationTitle(branch?.title ?? session.t(.tabTreatments))
         .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("treatment-detail-\(treatmentId.uuidString)")
         .alert(session.t(.treatmentsRename), isPresented: $showRename) {
             TextField(session.t(.treatmentsRenamePrompt), text: $renameDraft)
             Button(session.t(.cancel), role: .cancel) {}
@@ -381,10 +438,29 @@ struct TreatmentDetailScreen: View {
         }
         .sheet(isPresented: $showFinishConfirm) {
             FinishTreatmentConfirmSheet(
-                missingMedicineNames: treatments.incompleteMedicineNamesForActivePlan(),
+                missingMedicineNames: treatments.incompleteMedicineNames(
+                    forTreatmentId: finishTargetId ?? treatmentId
+                ),
                 onScanNew: { finishTreatment(then: .addPrescription) },
                 onSeeReport: { finishTreatment(then: .journeyReport) },
-                onCancel: { showFinishConfirm = false }
+                onCancel: {
+                    let cancelled = TreatmentDetailFinishCommand.apply(
+                        .cancel,
+                        store: treatments,
+                        treatmentId: finishTargetId ?? treatmentId
+                    )
+                    let follow = TreatmentDetailFinishCommand.followUp(
+                        for: cancelled,
+                        successRoute: .journeyReport
+                    )
+                    showFinishConfirm = false
+                    if follow.rescheduleReminders {
+                        ReminderScheduler.shared.reschedule()
+                    }
+                    if let route = follow.navigate {
+                        DispatchQueue.main.async { go(route) }
+                    }
+                }
             )
             .environment(session)
             .presentationDetents([.medium, .large])
@@ -400,6 +476,7 @@ struct TreatmentDetailScreen: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(branch.title)
                         .font(.system(size: 28, weight: .black, design: .rounded))
+                        .accessibilityIdentifier("treatment-detail-title")
                     if isCurrent {
                         Text(session.t(.treatmentsInCourse))
                             .font(.system(.caption, design: .rounded).weight(.heavy))
@@ -552,10 +629,19 @@ struct TreatmentDetailScreen: View {
     }
 
     private func finishTreatment(then route: AppRoute) {
-        treatments.completeAllActiveTreatments()
-        ReminderScheduler.shared.reschedule()
+        let id = finishTargetId ?? treatmentId
+        let outcome = TreatmentDetailFinishCommand.apply(.confirm, store: treatments, treatmentId: id)
         showFinishConfirm = false
-        DispatchQueue.main.async { go(route) }
+        let follow = TreatmentDetailFinishCommand.followUp(for: outcome, successRoute: route)
+        if follow.showRefusalAlert {
+            showFinishRefused = true
+        }
+        if follow.rescheduleReminders {
+            ReminderScheduler.shared.reschedule()
+        }
+        if let next = follow.navigate {
+            DispatchQueue.main.async { go(next) }
+        }
     }
 }
 

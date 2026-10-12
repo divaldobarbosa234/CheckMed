@@ -1436,8 +1436,12 @@ final class CheckMedStore {
         return true
     }
 
-    func completeTreatment(id: UUID) {
-        guard let treatment = allTreatments().first(where: { $0.id == id && $0.deletedAt == nil }) else { return }
+    /// Completes one visible treatment. Missing, deleted, out-of-scope, and already-completed
+    /// rows are no-ops. Does not rewrite medicines, schedules, or DoseLogs.
+    @discardableResult
+    func completeTreatment(id: UUID) -> Bool {
+        guard let treatment = treatments().first(where: { $0.id == id }) else { return false }
+        if treatment.status == "completed" { return false }
         // Status only — never set deletedAt. Journey report needs finished treatments + medicines.
         treatment.status = "completed"
         let now = Date()
@@ -1445,7 +1449,7 @@ final class CheckMedStore {
         treatment.updatedAt = now
         stamp(treatment)
         logsEnsuredDay = nil
-        guard saveCanonicalMutation([treatment], now: now) else { return }
+        guard saveCanonicalMutation([treatment], now: now) else { return false }
         RewardEngine.applyTreatmentComplete(
             context: context,
             ownerId: treatment.ownerId ?? ownerId,
@@ -1454,6 +1458,7 @@ final class CheckMedStore {
         )
         notify()
         requestSync()
+        return true
     }
 
     /// Completes every active plan in place. Medicines, schedules, and logs stay for journey history.
@@ -1466,10 +1471,23 @@ final class CheckMedStore {
 
     /// Medicines on the active plan that still have missed/pending expected doses, or a course that is not fully taken yet.
     func incompleteMedicineNamesForActivePlan() -> [String] {
+        incompleteMedicineNames(in: Set(activeTreatments().map(\.id)))
+    }
+
+    /// Same warning predicates as the active-plan helper, limited to one treatment UUID.
+    func incompleteMedicineNames(forTreatmentId treatmentId: UUID) -> [String] {
+        incompleteMedicineNames(in: [treatmentId])
+    }
+
+    private func incompleteMedicineNames(in treatmentIds: Set<UUID>) -> [String] {
         _ = revision
         let now = Date()
         let today = calendar.startOfDay(for: now)
-        let treatmentsById = Dictionary(uniqueKeysWithValues: activeTreatments().map { ($0.id, $0) })
+        let treatmentsById = Dictionary(
+            uniqueKeysWithValues: activeTreatments()
+                .filter { treatmentIds.contains($0.id) }
+                .map { ($0.id, $0) }
+        )
         var names: [String] = []
         var seen = Set<String>()
         for medicine in medicines() {
@@ -4276,6 +4294,14 @@ final class CheckMedStore {
 
     func debugTreatmentStatus(_ treatmentId: UUID) -> String? {
         treatments().first(where: { $0.id == treatmentId })?.status
+    }
+
+    func debugStoredTreatmentStatus(_ treatmentId: UUID) -> String? {
+        allTreatments().first(where: { $0.id == treatmentId })?.status
+    }
+
+    func debugTreatmentUpdatedAt(_ treatmentId: UUID) -> Date? {
+        allTreatments().first(where: { $0.id == treatmentId })?.updatedAt
     }
 
     func debugTreatmentTitle(_ treatmentId: UUID) -> String? {

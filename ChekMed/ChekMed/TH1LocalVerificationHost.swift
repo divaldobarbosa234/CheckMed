@@ -8,6 +8,9 @@ enum TH1LocalVerification {
     static let requiredUDID = "D34130F1-4D47-4FC7-B14B-C19388076947"
     static let verifyFlag = "CHECKMED_TH1_VERIFY"
     static let emptyFlag = "CHECKMED_TH1_EMPTY"
+    /// DEBUG-only. Runs in-memory TreatmentLifecycleContractChecks on the TH-1 host.
+    /// Never selected in Release. Does not start RootView, auth, or ReminderScheduler.
+    static let lifecycleContractsFlag = "CHECKMED_LIFECYCLE_CONTRACTS"
     static let fixtureOwnerId = UUID(uuidString: "D34130F1-0000-4000-8000-000000000001")!
     static let fixtureProfileId = UUID(uuidString: "D34130F1-0000-4000-8000-000000000002")!
 
@@ -24,6 +27,10 @@ enum TH1LocalVerification {
 
     static var wantsEmptyHistory: Bool {
         ProcessInfo.processInfo.environment[emptyFlag] == "1"
+    }
+
+    static var wantsLifecycleContracts: Bool {
+        isAllowed && ProcessInfo.processInfo.environment[lifecycleContractsFlag] == "1"
     }
 
     static var isSimulatorRuntime: Bool {
@@ -121,6 +128,39 @@ struct TH1LocalVerificationHost: View {
             ownerId: TH1LocalVerification.fixtureOwnerId,
             profileId: TH1LocalVerification.fixtureProfileId
         )
+        if TH1LocalVerification.wantsLifecycleContracts {
+            let failures = TreatmentLifecycleContractChecks.failures()
+            func line(_ tag: String, _ title: String) -> String {
+                let status = failures.contains { $0.contains(tag) } ? "FAIL" : "PASS"
+                return "\(tag) \(status) \(title)"
+            }
+            let existingFailed = failures.contains { !$0.contains("finish ") }
+            var rows = [
+                failures.isEmpty
+                    ? "TreatmentLifecycle allEmpty=true"
+                    : "TreatmentLifecycle allEmpty=false count=\(failures.count)",
+                line("finish A:", "two current treatments, complete selected UUID only"),
+                line("finish B:", "incomplete warning excludes sibling medicines"),
+                line("finish C:", "repeat complete is no-op, no duplicate XP"),
+                line("finish D:", "future sibling stays future and active"),
+                line("finish E:", "wrong-owner/wrong-profile refused"),
+                line("finish F:", "reminder drafts keep remaining current treatment"),
+                line("finish G:", "bulk completeAll still completes all active"),
+                "H \(existingFailed ? "FAIL" : "PASS") existing lifecycle contracts",
+                line("finish I:", "cancel is mutation-free"),
+                line("finish cmd:", "success/failure follow-up"),
+            ]
+            rows.append(contentsOf: failures.map { "FAIL \($0)" })
+            let report = rows.joined(separator: "\n")
+            print("[TH1-VERIFY] lifecycle contracts\n\(report)")
+            if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                let data = Data(report.utf8)
+                try? data.write(
+                    to: docs.appendingPathComponent("checkmed-lifecycle-contracts.txt"),
+                    options: .atomic
+                )
+            }
+        }
         guard !TH1LocalVerification.wantsEmptyHistory else {
             print("[TH1-VERIFY] empty-history mode — no fixtures inserted")
             return
