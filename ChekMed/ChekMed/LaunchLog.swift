@@ -163,6 +163,55 @@ enum ReportPerf {
     }
 }
 
+/// DEBUG-only Treatment History timing. No production behavior.
+enum HistoryPerf {
+    private static let clock = ContinuousClock()
+    private static var openAt: ContinuousClock.Instant?
+    private static var bodyCount = 0
+    private static var didLogSource = false
+
+    static func open() {
+        #if DEBUG
+        openAt = clock.now
+        bodyCount = 0
+        didLogSource = false
+        log("OPEN")
+        #endif
+    }
+
+    static func body() {
+        #if DEBUG
+        bodyCount += 1
+        log("HISTORY VIEW BODY #\(bodyCount)")
+        #endif
+    }
+
+    static func source(_ name: String) {
+        #if DEBUG
+        guard !didLogSource else { return }
+        didLogSource = true
+        log("SOURCE \(name)")
+        #endif
+    }
+
+    static func log(_ message: String) {
+        #if DEBUG
+        let since: String
+        if let openAt {
+            since = "+\(milliseconds(clock.now - openAt))ms"
+        } else {
+            since = "+?ms"
+        }
+        print("[HISTORY-PERF] \(since) \(message) main=\(Thread.isMainThread)")
+        #endif
+    }
+
+    private static func milliseconds(_ duration: Duration) -> Int {
+        let parts = duration.components
+        return Int(parts.seconds * 1000) + Int(parts.attoseconds / 1_000_000_000_000_000)
+    }
+}
+
 /// DEBUG-only previous-treatment navigation timing. No production behavior.
 enum TreatmentNavPerf {
     private static let clock = ContinuousClock()

@@ -7,6 +7,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        #if DEBUG
+        if TH1LocalVerification.shouldIsolateProcess {
+            TH1LocalVerification.logActivation(stage: "AppDelegate")
+            return true
+        }
+        #endif
         if let clientID = AuthConfig.googleClientID {
             GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
         }
@@ -147,41 +153,59 @@ struct ChekMedApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(session)
-                .environment(treatments)
-                .environment(path)
-                .environment(entitlements)
-                .environment(syncEngine)
-                .environment(family)
-                .environment(voice)
-                .environment(\.locale, session.locale.foundationLocale)
-                .onOpenURL { url in
-                    GIDSignIn.sharedInstance.handle(url)
-                }
-                .onAppear { bindStores() }
-                .onChange(of: session.kind) { _, _ in
-                    bindStores()
-                }
-                .onChange(of: session.profileId) { _, profileId in
-                    treatments.bindIdentity(ownerId: session.planOwnerId, profileId: profileId)
+            #if DEBUG
+            if TH1LocalVerification.isAllowed {
+                TH1LocalVerificationHost()
+                    .environment(session)
+                    .environment(entitlements)
+                    .environment(\.locale, session.locale.foundationLocale)
+            } else if TH1LocalVerification.isMisconfiguredRequest {
+                TH1LocalVerificationDeniedHost()
+            } else {
+                standardRoot
+            }
+            #else
+            standardRoot
+            #endif
+        }
+    }
+
+    @ViewBuilder
+    private var standardRoot: some View {
+        RootView()
+            .environment(session)
+            .environment(treatments)
+            .environment(path)
+            .environment(entitlements)
+            .environment(syncEngine)
+            .environment(family)
+            .environment(voice)
+            .environment(\.locale, session.locale.foundationLocale)
+            .onOpenURL { url in
+                GIDSignIn.sharedInstance.handle(url)
+            }
+            .onAppear { bindStores() }
+            .onChange(of: session.kind) { _, _ in
+                bindStores()
+            }
+            .onChange(of: session.profileId) { _, profileId in
+                treatments.bindIdentity(ownerId: session.planOwnerId, profileId: profileId)
+                family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
+            }
+            .onChange(of: session.timeZoneName) { _, _ in
+                treatments.setTimeZone(session.foundationTimeZone)
+                ReminderScheduler.shared.reschedule(force: true)
+            }
+            .onChange(of: session.locale) { _, _ in
+                ReminderScheduler.shared.reschedule(force: true)
+            }
+            .onChange(of: entitlements.isSuper) { _, isSuper in
+                if !isSuper {
+                    family.selectPrimary()
                     family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
                 }
-                .onChange(of: session.timeZoneName) { _, _ in
-                    treatments.setTimeZone(session.foundationTimeZone)
-                    ReminderScheduler.shared.reschedule(force: true)
-                }
-                .onChange(of: session.locale) { _, _ in
-                    ReminderScheduler.shared.reschedule(force: true)
-                }
-                .onChange(of: entitlements.isSuper) { _, isSuper in
-                    if !isSuper {
-                        family.selectPrimary()
-                        family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
-                    }
-                    ReminderScheduler.shared.reschedule(force: true)
-                }
-        }
+                ReminderScheduler.shared.reschedule(force: true)
+            }
     }
 
     private func bindStores() {
