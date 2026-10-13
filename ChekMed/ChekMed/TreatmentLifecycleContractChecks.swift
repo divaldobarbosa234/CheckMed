@@ -264,6 +264,7 @@ enum TreatmentLifecycleContractChecks {
             "K: CURRENT pending log still produces reminder drafts"
         )
 
+        failures.append(contentsOf: TreatmentPreservationContractChecks.failures())
         return failures
     }
 }
@@ -521,6 +522,54 @@ enum MedicationCapacitySafetyContractChecks {
         )
         expect(superThirteenth == nil, "capacity: Super 13th medicine is refused")
         expect(superStore.storedMedicineCount == SuperLimits.superPrescriptions, "capacity: refused 13th does not increase occupancy")
+
+        let startNewCap = CheckMedStore(isolatedInMemoryForContracts: true)
+        startNewCap.debugContractBind(ownerId: owner, profileId: profile)
+        _ = startNewCap.debugInsertPlan(
+            title: "Live now",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "LiveNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = startNewCap.debugInsertPlan(
+            title: "Soon A",
+            status: "active",
+            startDate: tomorrow,
+            endDate: end,
+            medicineName: "SoonA",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = startNewCap.debugInsertPlan(
+            title: "Soon B",
+            status: "active",
+            startDate: tomorrow,
+            endDate: end,
+            medicineName: "SoonB",
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(startNewCap.storedMedicineCount == 3, "capacity: Start New fixture is at Free cap")
+        expect(startNewCap.intakeOpeningMedicineCount == 2, "capacity: opening intake uses FUTURE occupancy when CURRENT exists")
+        expect(
+            MedicineCapacityDecision.resolve(
+                isSuper: false,
+                existingCount: startNewCap.intakeOpeningMedicineCount,
+                maximumActiveMedicines: SuperLimits.freePrescriptions
+            ) == .allowed,
+            "capacity: Start New can open at cap because CURRENT slots will free"
+        )
+        let startNewIds = startNewCap.startNewTreatmentFromDrafts(
+            [draft("NewOne"), draft("NewTwo")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(startNewIds != nil, "capacity: Start New persists one replacement when one slot remains")
+        expect(startNewCap.storedMedicineCount == 3, "capacity: Start New plus preserved FUTURE stays at Free 3")
 
         if let first = free.medicineSummaries().first {
             free.updateMedicineDetails(id: first.id, name: "Free One Edited")
@@ -1250,6 +1299,598 @@ enum CompletedSkippedLabelContractChecks {
         expect(formatted(count: 9, locale: .spanish) == "9 omitidas", "es plural")
         expect(formatted(count: 1, locale: .french) == "1 passée", "fr singular")
         expect(formatted(count: 9, locale: .french) == "9 passées", "fr plural")
+        return failures
+    }
+}
+
+enum TreatmentPreservationContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func draft(_ name: String) -> OnboardingPrescriptionDraft {
+            OnboardingPrescriptionDraft(
+                medicine: name,
+                dose: "1 tablet",
+                frequency: "1x",
+                duration: "5 days",
+                timesPerDay: "1",
+                doseTimes: ["09:00"]
+            )
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let lastWeek = calendar.date(byAdding: .day, value: -10, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let nextMonth = calendar.date(byAdding: .day, value: 30, to: today)!
+        let tomorrowNoon = calendar.date(bySettingHour: 12, minute: 0, second: 0, of: tomorrow) ?? tomorrow
+
+        let owner = UUID()
+        let profile = UUID()
+        let extraProfile = UUID()
+
+        let futureOnly = CheckMedStore(isolatedInMemoryForContracts: true)
+        futureOnly.debugContractBind(ownerId: owner, profileId: profile)
+        let futurePlan = futureOnly.debugInsertPlan(
+            title: "Starts later",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "LaterMed",
+            ownerId: owner,
+            profileId: profile,
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: tomorrowNoon
+        )
+        let futureStart = futureOnly.debugTreatmentStartDate(futurePlan.treatmentId)
+        let futureEnd = futureOnly.debugTreatmentEndDate(futurePlan.treatmentId)
+        let seeded = futureOnly.seedFromDrafts(
+            [draft("AlongsideFuture")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(seeded != nil && seeded != futurePlan.treatmentId, "TS-1: FUTURE-only seed inserts a new treatment")
+        expect(futureOnly.debugTreatmentStatus(futurePlan.treatmentId) == "active", "TS-1: FUTURE status unchanged by seed")
+        expect(futureOnly.debugTreatmentStartDate(futurePlan.treatmentId) == futureStart, "TS-1: FUTURE start unchanged")
+        expect(futureOnly.debugTreatmentEndDate(futurePlan.treatmentId) == futureEnd, "TS-1: FUTURE end unchanged")
+        expect(futureOnly.debugMedicineName(futurePlan.medicineId) == "LaterMed", "TS-1: FUTURE medicine identity preserved")
+        expect(
+            futureOnly.debugDoseStatus(futurePlan.logId ?? UUID()) == DoseLogStatus.pending.rawValue,
+            "TS-1: FUTURE DoseLog preserved"
+        )
+        if let logId = futurePlan.logId {
+            futureOnly.applyDoseAction(id: logId, action: .confirmTaken, now: tomorrowNoon)
+            expect(
+                futureOnly.debugDoseStatus(logId) == DoseLogStatus.taken.rawValue,
+                "TS-1: Taken still applies on preserved FUTURE log"
+            )
+        }
+
+        let currentOnly = CheckMedStore(isolatedInMemoryForContracts: true)
+        currentOnly.debugContractBind(ownerId: owner, profileId: profile)
+        let currentPlan = currentOnly.debugInsertPlan(
+            title: "Current only",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "CurrentMed",
+            ownerId: owner,
+            profileId: profile,
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: now
+        )
+        let replacement = currentOnly.startNewTreatmentFromDrafts(
+            [draft("ReplacementMed")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(replacement != nil && replacement != currentPlan.treatmentId, "TS-1: CURRENT-only Start New seeds a new id")
+        expect(currentOnly.debugTreatmentStatus(currentPlan.treatmentId) == "completed", "TS-1: CURRENT-only Start New completes CURRENT")
+        expect(currentOnly.debugMedicineName(currentPlan.medicineId) == "CurrentMed", "TS-1: completed CURRENT medicine UUID kept")
+        expect(
+            currentOnly.debugDoseStatus(currentPlan.logId ?? UUID()) == DoseLogStatus.pending.rawValue,
+            "TS-1: completed CURRENT DoseLog kept"
+        )
+        expect(currentOnly.debugTreatmentCompleteGrantCount() == 1, "TS-1: Start New still grants completion XP after persist")
+
+        let mixed = CheckMedStore(isolatedInMemoryForContracts: true)
+        mixed.debugContractBind(ownerId: owner, profileId: profile)
+        let mixedCurrent = mixed.debugInsertPlan(
+            title: "Mixed current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "NowMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        let mixedFuture = mixed.debugInsertPlan(
+            title: "Mixed future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "SoonMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        let mixedStart = mixed.debugTreatmentStartDate(mixedFuture.treatmentId)
+        let mixedNew = mixed.startNewTreatmentFromDrafts(
+            [draft("BrandNew")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(mixedNew != nil && mixedNew != mixedCurrent.treatmentId && mixedNew != mixedFuture.treatmentId, "TS-1: mixed Start New is a third treatment")
+        expect(mixed.debugTreatmentStatus(mixedCurrent.treatmentId) == "completed", "TS-1: mixed Start New completes CURRENT")
+        expect(mixed.debugTreatmentStatus(mixedFuture.treatmentId) == "active", "TS-1: mixed Start New leaves FUTURE active")
+        expect(mixed.debugTreatmentStartDate(mixedFuture.treatmentId) == mixedStart, "TS-1: mixed FUTURE dates unchanged")
+        expect(mixed.debugMedicineName(mixedFuture.medicineId) == "SoonMed", "TS-1: mixed FUTURE medicine kept")
+        expect(mixed.storedMedicineCount == 2, "TS-1: mixed occupancy is new CURRENT + FUTURE")
+        expect(
+            !mixed.reminderDrafts(now: now).contains(where: { $0.medicine == "NowMed" }),
+            "TS-1: completed CURRENT no longer produces reminder drafts"
+        )
+
+        let multiCurrent = CheckMedStore(isolatedInMemoryForContracts: true)
+        multiCurrent.debugContractBind(ownerId: owner, profileId: profile)
+        let currentA = multiCurrent.debugInsertPlan(
+            title: "Current A",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "MedA",
+            ownerId: owner,
+            profileId: profile
+        )
+        let currentB = multiCurrent.debugInsertPlan(
+            title: "Current B",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "MedB",
+            ownerId: owner,
+            profileId: profile
+        )
+        let futureKeep = multiCurrent.debugInsertPlan(
+            title: "Keep future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "MedF",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = multiCurrent.startNewTreatmentFromDrafts(
+            [draft("AfterBoth")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(multiCurrent.debugTreatmentStatus(currentA.treatmentId) == "completed", "TS-1: all CURRENT A completed")
+        expect(multiCurrent.debugTreatmentStatus(currentB.treatmentId) == "completed", "TS-1: all CURRENT B completed")
+        expect(multiCurrent.debugTreatmentStatus(futureKeep.treatmentId) == "active", "TS-1: FUTURE survives multiple CURRENT complete")
+
+        let family = CheckMedStore(isolatedInMemoryForContracts: true)
+        family.debugContractBind(ownerId: owner, profileId: profile)
+        let primaryCurrent = family.debugInsertPlan(
+            title: "Primary current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "PrimaryMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        family.setActiveScope(profileId: extraProfile, includeUnscoped: false)
+        let extraFuture = family.debugInsertPlan(
+            title: "Extra future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "ExtraMed",
+            ownerId: owner,
+            profileId: extraProfile
+        )
+        expect(family.hasLivePlanInSelectedProfile, "TS-1: extra profile Plan Resume sees its own FUTURE")
+        family.setActiveScope(profileId: profile, includeUnscoped: true)
+        expect(family.hasLivePlanInSelectedProfile, "TS-1: primary still has a live plan")
+        let emptyExtra = CheckMedStore(isolatedInMemoryForContracts: true)
+        emptyExtra.debugContractBind(ownerId: owner, profileId: profile)
+        _ = emptyExtra.debugInsertPlan(
+            title: "Only primary",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "OnlyPrimary",
+            ownerId: owner,
+            profileId: profile
+        )
+        emptyExtra.setActiveScope(profileId: extraProfile, includeUnscoped: false)
+        expect(emptyExtra.hasActivePlan, "TS-1: owner-wide hasActivePlan still sees the other profile")
+        expect(!emptyExtra.hasLivePlanInSelectedProfile, "TS-1: extra Plan Resume is not skipped by another profile")
+        emptyExtra.setActiveScope(profileId: profile, includeUnscoped: true)
+        let familyNew = family.startNewTreatmentFromDrafts(
+            [draft("PrimaryReplacement")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(familyNew != nil, "TS-1: two-profile Start New persists on the selected profile")
+        expect(family.debugTreatmentStatus(primaryCurrent.treatmentId) == "completed", "TS-1: selected profile CURRENT completed")
+        expect(
+            family.debugStoredTreatmentStatus(extraFuture.treatmentId) == "active",
+            "TS-1: other profile FUTURE not mutated"
+        )
+
+        let blocked = CheckMedStore(isolatedInMemoryForContracts: true)
+        blocked.debugContractBind(ownerId: owner, profileId: profile)
+        let blockedCurrent = blocked.debugInsertPlan(
+            title: "Cap current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "CapNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = blocked.debugInsertPlan(
+            title: "Cap future A",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonA",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = blocked.debugInsertPlan(
+            title: "Cap future B",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonB",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = blocked.debugInsertPlan(
+            title: "Cap future C",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonC",
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(blocked.storedMedicineCount == 4, "TS-1: retained over-cap fixture is four live medicines")
+        expect(blocked.medicineCountIfCurrentTreatmentsCompleted == 3, "TS-1: completing CURRENT still leaves Free at cap")
+        expect(
+            LaterAddPersist.draftOccupancyBase(
+                target: .completeThenSeed,
+                liveCount: blocked.storedMedicineCount,
+                capturedLiveCount: blocked.storedMedicineCount,
+                occupancyIfCurrentCompleted: blocked.medicineCountIfCurrentTreatmentsCompleted
+            ) == 3,
+            "TS-1: Start New capBase is FUTURE occupancy, not 0"
+        )
+        let refused = blocked.startNewTreatmentFromDrafts(
+            [draft("WouldOverflow")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(refused == nil, "TS-1: Start New refuses when FUTURE already fills Free 3")
+        expect(blocked.debugTreatmentStatus(blockedCurrent.treatmentId) == "active", "TS-1: refused Start New does not complete CURRENT")
+
+        let onboard = CheckMedStore(isolatedInMemoryForContracts: true)
+        onboard.debugContractBind(ownerId: owner, profileId: profile)
+        let onboardCurrent = onboard.debugInsertPlan(
+            title: "Onboard current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "OnboardMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        let replaced = onboard.seedFromDrafts(
+            [draft("ReplacedOnboard")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(replaced == onboardCurrent.treatmentId, "TS-1: onboarding seed still replaces CURRENT in place")
+        expect(onboard.debugMedicineName(onboardCurrent.medicineId) == "ReplacedOnboard", "TS-1: CURRENT replacement overwrites first medicine")
+
+        failures.append(contentsOf: TreatmentStartNewAtomicityContractChecks.failures())
+        return failures
+    }
+}
+
+enum TreatmentStartNewAtomicityContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func draft(_ name: String) -> OnboardingPrescriptionDraft {
+            OnboardingPrescriptionDraft(
+                medicine: name,
+                dose: "1 tablet",
+                frequency: "1x",
+                duration: "5 days",
+                timesPerDay: "1",
+                doseTimes: ["09:00"]
+            )
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let lastWeek = calendar.date(byAdding: .day, value: -10, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let nextMonth = calendar.date(byAdding: .day, value: 30, to: today)!
+        let owner = UUID()
+        let profile = UUID()
+        let extraProfile = UUID()
+
+        let missingOwner = CheckMedStore(isolatedInMemoryForContracts: true)
+        missingOwner.debugContractBind(ownerId: owner, profileId: profile)
+        let missingCurrent = missingOwner.debugInsertPlan(
+            title: "Need owner",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "NeedOwnerMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        let missingXP = missingOwner.debugTreatmentCompleteGrantCount()
+        let missingMutations = missingOwner.pendingSyncMutationCount(ownerId: owner)
+        let missingResult = missingOwner.startNewTreatmentFromDrafts(
+            [draft("NoOwner")],
+            ownerId: nil,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(missingResult == nil, "atomic A: missing owner refuses")
+        expect(missingOwner.debugTreatmentStatus(missingCurrent.treatmentId) == "active", "atomic A: CURRENT stays active")
+        expect(missingOwner.debugTreatmentCompleteGrantCount() == missingXP, "atomic A: no completion XP")
+        expect(missingOwner.pendingSyncMutationCount(ownerId: owner) == missingMutations, "atomic A: no extra sync mutation")
+
+        let cap = CheckMedStore(isolatedInMemoryForContracts: true)
+        cap.debugContractBind(ownerId: owner, profileId: profile)
+        let capCurrent = cap.debugInsertPlan(
+            title: "Cap now",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "CapNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "Cap future A",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonA",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "Cap future B",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonB",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "Cap future C",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonC",
+            ownerId: owner,
+            profileId: profile
+        )
+        let capXP = cap.debugTreatmentCompleteGrantCount()
+        let capMutations = cap.pendingSyncMutationCount(ownerId: owner)
+        let capResult = cap.startNewTreatmentFromDrafts(
+            [draft("Overflow")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(capResult == nil, "atomic B: FUTURE at cap refuses")
+        expect(cap.debugTreatmentStatus(capCurrent.treatmentId) == "active", "atomic B: CURRENT not completed before persist")
+        expect(cap.debugTreatmentCompleteGrantCount() == capXP, "atomic B: no completion XP")
+        expect(cap.pendingSyncMutationCount(ownerId: owner) == capMutations, "atomic B: no extra sync mutation")
+
+        let failSave = CheckMedStore(isolatedInMemoryForContracts: true)
+        failSave.debugContractBind(ownerId: owner, profileId: profile)
+        let failCurrent = failSave.debugInsertPlan(
+            title: "Fail current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "FailNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let failFuture = failSave.debugInsertPlan(
+            title: "Fail future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "FailSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        let failStart = failSave.debugTreatmentStartDate(failFuture.treatmentId)
+        let failXP = failSave.debugTreatmentCompleteGrantCount()
+        let failMutations = failSave.pendingSyncMutationCount(ownerId: owner)
+        failSave.debugFailNextCanonicalSave = true
+        let failResult = failSave.startNewTreatmentFromDrafts(
+            [draft("ShouldRollBack")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(failResult == nil, "atomic C: forced save failure refuses")
+        expect(failSave.debugTreatmentStatus(failCurrent.treatmentId) == "active", "atomic C: CURRENT rolled back")
+        expect(failSave.debugTreatmentStatus(failFuture.treatmentId) == "active", "atomic C: FUTURE unchanged")
+        expect(failSave.debugTreatmentStartDate(failFuture.treatmentId) == failStart, "atomic C: FUTURE dates unchanged")
+        expect(failSave.debugMedicineName(failCurrent.medicineId) == "FailNow", "atomic C: no replacement medicine kept")
+        expect(failSave.debugTreatmentCompleteGrantCount() == failXP, "atomic D: failed save grants no XP")
+        expect(failSave.pendingSyncMutationCount(ownerId: owner) == failMutations, "atomic D: failed save stages no sync mutation")
+        expect(failSave.storedMedicineCount == 2, "atomic C: occupancy unchanged after rollback")
+
+        let failMulti = CheckMedStore(isolatedInMemoryForContracts: true)
+        failMulti.debugContractBind(ownerId: owner, profileId: profile)
+        let failMultiCurrent = failMulti.debugInsertPlan(
+            title: "Fail multi current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "FailMultiNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let failMultiFuture = failMulti.debugInsertPlan(
+            title: "Fail multi future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "FailMultiSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        let failMultiStart = failMulti.debugTreatmentStartDate(failMultiFuture.treatmentId)
+        let failMultiXP = failMulti.debugTreatmentCompleteGrantCount()
+        let failMultiMutations = failMulti.pendingSyncMutationCount(ownerId: owner)
+        let failMultiCounts = failMulti.debugLiveRecordCounts()
+        failMulti.setSurfacesPlan(false)
+        failMulti.debugFailNextCanonicalSave = true
+        let failMultiResult = failMulti.startNewTreatmentFromDrafts(
+            [draft("RollA"), draft("RollB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        let failMultiTree = failMulti.journeyTreeSnapshot(now: now)
+        expect(failMultiResult == nil, "atomic I: multi-medicine save failure refuses")
+        expect(failMulti.debugTreatmentStatus(failMultiCurrent.treatmentId) == "active", "atomic I: CURRENT rolled back")
+        expect(failMulti.debugTreatmentStatus(failMultiFuture.treatmentId) == "active", "atomic I: FUTURE unchanged")
+        expect(failMulti.debugTreatmentStartDate(failMultiFuture.treatmentId) == failMultiStart, "atomic I: FUTURE dates unchanged")
+        expect(failMulti.debugMedicineName(failMultiCurrent.medicineId) == "FailMultiNow", "atomic I: original CURRENT medicine kept")
+        expect(failMulti.debugMedicineName(failMultiFuture.medicineId) == "FailMultiSoon", "atomic I: original FUTURE medicine kept")
+        expect(
+            !failMultiTree.current.contains(where: {
+                $0.medicineNames.contains("RollA") || $0.medicineNames.contains("RollB")
+            }),
+            "atomic I: no partial new CURRENT medicines"
+        )
+        expect(failMulti.debugTreatmentCompleteGrantCount() == failMultiXP, "atomic I: failed multi save grants no XP")
+        expect(failMulti.pendingSyncMutationCount(ownerId: owner) == failMultiMutations, "atomic I: failed multi save stages no sync mutation")
+        expect(failMulti.storedMedicineCount == 2, "atomic I: occupancy unchanged after rollback")
+        expect(failMulti.debugLiveRecordCounts() == failMultiCounts, "atomic I: live row counts unchanged")
+        expect(!failMulti.surfacesPlan, "atomic I: presentation does not surface a successful plan")
+
+        let success = CheckMedStore(isolatedInMemoryForContracts: true)
+        success.debugContractBind(ownerId: owner, profileId: profile)
+        let successCurrent = success.debugInsertPlan(
+            title: "Success current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "SuccessNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let successFuture = success.debugInsertPlan(
+            title: "Success future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "SuccessSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        success.setActiveScope(profileId: extraProfile, includeUnscoped: false)
+        let other = success.debugInsertPlan(
+            title: "Other profile",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "OtherMed",
+            ownerId: owner,
+            profileId: extraProfile
+        )
+        success.setActiveScope(profileId: profile, includeUnscoped: true)
+        let successId = success.startNewTreatmentFromDrafts(
+            [draft("ReplacementA"), draft("ReplacementB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(successId != nil && successId != successCurrent.treatmentId && successId != successFuture.treatmentId, "atomic E: new CURRENT UUID")
+        expect(success.debugTreatmentStatus(successCurrent.treatmentId) == "completed", "atomic E: selected CURRENT completed")
+        expect(success.debugTreatmentStatus(successFuture.treatmentId) == "active", "atomic F: FUTURE preserved")
+        expect(success.debugStoredTreatmentStatus(other.treatmentId) == "active", "atomic F: other profile unchanged")
+        let tree = success.journeyTreeSnapshot(now: now)
+        expect(
+            tree.current.contains(where: {
+                $0.medicineNames.contains("ReplacementA") && $0.medicineNames.contains("ReplacementB")
+            }),
+            "atomic H: both accepted drafts persist on the new CURRENT"
+        )
+        expect(tree.future.contains(where: { $0.id == successFuture.treatmentId }), "atomic F: FUTURE remains on the tree")
+        expect(success.surfacesPlan, "atomic H: successful save may surface the plan")
+        expect(
+            success.debugLiveRecordCounts().medicines >= 4,
+            "atomic H: accepted medicines persist with preserved CURRENT/FUTURE rows"
+        )
+
+        let multi = CheckMedStore(isolatedInMemoryForContracts: true)
+        multi.debugContractBind(ownerId: owner, profileId: profile)
+        let multiA = multi.debugInsertPlan(
+            title: "Multi A",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "MultiA",
+            ownerId: owner,
+            profileId: profile
+        )
+        let multiB = multi.debugInsertPlan(
+            title: "Multi B",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "MultiB",
+            ownerId: owner,
+            profileId: profile
+        )
+        let multiNew = multi.startNewTreatmentFromDrafts(
+            [draft("AfterMulti")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(multiNew != nil, "atomic G: multi CURRENT Start New persists")
+        expect(multi.debugTreatmentStatus(multiA.treatmentId) == "completed", "atomic G: CURRENT A completed together")
+        expect(multi.debugTreatmentStatus(multiB.treatmentId) == "completed", "atomic G: CURRENT B completed together")
+
         return failures
     }
 }

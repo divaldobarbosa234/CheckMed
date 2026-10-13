@@ -466,7 +466,7 @@ struct HomeView: View {
     }
 
     private func openScan() {
-        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.intakeOpeningMedicineCount) else { return }
         navPath.append(AppRoute.addPrescription)
     }
 

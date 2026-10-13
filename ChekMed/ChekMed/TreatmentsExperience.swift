@@ -358,7 +358,7 @@ struct TreatmentsRootScreen: View {
     }
 
     private func attemptAdd() {
-        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.intakeOpeningMedicineCount) else { return }
         go(.addPrescription)
     }
 }
@@ -997,7 +997,7 @@ struct TreatmentDetailScreen: View {
     }
 
     private func attemptAdd() {
-        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.intakeOpeningMedicineCount) else { return }
         go(.addPrescription)
     }
 
@@ -1424,7 +1424,7 @@ struct TreatmentCompletedScreen: View {
     }
 
     private func attemptAdd() {
-        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.intakeOpeningMedicineCount) else { return }
         go(.addPrescription)
     }
 }

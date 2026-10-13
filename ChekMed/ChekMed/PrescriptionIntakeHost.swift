@@ -181,7 +181,7 @@ struct AddPrescriptionIntakeHost: View {
         let ownerId = session.planOwnerId
         guard entitlements.gatePrescriptionAdd(
             method: next,
-            existingCount: treatments.storedMedicineCount,
+            existingCount: treatments.intakeOpeningMedicineCount,
             photoPDFUsed: ImportUsage.photoPDFCount(ownerId: ownerId)
         ) else { return }
         method = next
@@ -259,16 +259,26 @@ struct AddPrescriptionIntakeHost: View {
         phase = .confirm
     }
 
-    /// In-memory drafts only. Persist happens on Plan Resume Continue.
-    private func canAdvanceToPlanResume() -> Bool {
-        let liveCount = treatments.storedMedicineCount
-        let persistTarget = LaterAddPersist.target(
+    private var laterAddPersistTarget: LaterAddPersistTarget {
+        LaterAddPersist.target(
             intent: laterAddIntent,
             hasCurrentTreatment: treatments.hasCurrentTreatment
         )
-        let capBase = persistTarget == .completeThenSeed
-            ? 0
-            : min(medicineCountAtStart, liveCount)
+    }
+
+    private var laterAddDraftOccupancyBase: Int {
+        LaterAddPersist.draftOccupancyBase(
+            target: laterAddPersistTarget,
+            liveCount: treatments.storedMedicineCount,
+            capturedLiveCount: medicineCountAtStart,
+            occupancyIfCurrentCompleted: treatments.medicineCountIfCurrentTreatmentsCompleted
+        )
+    }
+
+    /// In-memory drafts only. Persist happens on Plan Resume Continue.
+    private func canAdvanceToPlanResume() -> Bool {
+        let liveCount = treatments.storedMedicineCount
+        let capBase = laterAddDraftOccupancyBase
         let capped = drafts.cappedForPlan(
             isSuper: entitlements.isSuper,
             existingCount: capBase
@@ -290,13 +300,8 @@ struct AddPrescriptionIntakeHost: View {
     @discardableResult
     private func persistConfirmedDrafts() -> Bool {
         let liveCount = treatments.storedMedicineCount
-        let persistTarget = LaterAddPersist.target(
-            intent: laterAddIntent,
-            hasCurrentTreatment: treatments.hasCurrentTreatment
-        )
-        let capBase = persistTarget == .completeThenSeed
-            ? 0
-            : min(medicineCountAtStart, liveCount)
+        let persistTarget = laterAddPersistTarget
+        let capBase = laterAddDraftOccupancyBase
         let capped = drafts.cappedForPlan(
             isSuper: entitlements.isSuper,
             existingCount: capBase
@@ -318,15 +323,8 @@ struct AddPrescriptionIntakeHost: View {
             // Already wrote this intake once; avoid duplicate rows on confirm → back → confirm.
             ok = true
         } else if persistTarget == .completeThenSeed {
-            let previousId = treatments.existingActivePlanId()
-            treatments.completeAllActiveTreatments()
-            guard !treatments.hasActivePlan else {
-                #if DEBUG
-                print("[CheckMed] start-new blocked: active treatment still present after complete")
-                #endif
-                return false
-            }
-            persistedTreatmentId = treatments.seedFromDrafts(
+            let previousId = treatments.existingCurrentPlanId()
+            persistedTreatmentId = treatments.startNewTreatmentFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
                 profileId: session.planProfileId,
@@ -334,11 +332,11 @@ struct AddPrescriptionIntakeHost: View {
             )
             ok = persistedTreatmentId != nil
             #if DEBUG
-            let newId = treatments.existingActivePlanId()
+            let newId = treatments.existingCurrentPlanId()
             print(
                 "[TREATMENT-ID] startNew previous=\(previousId?.uuidString ?? "nil") "
                 + "new=\(newId?.uuidString ?? "nil") persist=\(persistedTreatmentId?.uuidString ?? "nil") "
-                + "differ=\(previousId != newId) active=\(treatments.hasActivePlan)"
+                + "differ=\(previousId != newId) live=\(treatments.hasLivePlanInSelectedProfile)"
             )
             #endif
         } else if persistTarget == .seed {

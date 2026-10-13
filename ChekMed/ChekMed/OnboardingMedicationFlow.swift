@@ -31,6 +31,21 @@ enum LaterAddPersist {
         case .startNewTreatment: return .completeThenSeed
         }
     }
+
+    /// Confirm/persist occupancy. Start New never pretends occupancy is 0 while FUTURE remains.
+    static func draftOccupancyBase(
+        target: LaterAddPersistTarget,
+        liveCount: Int,
+        capturedLiveCount: Int,
+        occupancyIfCurrentCompleted: Int
+    ) -> Int {
+        switch target {
+        case .completeThenSeed:
+            return max(0, occupancyIfCurrentCompleted)
+        case .seed, .addToActive:
+            return min(max(0, capturedLiveCount), max(0, liveCount))
+        }
+    }
 }
 
 /// Confirm pager occupancy for "Add another medicine". Does not write canonical rows.
@@ -67,6 +82,22 @@ enum LaterAddPersistContractChecks {
         }
         if LaterAddPersist.target(intent: .startNewTreatment, hasCurrentTreatment: true) != .completeThenSeed {
             failures.append("later-add: start-new must complete then seed")
+        }
+        if LaterAddPersist.draftOccupancyBase(
+            target: .completeThenSeed,
+            liveCount: 3,
+            capturedLiveCount: 3,
+            occupancyIfCurrentCompleted: 2
+        ) != 2 {
+            failures.append("later-add: start-new occupancy must keep FUTURE medicines")
+        }
+        if LaterAddPersist.draftOccupancyBase(
+            target: .completeThenSeed,
+            liveCount: 3,
+            capturedLiveCount: 3,
+            occupancyIfCurrentCompleted: 0
+        ) != 0 {
+            failures.append("later-add: start-new occupancy is 0 only when no FUTURE remains")
         }
         return failures
     }

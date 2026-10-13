@@ -2,6 +2,10 @@ import Foundation
 import SwiftData
 import CoreData
 
+#if DEBUG
+private struct CanonicalMutationProbeError: Error {}
+#endif
+
 struct AdherenceSnapshot: Equatable, Sendable {
     var streakDays: Int
     var longestStreakDays: Int
@@ -115,6 +119,10 @@ final class CheckMedStore {
     @ObservationIgnored private var logsEnsuredDay: Date?
     @ObservationIgnored private var logsEnsuredSignature: Int?
     @ObservationIgnored private var suppressNotify = false
+    #if DEBUG
+    /// Contract probe only. Next `saveCanonicalMutation` throws and rolls back.
+    @ObservationIgnored var debugFailNextCanonicalSave = false
+    #endif
     private(set) var revision = 0
     /// When false, Home / reminders / summaries hide plan rows even if SwiftData still has them.
     private(set) var surfacesPlan = false
@@ -651,6 +659,63 @@ final class CheckMedStore {
         )
     }
 
+    /// Start New: complete CURRENT in this profile in memory, then insert the new treatment
+    /// and every accepted medicine/schedule in one SwiftData save with those completions.
+    /// FUTURE rows are not touched. Preflight refuses when FUTURE occupancy leaves no slot.
+    @discardableResult
+    func startNewTreatmentFromDrafts(
+        _ drafts: [OnboardingPrescriptionDraft],
+        ownerId: UUID?,
+        profileId: UUID?,
+        maximumActiveMedicines: Int
+    ) -> UUID? {
+        guard let ownerId else {
+            #if DEBUG
+            print("[CheckMed] startNew aborted: missing ownerId")
+            #endif
+            return nil
+        }
+        let uniqueNamed = drafts.filter(\.hasMedicineName).dedupedDistinctMedicines()
+        let occupancyAfter = medicineCountIfCurrentTreatmentsCompleted
+        let acceptedCount = max(0, maximumActiveMedicines - occupancyAfter)
+        let named = Array(uniqueNamed.prefix(acceptedCount))
+        guard named.first != nil else {
+            #if DEBUG
+            print(
+                "[CheckMed] startNew aborted: no capacity after CURRENT "
+                + "futureOccupancy=\(occupancyAfter) maximum=\(maximumActiveMedicines)"
+            )
+            #endif
+            return nil
+        }
+        let now = Date()
+        let completed = markCurrentTreatmentsCompletedInMemory(now: now)
+        guard let treatmentId = persistDrafts(
+            named,
+            ownerId: ownerId,
+            profileId: profileId,
+            replacePlan: false,
+            maximumActiveMedicines: maximumActiveMedicines,
+            additionalOutboxRecords: completed,
+            commitAtomically: true
+        ) else {
+            context.rollback()
+            invalidateCache()
+            logsEnsuredDay = nil
+            return nil
+        }
+        for treatment in completed {
+            RewardEngine.applyTreatmentComplete(
+                context: context,
+                ownerId: treatment.ownerId ?? ownerId,
+                profileId: treatment.profileId ?? writeProfileId,
+                treatmentId: treatment.id,
+                now: now
+            )
+        }
+        return treatmentId
+    }
+
     /// Move leftover on-device rows onto the signed-in account so Home still shows the plan.
     func adoptOwner(from previousOwnerId: UUID, to newOwnerId: UUID, profileId: UUID?) {
         guard previousOwnerId != newOwnerId else { return }
@@ -763,10 +828,12 @@ final class CheckMedStore {
         ownerId: UUID?,
         profileId: UUID?,
         replacePlan: Bool,
-        maximumActiveMedicines: Int
+        maximumActiveMedicines: Int,
+        additionalOutboxRecords: [any SyncOutboxCanonicalRecord] = [],
+        commitAtomically: Bool = false
     ) -> UUID? {
         let uniqueNamed = drafts.filter(\.hasMedicineName).dedupedDistinctMedicines()
-        let replacementPlan = replacePlan ? activeTreatments().first : nil
+        let replacementPlan = replacePlan ? currentTreatments().first : nil
         let replacesExistingMedicine = replacementPlan.flatMap { medicines(for: $0.id).first } != nil
         let availableNewSlots = max(0, maximumActiveMedicines - storedMedicineCount)
         let acceptedCount = availableNewSlots + (replacesExistingMedicine ? 1 : 0)
@@ -787,31 +854,49 @@ final class CheckMedStore {
             #endif
             return nil
         }
-        // Confirmed prescriptions must surface immediately (Home + logs + alarms).
-        setSurfacesPlan(true)
+        if !commitAtomically {
+            // Confirmed prescriptions must surface immediately (Home + logs + alarms).
+            setSurfacesPlan(true)
+        }
+        var batchRecords = additionalOutboxRecords
         guard let treatmentId = saveDraft(
             first,
             ownerId: ownerId,
             profileId: profileId,
             replacingFirst: replacePlan,
-            ontoTreatment: replacePlan ? nil : currentTreatments().first
+            ontoTreatment: replacePlan ? nil : currentTreatments().first,
+            additionalOutboxRecords: commitAtomically ? [] : additionalOutboxRecords,
+            commitImmediately: !commitAtomically,
+            collectedRecords: commitAtomically ? { batchRecords.append(contentsOf: $0) } : nil
         ) else {
             return nil
         }
         let plan = allTreatments().first(where: { $0.id == treatmentId && $0.deletedAt == nil })
         for draft in named.dropFirst() {
-            _ = saveDraft(
+            let extraId = saveDraft(
                 draft,
                 ownerId: ownerId,
                 profileId: profileId,
                 replacingFirst: false,
-                ontoTreatment: plan
+                ontoTreatment: plan,
+                commitImmediately: !commitAtomically,
+                collectedRecords: commitAtomically ? { batchRecords.append(contentsOf: $0) } : nil
             )
+            if commitAtomically, extraId == nil {
+                return nil
+            }
+        }
+        if commitAtomically {
+            guard saveCanonicalMutation(batchRecords) else { return nil }
+            setSurfacesPlan(true)
+            ensureUpcomingLogs()
+            notify()
+            requestSync()
         }
         let saved = medicines().count
         ScanLog.saved(named)
         #if DEBUG
-        print("[CheckMed] persistDrafts ok replace=\(replacePlan) seeded=\(named.count) stored=\(saved) surfacesPlan=\(surfacesPlan) treatmentId=\(treatmentId.uuidString)")
+        print("[CheckMed] persistDrafts ok replace=\(replacePlan) seeded=\(named.count) stored=\(saved) surfacesPlan=\(surfacesPlan) treatmentId=\(treatmentId.uuidString) atomic=\(commitAtomically)")
         #endif
         if saved > 0 {
             ReminderScheduler.shared.reschedule(force: true)
@@ -825,7 +910,10 @@ final class CheckMedStore {
         ownerId: UUID?,
         profileId: UUID?,
         replacingFirst: Bool,
-        ontoTreatment: TreatmentRecord? = nil
+        ontoTreatment: TreatmentRecord? = nil,
+        additionalOutboxRecords: [any SyncOutboxCanonicalRecord] = [],
+        commitImmediately: Bool = true,
+        collectedRecords: (([any SyncOutboxCanonicalRecord]) -> Void)? = nil
     ) -> UUID? {
         if let ownerId {
             self.ownerId = ownerId
@@ -862,7 +950,7 @@ final class CheckMedStore {
         let treatment: TreatmentRecord
         if let ontoTreatment {
             treatment = ontoTreatment
-        } else if replacingFirst, let existing = activeTreatments().first {
+        } else if replacingFirst, let existing = currentTreatments().first {
             if existing.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 existing.title = medicineName
             }
@@ -920,10 +1008,14 @@ final class CheckMedStore {
         logsEnsuredDay = nil
         var changedRecords: [any SyncOutboxCanonicalRecord] = [treatment, medicine]
         changedRecords.append(contentsOf: schedules(for: medicine.id))
-        guard saveCanonicalMutation(changedRecords, now: now) else { return nil }
-        ensureUpcomingLogs()
-        notify()
-        requestSync()
+        changedRecords.append(contentsOf: additionalOutboxRecords)
+        collectedRecords?(changedRecords)
+        if commitImmediately {
+            guard saveCanonicalMutation(changedRecords, now: now) else { return nil }
+            ensureUpcomingLogs()
+            notify()
+            requestSync()
+        }
         return treatment.id
     }
 
@@ -1461,12 +1553,30 @@ final class CheckMedStore {
         return true
     }
 
-    /// Completes every active plan in place. Medicines, schedules, and logs stay for journey history.
+    /// Completes every stored-active plan in the selected profile.
+    /// Start New must not call this — it would complete FUTURE rows and save before the replacement exists.
     func completeAllActiveTreatments() {
         let ids = activeTreatments().map(\.id)
         for id in ids {
             completeTreatment(id: id)
         }
+    }
+
+    /// Status-only CURRENT completions. Does not save, notify, grant XP, or touch FUTURE.
+    private func markCurrentTreatmentsCompletedInMemory(now: Date) -> [TreatmentRecord] {
+        var changed: [TreatmentRecord] = []
+        for treatment in currentTreatments(now: now) {
+            if treatment.status == "completed" { continue }
+            treatment.status = "completed"
+            treatment.endDate = treatment.endDate ?? now
+            treatment.updatedAt = now
+            stamp(treatment)
+            changed.append(treatment)
+        }
+        if !changed.isEmpty {
+            logsEnsuredDay = nil
+        }
+        return changed
     }
 
     /// Medicines on the active plan that still have missed/pending expected doses, or a course that is not fully taken yet.
@@ -2698,6 +2808,33 @@ final class CheckMedStore {
         }
     }
 
+    /// Medicines that stay live if CURRENT treatments in this profile are completed.
+    var medicineCountIfCurrentTreatmentsCompleted: Int {
+        _ = revision
+        let futureIds = Set(
+            treatments().compactMap { treatment -> UUID? in
+                lifecycleKind(for: treatment) == .future ? treatment.id : nil
+            }
+        )
+        return medicines().filter { futureIds.contains($0.treatmentId) }.count
+    }
+
+    /// Opening Scan / Add may proceed when Start New can free CURRENT slots.
+    /// Persist still enforces Add-to-current against full live occupancy.
+    var intakeOpeningMedicineCount: Int {
+        _ = revision
+        if hasCurrentTreatment {
+            return medicineCountIfCurrentTreatmentsCompleted
+        }
+        return storedMedicineCount
+    }
+
+    /// CURRENT or FUTURE in the selected profile. Other profiles do not count.
+    var hasLivePlanInSelectedProfile: Bool {
+        _ = revision
+        return !liveTreatments().isEmpty
+    }
+
     func isCurrentOnJourneyHistory(status: String, startDate: Date, endDate: Date?, now: Date = Date()) -> Bool {
         journeyKind(status: status, startDate: startDate, endDate: endDate, now: now) == .current
     }
@@ -2814,6 +2951,8 @@ final class CheckMedStore {
     // MARK: - Sync support
 
     /// True when this owner already has an active (not completed/deleted) treatment.
+    /// Owner-wide on purpose for launch/restore. Intake and Plan Resume must use
+    /// `hasLivePlanInSelectedProfile` so another family profile cannot block this one.
     var hasActivePlan: Bool {
         guard let ownerId else { return false }
         return allTreatments().contains {
@@ -2827,6 +2966,12 @@ final class CheckMedStore {
         return allTreatments().first {
             $0.deletedAt == nil && $0.ownerId == ownerId && $0.status == "active"
         }?.id
+    }
+
+    /// CURRENT treatment in the selected profile only.
+    func existingCurrentPlanId() -> UUID? {
+        _ = revision
+        return currentTreatments().first?.id
     }
 
     /// Only push rows owned by the signed-in user. Never upload unowned leftover SwiftData.
@@ -4483,6 +4628,14 @@ final class CheckMedStore {
         treatments().first(where: { $0.id == treatmentId })?.title
     }
 
+    func debugTreatmentStartDate(_ treatmentId: UUID) -> Date? {
+        allTreatments().first(where: { $0.id == treatmentId })?.startDate
+    }
+
+    func debugTreatmentEndDate(_ treatmentId: UUID) -> Date? {
+        allTreatments().first(where: { $0.id == treatmentId })?.endDate
+    }
+
     func debugDoseStatus(_ logId: UUID) -> String? {
         allLogs().first(where: { $0.id == logId && $0.deletedAt == nil })?.status
     }
@@ -4541,6 +4694,12 @@ final class CheckMedStore {
         now: Date = Date()
     ) -> Bool {
         do {
+            #if DEBUG
+            if debugFailNextCanonicalSave {
+                debugFailNextCanonicalSave = false
+                throw CanonicalMutationProbeError()
+            }
+            #endif
             try SyncMutationOutbox.stage(records, in: context, now: now)
             try context.save()
             invalidateCache()

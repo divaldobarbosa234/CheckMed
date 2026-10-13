@@ -190,7 +190,7 @@ struct ResumePlanSetupFlow: View {
     @discardableResult
     private func commitResumePlanIfNeeded() -> Bool {
         if didCommitPlan { return true }
-        if session.hasConfirmedMedicationPlan || treatments.hasActivePlan {
+        if session.hasConfirmedMedicationPlan || treatments.hasLivePlanInSelectedProfile {
             didCommitPlan = true
             return true
         }
@@ -206,7 +206,7 @@ struct ResumePlanSetupFlow: View {
             return false
         }
         let ok: Bool
-        if treatments.existingActivePlanId() != nil {
+        if treatments.hasCurrentTreatment {
             ok = treatments.addFromDrafts(
                 capped,
                 ownerId: session.planOwnerId,
