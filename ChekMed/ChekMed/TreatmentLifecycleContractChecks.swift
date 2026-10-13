@@ -623,6 +623,53 @@ enum TreatmentTitleContractChecks {
         expect(cancelled.debugTreatmentUpdatedAt(cancelPlan.treatmentId) == cancelUpdated, "finish I: cancel does not write")
         expect(cancelled.debugTreatmentCompleteGrantCount() == 0, "finish I: cancel grants no XP")
 
+        let nilCapture = CheckMedStore(isolatedInMemoryForContracts: true)
+        nilCapture.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
+        let nilPlan = nilCapture.debugInsertPlan(
+            title: "Nil capture",
+            status: "active",
+            startDate: finishStart,
+            endDate: finishEnd,
+            medicineName: "NilCaptureMed",
+            ownerId: finishOwner,
+            profileId: finishProfile
+        )
+        let nilStatus = nilCapture.debugTreatmentStatus(nilPlan.treatmentId)
+        let nilUpdated = nilCapture.debugTreatmentUpdatedAt(nilPlan.treatmentId)
+        let nilGrants = nilCapture.debugTreatmentCompleteGrantCount()
+        let nilConfirm = TreatmentDetailFinishCommand.apply(
+            .confirm,
+            store: nilCapture,
+            treatmentId: nil
+        )
+        expect(nilConfirm == .refused, "finish nil: confirm without captured UUID is refused")
+        let nilConfirmFollow = TreatmentDetailFinishCommand.followUp(
+            for: nilConfirm,
+            successRoute: .addPrescription
+        )
+        expect(!nilConfirmFollow.rescheduleReminders, "finish nil: confirm does not reschedule")
+        expect(nilConfirmFollow.navigate == nil, "finish nil: confirm does not navigate")
+        expect(nilConfirmFollow.showRefusalAlert, "finish nil: confirm shows refusal")
+        expect(nilCapture.debugTreatmentStatus(nilPlan.treatmentId) == nilStatus, "finish nil: confirm does not change status")
+        expect(nilCapture.debugTreatmentUpdatedAt(nilPlan.treatmentId) == nilUpdated, "finish nil: confirm does not change updatedAt")
+        expect(nilCapture.debugTreatmentCompleteGrantCount() == nilGrants, "finish nil: confirm grants no XP")
+
+        let nilCancel = TreatmentDetailFinishCommand.apply(
+            .cancel,
+            store: nilCapture,
+            treatmentId: nil
+        )
+        expect(nilCancel == .cancelled, "finish nil: cancel without captured UUID is cancelled")
+        let nilCancelFollow = TreatmentDetailFinishCommand.followUp(
+            for: nilCancel,
+            successRoute: .journeyReport
+        )
+        expect(!nilCancelFollow.rescheduleReminders && nilCancelFollow.navigate == nil, "finish nil: cancel has no effects")
+        expect(!nilCancelFollow.showRefusalAlert, "finish nil: cancel does not refuse")
+        expect(nilCapture.debugTreatmentStatus(nilPlan.treatmentId) == "active", "finish nil: cancel does not change status")
+        expect(nilCapture.debugTreatmentUpdatedAt(nilPlan.treatmentId) == nilUpdated, "finish nil: cancel does not change updatedAt")
+        expect(nilCapture.debugTreatmentCompleteGrantCount() == nilGrants, "finish nil: cancel grants no XP")
+
         let futureStore = CheckMedStore(isolatedInMemoryForContracts: true)
         futureStore.debugContractBind(ownerId: finishOwner, profileId: finishProfile)
         let currentSibling = futureStore.debugInsertPlan(

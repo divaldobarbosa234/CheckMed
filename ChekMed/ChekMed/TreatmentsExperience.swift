@@ -71,12 +71,13 @@ enum TreatmentDetailFinishCommand {
     static func apply(
         _ decision: Decision,
         store: CheckMedStore,
-        treatmentId: UUID
+        treatmentId: UUID?
     ) -> Outcome {
         switch decision {
         case .cancel:
             return .cancelled
         case .confirm:
+            guard let treatmentId else { return .refused }
             return store.completeTreatment(id: treatmentId) ? .completed : .refused
         }
     }
@@ -428,18 +429,18 @@ struct TreatmentDetailScreen: View {
                 _ = treatments.setTreatmentTitle(id: treatmentId, title: renameDraft)
             }
         }
-        .sheet(isPresented: $showFinishConfirm) {
+        .sheet(isPresented: $showFinishConfirm, onDismiss: clearFinishCaptureIfDismissed) {
             FinishTreatmentConfirmSheet(
-                missingMedicineNames: treatments.incompleteMedicineNames(
-                    forTreatmentId: finishTargetId ?? treatmentId
-                ),
+                missingMedicineNames: finishTargetId.map {
+                    treatments.incompleteMedicineNames(forTreatmentId: $0)
+                } ?? [],
                 onScanNew: { finishTreatment(then: .addPrescription) },
                 onSeeReport: { finishTreatment(then: .journeyReport) },
                 onCancel: {
                     let cancelled = TreatmentDetailFinishCommand.apply(
                         .cancel,
                         store: treatments,
-                        treatmentId: finishTargetId ?? treatmentId
+                        treatmentId: finishTargetId
                     )
                     let follow = TreatmentDetailFinishCommand.followUp(
                         for: cancelled,
@@ -1010,8 +1011,8 @@ struct TreatmentDetailScreen: View {
     }
 
     private func finishTreatment(then route: AppRoute) {
-        let id = finishTargetId ?? treatmentId
-        let outcome = TreatmentDetailFinishCommand.apply(.confirm, store: treatments, treatmentId: id)
+        let capturedId = finishTargetId
+        let outcome = TreatmentDetailFinishCommand.apply(.confirm, store: treatments, treatmentId: capturedId)
         showFinishConfirm = false
         let follow = TreatmentDetailFinishCommand.followUp(for: outcome, successRoute: route)
         if follow.showRefusalAlert {
@@ -1023,6 +1024,11 @@ struct TreatmentDetailScreen: View {
         if let next = follow.navigate {
             DispatchQueue.main.async { go(next) }
         }
+    }
+
+    /// Clears capture after the sheet is gone. Confirm/cancel already ran against the captured id.
+    private func clearFinishCaptureIfDismissed() {
+        finishTargetId = nil
     }
 }
 
