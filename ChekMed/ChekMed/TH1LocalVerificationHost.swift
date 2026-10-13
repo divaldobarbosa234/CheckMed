@@ -170,6 +170,27 @@ struct TH1LocalVerificationHost: View {
                 line("dose mix:", "statuses preserved; deleted and foreign excluded"),
             ]
             rows.append(contentsOf: failures.map { "FAIL \($0)" })
+            let capacityFailures = MedicationCapacitySafetyContractChecks.failures()
+            let laterAddFailures = LaterAddPersistContractChecks.failures()
+            let confirmSlotFailures = ConfirmMedicineSlotCapacityContractChecks.failures()
+            rows.append(
+                capacityFailures.isEmpty
+                    ? "MedicationCapacitySafety allEmpty=true"
+                    : "MedicationCapacitySafety allEmpty=false count=\(capacityFailures.count)"
+            )
+            rows.append(contentsOf: capacityFailures.map { "FAIL \($0)" })
+            rows.append(
+                laterAddFailures.isEmpty
+                    ? "LaterAddPersist allEmpty=true"
+                    : "LaterAddPersist allEmpty=false count=\(laterAddFailures.count)"
+            )
+            rows.append(contentsOf: laterAddFailures.map { "FAIL \($0)" })
+            rows.append(
+                confirmSlotFailures.isEmpty
+                    ? "ConfirmMedicineSlotCapacity allEmpty=true"
+                    : "ConfirmMedicineSlotCapacity allEmpty=false count=\(confirmSlotFailures.count)"
+            )
+            rows.append(contentsOf: confirmSlotFailures.map { "FAIL \($0)" })
             let report = rows.joined(separator: "\n")
             print("[TH1-VERIFY] lifecycle contracts\n\(report)")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {

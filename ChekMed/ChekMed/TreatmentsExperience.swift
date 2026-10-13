@@ -358,10 +358,7 @@ struct TreatmentsRootScreen: View {
     }
 
     private func attemptAdd() {
-        if !entitlements.isSuper, remainingSlots <= 0 {
-            entitlements.presentPaywall()
-            return
-        }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
         go(.addPrescription)
     }
 }
@@ -390,9 +387,6 @@ struct TreatmentDetailScreen: View {
     }
 
     private var isCurrent: Bool { snapshot?.kind == .current }
-    private var remainingSlots: Int {
-        entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount)
-    }
 
     var body: some View {
         Group {
@@ -1003,10 +997,7 @@ struct TreatmentDetailScreen: View {
     }
 
     private func attemptAdd() {
-        if !entitlements.isSuper, remainingSlots <= 0 {
-            entitlements.presentPaywall()
-            return
-        }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
         go(.addPrescription)
     }
 
@@ -1290,10 +1281,6 @@ struct TreatmentCompletedScreen: View {
         medicineNames: [String]
     )?
 
-    private var remainingSlots: Int {
-        entitlements.freeMedicineSlotsRemaining(existingCount: treatments.storedMedicineCount)
-    }
-
     var body: some View {
         let _ = TreatmentNavPerf.mark("TreatmentCompletedScreen body")
         let prepared = self.prepared ?? computePrepared()
@@ -1437,10 +1424,7 @@ struct TreatmentCompletedScreen: View {
     }
 
     private func attemptAdd() {
-        if !entitlements.isSuper, remainingSlots <= 0 {
-            entitlements.presentPaywall()
-            return
-        }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
         go(.addPrescription)
     }
 }

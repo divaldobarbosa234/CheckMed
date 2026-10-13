@@ -466,11 +466,8 @@ struct HomeView: View {
     }
 
     private func openScan() {
-        if !entitlements.allowsNewPrescription(existingCount: treatments.storedMedicineCount) {
-            entitlements.presentPaywall()
-        } else {
-            navPath.append(AppRoute.addPrescription)
-        }
+        guard entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) else { return }
+        navPath.append(AppRoute.addPrescription)
     }
 
     /// Navigates by the path node's canonical `medicineId`, never by medicine name.

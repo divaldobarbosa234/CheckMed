@@ -33,6 +33,25 @@ enum LaterAddPersist {
     }
 }
 
+/// Confirm pager occupancy for "Add another medicine". Does not write canonical rows.
+enum ConfirmMedicineSlotCapacity {
+    static func occupancy(existingCount: Int, draftCount: Int) -> Int {
+        Swift.max(0, existingCount) + Swift.max(0, draftCount)
+    }
+
+    static func decision(
+        isSuper: Bool,
+        existingCount: Int,
+        draftCount: Int
+    ) -> MedicineCapacityDecision {
+        MedicineCapacityDecision.resolve(
+            isSuper: isSuper,
+            existingCount: occupancy(existingCount: existingCount, draftCount: draftCount),
+            maximumActiveMedicines: SuperLimits.maximumActiveMedicines(isSuper: isSuper)
+        )
+    }
+}
+
 #if DEBUG
 enum LaterAddPersistContractChecks {
     static func failures() -> [String] {
@@ -49,6 +68,58 @@ enum LaterAddPersistContractChecks {
         if LaterAddPersist.target(intent: .startNewTreatment, hasCurrentTreatment: true) != .completeThenSeed {
             failures.append("later-add: start-new must complete then seed")
         }
+        return failures
+    }
+}
+
+enum ConfirmMedicineSlotCapacityContractChecks {
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func named(_ name: String) -> OnboardingPrescriptionDraft {
+            OnboardingPrescriptionDraft(
+                medicine: name,
+                dose: "1 tablet",
+                frequency: "1x",
+                duration: "30 days",
+                timesPerDay: "1",
+                doseTimes: ["09:00"]
+            )
+        }
+
+        expect(
+            ConfirmMedicineSlotCapacity.decision(isSuper: false, existingCount: 0, draftCount: 2) == .allowed,
+            "confirm-slot: Free can add a third pager slot"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.decision(isSuper: false, existingCount: 0, draftCount: 3) == .freePaywall,
+            "confirm-slot: Free at 3 drafts is paywall, not silent"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.decision(isSuper: false, existingCount: 2, draftCount: 1) == .freePaywall,
+            "confirm-slot: Free 2 stored + 1 draft cannot add another"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.decision(isSuper: true, existingCount: 11, draftCount: 0) == .allowed,
+            "confirm-slot: Super can add the 12th pager slot"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.decision(isSuper: true, existingCount: 11, draftCount: 1) == .superCeiling,
+            "confirm-slot: Super at 12 is ceiling, not silent and not paywall"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.decision(isSuper: true, existingCount: 12, draftCount: 0) == .superCeiling,
+            "confirm-slot: Super with 12 stored medicines is ceiling"
+        )
+
+        let overflow = [named("One"), named("Two"), named("Three"), named("Four")]
+        let cappedFree = overflow.cappedForPlan(isSuper: false, existingCount: 0)
+        expect(cappedFree.filter(\.hasMedicineName).count == 3, "confirm-slot: persist cap still keeps three Free drafts")
+        expect(!cappedFree.contains(where: { $0.medicine == "Four" }), "confirm-slot: persist cap still drops the Free fourth")
+        let cappedSuper = (overflow + [named("Five")]).cappedForPlan(isSuper: true, existingCount: 11)
+        expect(cappedSuper.filter(\.hasMedicineName).count == 1, "confirm-slot: persist cap still keeps one Super slot")
         return failures
     }
 }
@@ -971,14 +1042,11 @@ struct OnboardingConfirmView: View {
 
     private func addMedicineSlot() {
         focusedField = nil
-        let usedInBatch = namedDraftCount
-        if !entitlements.isSuper, usedInBatch >= remainingSlots {
-            entitlements.presentPaywall()
-            return
-        }
-        if entitlements.isSuper, drafts.count >= SuperLimits.superPrescriptions {
-            return
-        }
+        let occupancy = ConfirmMedicineSlotCapacity.occupancy(
+            existingCount: existingMedicineCount,
+            draftCount: drafts.count
+        )
+        guard entitlements.applyMedicineCapacityGate(existingCount: occupancy) else { return }
         drafts.append(.empty)
         page = drafts.count - 1
     }
@@ -988,9 +1056,16 @@ struct OnboardingConfirmView: View {
         for index in next.indices {
             next[index].sanitizeScheduleFields()
         }
+        let namedBefore = next.filter(\.hasMedicineName).count
         next = next.cappedForPlan(isSuper: entitlements.isSuper, existingCount: existingMedicineCount)
         if next.isEmpty {
             next = [.empty]
+        }
+        let namedAfter = next.filter(\.hasMedicineName).count
+        if namedAfter < namedBefore {
+            _ = entitlements.applyMedicineCapacityGate(
+                existingCount: existingMedicineCount + namedBefore
+            )
         }
         if next != drafts {
             drafts = next

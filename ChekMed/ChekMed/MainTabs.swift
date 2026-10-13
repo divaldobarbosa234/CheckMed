@@ -233,9 +233,8 @@ struct FloatingPlusMenu: View {
     private func open(_ dest: PlusMenuDestination) {
         // Capacity gates creation only; existing medication data is never pruned.
         if dest == .scanPrescription,
-           !entitlements.allowsNewPrescription(existingCount: treatments.storedMedicineCount) {
+           !entitlements.applyMedicineCapacityGate(existingCount: treatments.storedMedicineCount) {
             collapseMenu()
-            entitlements.presentPaywall()
             return
         }
         if dest == .reports {

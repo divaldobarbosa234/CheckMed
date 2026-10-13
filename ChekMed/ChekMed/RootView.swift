@@ -54,6 +54,19 @@ struct RootView: View {
         )) {
             NavigationStack { PaywallView() }
         }
+        .alert(
+            session.t(.superMedicineCeilingTitle),
+            isPresented: Binding(
+                get: { entitlements.showSuperMedicineCeiling },
+                set: { entitlements.showSuperMedicineCeiling = $0 }
+            )
+        ) {
+            Button(session.t(.ok), role: .cancel) {
+                entitlements.showSuperMedicineCeiling = false
+            }
+        } message: {
+            Text(session.t(.superMedicineCeilingBody))
+        }
         .alert(session.t(.unfinishedPlanHeadline), isPresented: Binding(
             get: { session.showLeaveHealthWarning },
             set: { if !$0 { session.clearLeaveHealthWarning() } }

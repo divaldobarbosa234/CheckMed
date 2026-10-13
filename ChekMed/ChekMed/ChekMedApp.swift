@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let philFailures = PhilCoachContractChecks.failures()
             let prescriptionDateFailures = PrescriptionDateContractChecks.failures()
             let laterAddFailures = LaterAddPersistContractChecks.failures()
+            let confirmSlotFailures = ConfirmMedicineSlotCapacityContractChecks.failures()
             let journeyTreeFailures = TreatmentJourneyClassificationContractChecks.failures()
             let lifecycleFailures = await MainActor.run { TreatmentLifecycleContractChecks.failures() }
             let capacitySafetyFailures = await MainActor.run { MedicationCapacitySafetyContractChecks.failures() }
@@ -51,7 +52,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let syncOutboxFailures = await SyncOutboxContractChecks.failures()
             let syncProtocolFailures = await SyncProtocolContractChecks.failures()
             let syncProtocolE2EFailures = await SyncProtocolE2EContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures + syncProtocolFailures + syncProtocolE2EFailures
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + confirmSlotFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures + syncProtocolFailures + syncProtocolE2EFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -60,6 +61,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("PhilCoach failures:", philFailures)
             print("PrescriptionDate failures:", prescriptionDateFailures)
             print("LaterAddPersist failures:", laterAddFailures)
+            print("ConfirmMedicineSlotCapacity failures:", confirmSlotFailures)
             print("JourneyTree failures:", journeyTreeFailures)
             print("TreatmentLifecycle failures:", lifecycleFailures)
             print("MedicationCapacitySafety failures:", capacitySafetyFailures)
@@ -83,6 +85,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "PhilCoach failures: \(philFailures)",
                 "PrescriptionDate failures: \(prescriptionDateFailures)",
                 "LaterAddPersist failures: \(laterAddFailures)",
+                "ConfirmMedicineSlotCapacity failures: \(confirmSlotFailures)",
                 "JourneyTree failures: \(journeyTreeFailures)",
                 "TreatmentLifecycle failures: \(lifecycleFailures)",
                 "MedicationCapacitySafety failures: \(capacitySafetyFailures)",
@@ -117,6 +120,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     philFailures.isEmpty ? nil : "PHIL COACH FAILURE: \(philFailures.joined(separator: "; "))",
                     prescriptionDateFailures.isEmpty ? nil : "PRESCRIPTION DATE FAILURE: \(prescriptionDateFailures.joined(separator: "; "))",
                     laterAddFailures.isEmpty ? nil : "LATER ADD PERSIST FAILURE: \(laterAddFailures.joined(separator: "; "))",
+                    confirmSlotFailures.isEmpty ? nil : "CONFIRM MEDICINE SLOT CAPACITY FAILURE: \(confirmSlotFailures.joined(separator: "; "))",
                     lifecycleFailures.isEmpty ? nil : "TREATMENT LIFECYCLE FAILURE: \(lifecycleFailures.joined(separator: "; "))",
                     capacitySafetyFailures.isEmpty ? nil : "MEDICATION CAPACITY SAFETY FAILURE: \(capacitySafetyFailures.joined(separator: "; "))",
                     titleFailures.isEmpty ? nil : "TREATMENT TITLE FAILURE: \(titleFailures.joined(separator: "; "))",

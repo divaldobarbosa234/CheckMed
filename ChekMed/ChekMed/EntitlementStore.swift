@@ -17,6 +17,8 @@ enum DebugSuperUnlockPolicy {
 @Observable
 final class EntitlementStore {
     var showPaywall = false
+    /// Super already at the 12-medicine technical ceiling. Not a paywall.
+    var showSuperMedicineCeiling = false
 
     private(set) var isSuper = false
     private(set) var products: [Product] = []

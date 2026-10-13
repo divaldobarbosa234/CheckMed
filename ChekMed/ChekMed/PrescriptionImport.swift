@@ -15,6 +15,20 @@ enum SuperLimits {
     }
 }
 
+/// Presentation decision for a new-medicine attempt. Does not write canonical rows.
+enum MedicineCapacityDecision: Equatable {
+    case allowed
+    case freePaywall
+    case superCeiling
+
+    static func resolve(isSuper: Bool, existingCount: Int, maximumActiveMedicines: Int) -> MedicineCapacityDecision {
+        guard existingCount < maximumActiveMedicines else {
+            return isSuper ? .superCeiling : .freePaywall
+        }
+        return .allowed
+    }
+}
+
 enum ImportUsage {
     private static func photoKey(_ ownerId: UUID?) -> String {
         "checkmed.photoPDFCount.\(ownerId?.uuidString ?? "local")"
@@ -54,14 +68,32 @@ extension EntitlementStore {
         return existingMedicines < SuperLimits.freePrescriptions
     }
 
+    /// Free at cap → paywall. Super at the 12-medicine ceiling → explanation, not an upsell.
+    @discardableResult
+    func applyMedicineCapacityGate(existingCount: Int) -> Bool {
+        switch MedicineCapacityDecision.resolve(
+            isSuper: isSuper,
+            existingCount: existingCount,
+            maximumActiveMedicines: maximumActiveMedicines
+        ) {
+        case .allowed:
+            return true
+        case .freePaywall:
+            presentPaywall()
+            return false
+        case .superCeiling:
+            showSuperMedicineCeiling = true
+            return false
+        }
+    }
+
     @discardableResult
     func gatePrescriptionAdd(
         method: OnboardingAddMethod,
         existingCount: Int,
         photoPDFUsed: Int
     ) -> Bool {
-        if !allowsNewPrescription(existingCount: existingCount) {
-            presentPaywall()
+        if !applyMedicineCapacityGate(existingCount: existingCount) {
             return false
         }
         if method == .photo || method == .pdf {

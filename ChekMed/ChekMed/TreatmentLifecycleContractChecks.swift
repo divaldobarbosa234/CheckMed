@@ -288,6 +288,12 @@ enum MedicationCapacitySafetyContractChecks {
 
         let owner = UUID()
         let profile = UUID()
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let start = calendar.date(byAdding: .day, value: -1, to: now)!
+        let end = calendar.date(byAdding: .day, value: 30, to: now)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now)!
         let free = CheckMedStore(isolatedInMemoryForContracts: true)
         free.debugContractBind(ownerId: owner, profileId: profile)
 
@@ -313,6 +319,209 @@ enum MedicationCapacitySafetyContractChecks {
         expect(afterFourth.schedules == beforeFourth.schedules, "capacity: rejected fourth inserts no schedule")
         expect(afterFourth.logs == beforeFourth.logs, "capacity: rejected fourth inserts no DoseLog")
 
+        expect(
+            MedicineCapacityDecision.resolve(isSuper: false, existingCount: 2, maximumActiveMedicines: SuperLimits.freePrescriptions) == .allowed,
+            "capacity: Free with 2 live medicines is allowed"
+        )
+        expect(
+            MedicineCapacityDecision.resolve(isSuper: false, existingCount: 3, maximumActiveMedicines: SuperLimits.freePrescriptions) == .freePaywall,
+            "capacity: Free at 3 is paywall, not Super ceiling"
+        )
+        expect(
+            MedicineCapacityDecision.resolve(isSuper: true, existingCount: 11, maximumActiveMedicines: SuperLimits.superPrescriptions) == .allowed,
+            "capacity: Super with 11 live medicines is allowed"
+        )
+        expect(
+            MedicineCapacityDecision.resolve(isSuper: true, existingCount: 12, maximumActiveMedicines: SuperLimits.superPrescriptions) == .superCeiling,
+            "capacity: Super at 12 is ceiling, not paywall"
+        )
+
+        let split = CheckMedStore(isolatedInMemoryForContracts: true)
+        split.debugContractBind(ownerId: owner, profileId: profile)
+        let currentA = split.debugInsertPlan(
+            title: "Current A",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "SplitMedA1",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = split.debugInsertMedicine(
+            treatmentId: currentA.treatmentId,
+            name: "SplitMedA2",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = split.debugInsertPlan(
+            title: "Current B",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "SplitMedB",
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(split.storedMedicineCount == 3, "capacity: 2+1 medicines across two current treatments occupy Free cap")
+        let splitFourth = split.addFromDrafts(
+            [draft("Split Four")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(splitFourth == nil, "capacity: fourth Free medicine refused across two treatments")
+        expect(split.storedMedicineCount == 3, "capacity: refused split add does not increase occupancy")
+
+        let mixed = CheckMedStore(isolatedInMemoryForContracts: true)
+        mixed.debugContractBind(ownerId: owner, profileId: profile)
+        let liveNow = mixed.debugInsertPlan(
+            title: "Live now",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "NowMed1",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = mixed.debugInsertMedicine(
+            treatmentId: liveNow.treatmentId,
+            name: "NowMed2",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = mixed.debugInsertPlan(
+            title: "Upcoming winter",
+            status: "active",
+            startDate: tomorrow,
+            endDate: end,
+            medicineName: "FutureMed",
+            ownerId: owner,
+            profileId: profile
+        )
+        expect(mixed.debugLifecycleKind(treatmentId: liveNow.treatmentId) == .current, "capacity: live now is current")
+        expect(
+            mixed.storedMedicineCount == 3,
+            "capacity: current + upcoming medicines share Free occupancy"
+        )
+        let mixedFourth = mixed.addFromDrafts(
+            [draft("Mixed Four")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(mixedFourth == nil, "capacity: fourth medicine refused when upcoming occupies a slot")
+
+        let finishSlots = CheckMedStore(isolatedInMemoryForContracts: true)
+        finishSlots.debugContractBind(ownerId: owner, profileId: profile)
+        let finishPlan = finishSlots.debugInsertPlan(
+            title: "Finish for slots",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "FinishMed",
+            ownerId: owner,
+            profileId: profile,
+            scheduleTime: "08:00",
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: tomorrow
+        )
+        _ = finishSlots.debugInsertMedicine(
+            treatmentId: finishPlan.treatmentId,
+            name: "FinishMed2",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = finishSlots.debugInsertPlan(
+            title: "Stay current",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "StayMed",
+            ownerId: owner,
+            profileId: profile,
+            scheduleTime: "20:00",
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: tomorrow
+        )
+        expect(finishSlots.storedMedicineCount == 3, "capacity: finish fixture occupies three live slots")
+        let pendingStay = finishPlan.logId
+        _ = finishSlots.completeTreatment(id: finishPlan.treatmentId)
+        expect(finishSlots.debugTreatmentStatus(finishPlan.treatmentId) == "completed", "capacity: completed treatment stays in history")
+        expect(finishSlots.storedMedicineCount == 1, "capacity: completing a treatment frees its medicine slots")
+        expect(
+            finishSlots.reportMedicineSummaries().contains(where: { $0.name == "FinishMed" }),
+            "capacity: completed treatment medicines remain in history"
+        )
+        expect(
+            pendingStay.flatMap { finishSlots.debugDoseStatus($0) } == DoseLogStatus.pending.rawValue,
+            "capacity: completing a treatment does not delete DoseLogs"
+        )
+        let afterFinishAdd = finishSlots.addFromDrafts(
+            [draft("PostFinish")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(afterFinishAdd != nil, "capacity: freed slot accepts a new medicine")
+        expect(finishSlots.storedMedicineCount == 2, "capacity: new medicine occupies one freed slot")
+        let stayPendingId = finishSlots.debugInsertPlan(
+            title: "Dose confirm holder",
+            status: "active",
+            startDate: start,
+            endDate: end,
+            medicineName: "ConfirmStay",
+            ownerId: owner,
+            profileId: profile,
+            scheduleTime: "09:00",
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: now.addingTimeInterval(-60)
+        ).logId
+        if let stayPendingId {
+            finishSlots.applyDoseAction(id: stayPendingId, action: .confirmTaken, now: now)
+            expect(
+                finishSlots.debugDoseStatus(stayPendingId) == DoseLogStatus.taken.rawValue
+                    || finishSlots.debugDoseStatus(stayPendingId) == DoseLogStatus.takenLate.rawValue,
+                "capacity: existing dose confirmation remains available at cap"
+            )
+        } else {
+            failures.append("capacity: missing pending log for dose confirmation")
+        }
+
+        let superStore = CheckMedStore(isolatedInMemoryForContracts: true)
+        superStore.debugContractBind(ownerId: owner, profileId: profile)
+        let superThree = superStore.addFromDrafts(
+            [draft("Super One"), draft("Super Two"), draft("Super Three")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(superThree != nil, "capacity: Super persists the first three medicines")
+        let superFourth = superStore.addFromDrafts(
+            [draft("Super Four")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(superFourth != nil, "capacity: Super allows a fourth medicine")
+        expect(superStore.storedMedicineCount == 4, "capacity: Super occupancy is 4 after the extra add")
+        for index in 5...SuperLimits.superPrescriptions {
+            _ = superStore.addFromDrafts(
+                [draft("Super \(index)")],
+                ownerId: owner,
+                profileId: profile,
+                maximumActiveMedicines: SuperLimits.superPrescriptions
+            )
+        }
+        expect(superStore.storedMedicineCount == SuperLimits.superPrescriptions, "capacity: Super fills to 12")
+        let superThirteenth = superStore.addFromDrafts(
+            [draft("Super Thirteen")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(superThirteenth == nil, "capacity: Super 13th medicine is refused")
+        expect(superStore.storedMedicineCount == SuperLimits.superPrescriptions, "capacity: refused 13th does not increase occupancy")
+
         if let first = free.medicineSummaries().first {
             free.updateMedicineDetails(id: first.id, name: "Free One Edited")
             expect(free.storedMedicineCount == 3, "capacity: editing does not consume a slot")
@@ -336,12 +545,6 @@ enum MedicationCapacitySafetyContractChecks {
             "capacity: Free enforcement preserves owner/profile boundaries"
         )
 
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
-        let now = Date()
-        let start = calendar.date(byAdding: .day, value: -1, to: now)!
-        let end = calendar.date(byAdding: .day, value: 30, to: now)!
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: now)!
         let retained = CheckMedStore(isolatedInMemoryForContracts: true)
         retained.debugContractBind(ownerId: owner, profileId: profile)
         for index in 1...SuperLimits.superPrescriptions {
