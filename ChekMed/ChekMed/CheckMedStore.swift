@@ -623,7 +623,8 @@ final class CheckMedStore {
             ownerId: ownerId,
             profileId: profileId,
             replacePlan: true,
-            maximumActiveMedicines: maximumActiveMedicines
+            maximumActiveMedicines: maximumActiveMedicines,
+            commitAtomically: true
         )
     }
 
@@ -655,7 +656,8 @@ final class CheckMedStore {
             ownerId: ownerId,
             profileId: profileId,
             replacePlan: false,
-            maximumActiveMedicines: maximumActiveMedicines
+            maximumActiveMedicines: maximumActiveMedicines,
+            commitAtomically: true
         )
     }
 
@@ -858,6 +860,12 @@ final class CheckMedStore {
             // Confirmed prescriptions must surface immediately (Home + logs + alarms).
             setSurfacesPlan(true)
         }
+        func abortAtomicBatch() -> UUID? {
+            context.rollback()
+            invalidateCache()
+            logsEnsuredDay = nil
+            return nil
+        }
         var batchRecords = additionalOutboxRecords
         guard let treatmentId = saveDraft(
             first,
@@ -869,7 +877,7 @@ final class CheckMedStore {
             commitImmediately: !commitAtomically,
             collectedRecords: commitAtomically ? { batchRecords.append(contentsOf: $0) } : nil
         ) else {
-            return nil
+            return commitAtomically ? abortAtomicBatch() : nil
         }
         let plan = allTreatments().first(where: { $0.id == treatmentId && $0.deletedAt == nil })
         for draft in named.dropFirst() {
@@ -883,7 +891,7 @@ final class CheckMedStore {
                 collectedRecords: commitAtomically ? { batchRecords.append(contentsOf: $0) } : nil
             )
             if commitAtomically, extraId == nil {
-                return nil
+                return abortAtomicBatch()
             }
         }
         if commitAtomically {

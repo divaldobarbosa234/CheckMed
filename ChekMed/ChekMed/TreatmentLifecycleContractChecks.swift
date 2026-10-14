@@ -1610,6 +1610,7 @@ enum TreatmentPreservationContractChecks {
         failures.append(contentsOf: TreatmentStartNewAtomicityContractChecks.failures())
         failures.append(contentsOf: UnfinishedPlanSafetyContractChecks.failures())
         failures.append(contentsOf: IntakeReliabilityContractChecks.failures())
+        failures.append(contentsOf: PersistSeedAddAtomicityContractChecks.failures())
         return failures
     }
 }
@@ -2281,6 +2282,226 @@ enum IntakeReliabilityContractChecks {
             )
             expect(retry == expectedRetry[locale], "UX-1B 10: try-again \(locale.rawValue)")
         }
+
+        return failures
+    }
+}
+
+enum PersistSeedAddAtomicityContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func draft(_ name: String) -> OnboardingPrescriptionDraft {
+            OnboardingPrescriptionDraft(
+                medicine: name,
+                dose: "1 tablet",
+                frequency: "1x",
+                duration: "5 days",
+                timesPerDay: "1",
+                doseTimes: ["09:00"]
+            )
+        }
+        func currentNames(_ store: CheckMedStore, now: Date) -> [String] {
+            store.journeyTreeSnapshot(now: now).current.flatMap(\.medicineNames)
+        }
+        func nameCount(_ names: [String], _ name: String) -> Int {
+            names.filter { $0 == name }.count
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let lastWeek = calendar.date(byAdding: .day, value: -10, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let nextMonth = calendar.date(byAdding: .day, value: 30, to: today)!
+        let owner = UUID()
+        let profile = UUID()
+        let extraProfile = UUID()
+
+        let seedFail = CheckMedStore(isolatedInMemoryForContracts: true)
+        seedFail.debugContractBind(ownerId: owner, profileId: profile)
+        let seedFailSurfaces = seedFail.surfacesPlan
+        let seedFailCounts = seedFail.debugLiveRecordCounts()
+        let seedFailMutations = seedFail.pendingSyncMutationCount(ownerId: owner)
+        let seedFailXP = seedFail.debugTreatmentCompleteGrantCount()
+        seedFail.debugFailNextCanonicalSave = true
+        let seedFailResult = seedFail.seedFromDrafts(
+            [draft("SeedA"), draft("SeedB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(seedFailResult == nil, "PERSIST-1 A: failed two-medicine seed returns nil")
+        expect(seedFail.debugLiveRecordCounts() == seedFailCounts, "PERSIST-1 A: no committed rows after seed rollback")
+        expect(seedFail.pendingSyncMutationCount(ownerId: owner) == seedFailMutations, "PERSIST-1 A/H: no outbox after seed rollback")
+        expect(seedFail.surfacesPlan == seedFailSurfaces, "PERSIST-1 A/H: surfacesPlan unchanged after seed rollback")
+        expect(seedFail.debugTreatmentCompleteGrantCount() == seedFailXP, "PERSIST-1 H: seed failure grants no XP")
+        let seedRetry = seedFail.seedFromDrafts(
+            [draft("SeedA"), draft("SeedB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(seedRetry != nil, "PERSIST-1 E: seed retry after rollback succeeds")
+        let seedRetryNames = currentNames(seedFail, now: now)
+        expect(nameCount(seedRetryNames, "SeedA") == 1, "PERSIST-1 C/E: SeedA persisted once")
+        expect(nameCount(seedRetryNames, "SeedB") == 1, "PERSIST-1 C/E: SeedB persisted once")
+
+        let addFail = CheckMedStore(isolatedInMemoryForContracts: true)
+        addFail.debugContractBind(ownerId: owner, profileId: profile)
+        let addCurrent = addFail.debugInsertPlan(
+            title: "Add current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "KeepNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let addFuture = addFail.debugInsertPlan(
+            title: "Add future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "KeepSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        addFail.setActiveScope(profileId: extraProfile, includeUnscoped: false)
+        let addOther = addFail.debugInsertPlan(
+            title: "Add other",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "KeepOther",
+            ownerId: owner,
+            profileId: extraProfile
+        )
+        addFail.setActiveScope(profileId: profile, includeUnscoped: true)
+        let addFailSurfaces = addFail.surfacesPlan
+        let addFailCounts = addFail.debugLiveRecordCounts()
+        let addFailMutations = addFail.pendingSyncMutationCount(ownerId: owner)
+        let addFailXP = addFail.debugTreatmentCompleteGrantCount()
+        addFail.debugFailNextCanonicalSave = true
+        let addFailResult = addFail.addFromDrafts(
+            [draft("AddA"), draft("AddB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(addFailResult == nil, "PERSIST-1 B: failed two-medicine add returns nil")
+        expect(addFail.debugTreatmentStatus(addCurrent.treatmentId) == "active", "PERSIST-1 B: CURRENT stays active")
+        expect(addFail.debugMedicineName(addCurrent.medicineId) == "KeepNow", "PERSIST-1 B: CURRENT medicine unchanged")
+        expect(addFail.debugTreatmentStatus(addFuture.treatmentId) == "active", "PERSIST-1 B/E: FUTURE unchanged")
+        expect(addFail.debugMedicineName(addFuture.medicineId) == "KeepSoon", "PERSIST-1 B: FUTURE medicine unchanged")
+        expect(addFail.debugStoredTreatmentStatus(addOther.treatmentId) == "active", "PERSIST-1 F: other profile unchanged on failed add")
+        expect(addFail.debugLiveRecordCounts() == addFailCounts, "PERSIST-1 B: live rows unchanged after add rollback")
+        expect(addFail.pendingSyncMutationCount(ownerId: owner) == addFailMutations, "PERSIST-1 H: no outbox after add rollback")
+        expect(addFail.surfacesPlan == addFailSurfaces, "PERSIST-1 H: surfacesPlan unchanged after add rollback")
+        expect(addFail.debugTreatmentCompleteGrantCount() == addFailXP, "PERSIST-1 H: add failure grants no XP")
+        let addRetry = addFail.addFromDrafts(
+            [draft("AddA"), draft("AddB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(addRetry == addCurrent.treatmentId, "PERSIST-1 D: add retry appends existing CURRENT")
+        expect(addFail.debugTreatmentStatus(addCurrent.treatmentId) == "active", "PERSIST-1 D: CURRENT stays active after add")
+        let addRetryNames = currentNames(addFail, now: now)
+        expect(nameCount(addRetryNames, "KeepNow") == 1, "PERSIST-1 D/E: original CURRENT medicine once")
+        expect(nameCount(addRetryNames, "AddA") == 1, "PERSIST-1 D/E: AddA once")
+        expect(nameCount(addRetryNames, "AddB") == 1, "PERSIST-1 D/E: AddB once")
+        expect(addFail.debugTreatmentStatus(addFuture.treatmentId) == "active", "PERSIST-1 E: FUTURE still active after add retry")
+        expect(addFail.debugStoredTreatmentStatus(addOther.treatmentId) == "active", "PERSIST-1 F: other profile unchanged after add success")
+
+        let seedOk = CheckMedStore(isolatedInMemoryForContracts: true)
+        seedOk.debugContractBind(ownerId: owner, profileId: profile)
+        let seedOkId = seedOk.seedFromDrafts(
+            [draft("OkSeedA"), draft("OkSeedB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(seedOkId != nil, "PERSIST-1 C: two-medicine seed succeeds")
+        let seedOkNames = currentNames(seedOk, now: now)
+        expect(nameCount(seedOkNames, "OkSeedA") == 1 && nameCount(seedOkNames, "OkSeedB") == 1, "PERSIST-1 C: both seed medicines persist")
+        expect(seedOk.debugLiveRecordCounts().schedules >= 2, "PERSIST-1 C: both seed schedules persist")
+        expect(seedOk.surfacesPlan, "PERSIST-1 C: successful seed may surface the plan")
+
+        let cap = CheckMedStore(isolatedInMemoryForContracts: true)
+        cap.debugContractBind(ownerId: owner, profileId: profile)
+        _ = cap.debugInsertPlan(
+            title: "Cap current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "CapNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "Cap future A",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonA",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "Cap future B",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonB",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "Cap future C",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonC",
+            ownerId: owner,
+            profileId: profile
+        )
+        let capBefore = cap.storedMedicineCount
+        let capMutations = cap.pendingSyncMutationCount(ownerId: owner)
+        let capResult = cap.addFromDrafts(
+            [draft("OverflowA"), draft("OverflowB")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(capResult == nil, "PERSIST-1 G: over-cap add is occupancy refusal, not a saved batch")
+        expect(cap.storedMedicineCount == capBefore, "PERSIST-1 G: CURRENT+FUTURE occupancy unchanged")
+        expect(cap.pendingSyncMutationCount(ownerId: owner) == capMutations, "PERSIST-1 G: no over-cap writes")
+
+        let single = CheckMedStore(isolatedInMemoryForContracts: true)
+        single.debugContractBind(ownerId: owner, profileId: profile)
+        let singleCurrent = single.debugInsertPlan(
+            title: "Single current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "SingleNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let singleAdd = single.addFromDrafts(
+            [draft("SingleExtra")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(singleAdd == singleCurrent.treatmentId, "PERSIST-1 J: single-medicine later-add still appends CURRENT")
+        expect(nameCount(currentNames(single, now: now), "SingleNow") == 1, "PERSIST-1 J: original medicine kept")
+        expect(nameCount(currentNames(single, now: now), "SingleExtra") == 1, "PERSIST-1 J: one extra medicine appended")
 
         return failures
     }
