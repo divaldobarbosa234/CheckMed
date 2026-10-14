@@ -95,6 +95,7 @@ enum L10n {
         case doseTimesTitle, doseTimeSlot, medicineReason, optionalField, planResumeHeadline, timesPerDayFormat
         case doseTimeFirst, doseTimeSecond, doseTimeThird, doseTimeFourth, doseTimeAlarmHint, doseTimesSpreadHint
         case planJourneyHeadline, planJourneySubhead, planReportNote, planAddMoreOrFamily
+        case planPersistFailedHeadline, planPersistFailedBody, planPersistTryAgain
         case alarmSetupTitle, alarmSetupHeadline, alarmSetupBody, alarmSetupEnable
         case durationStart, durationEnd, durationDaysFormat, durationDaysOne, durationPickDates, durationSelected, durationPastStartHint
         case manualMissingMedicine, manualMissingDose, manualMissingTimesOrFrequency, manualMissingDates
@@ -630,6 +631,9 @@ enum L10n {
         .planJourneySubhead: "Cooper will help you get better.",
         .planReportNote: "We’ll use this to build your Medical Report as you go. Reviewing and editing it is free. Super lets you download and share the PDF with your doctor.",
         .planAddMoreOrFamily: "Add more medicines or a family member",
+        .planPersistFailedHeadline: "We couldn’t save your medicines",
+        .planPersistFailedBody: "Please check your connection and try again. Your information is still here.",
+        .planPersistTryAgain: "Try again",
         .alarmSetupTitle: "Alarms",
         .alarmSetupHeadline: "Allow Cooper to set your dose alarms",
         .alarmSetupBody: "Dose-time alarms stay free. Cooper can ring at the times you chose so you don’t miss a medicine.",
@@ -1760,6 +1764,9 @@ enum L10n {
         .planJourneySubhead: "O Cooper vai ajudar você a melhorar.",
         .planReportNote: "Vamos usar isto para montar seu Relatório Médico. Revisar e editar é grátis. O Super permite baixar e partilhar o PDF com o médico.",
         .planAddMoreOrFamily: "Adicionar mais medicamentos ou um familiar",
+        .planPersistFailedHeadline: "Não foi possível guardar os seus medicamentos",
+        .planPersistFailedBody: "Verifique a sua ligação e tente novamente. A sua informação continua aqui.",
+        .planPersistTryAgain: "Tentar novamente",
         .alarmSetupTitle: "Alarmes",
         .alarmSetupHeadline: "Deixe o Cooper definir seus alarmes de dose",
         .alarmSetupBody: "Os alarmes na hora da dose continuam grátis. O Cooper pode tocar nos horários que você escolheu para você não esquecer o medicamento.",
@@ -2890,6 +2897,9 @@ enum L10n {
         .planJourneySubhead: "Cooper te ayudará a sentirte mejor.",
         .planReportNote: "Usaremos esto para armar tu Informe Médico. Revisarlo y editarlo es gratis. Super permite descargar y compartir el PDF con tu médico.",
         .planAddMoreOrFamily: "Añadir más medicamentos o un familiar",
+        .planPersistFailedHeadline: "No se pudieron guardar sus medicamentos",
+        .planPersistFailedBody: "Compruebe su conexión y vuelva a intentarlo. Su información sigue aquí.",
+        .planPersistTryAgain: "Intentar de nuevo",
         .alarmSetupTitle: "Alarmas",
         .alarmSetupHeadline: "Permite que Cooper configure tus alarmas de dosis",
         .alarmSetupBody: "Las alarmas a la hora de la dosis siguen gratis. Cooper puede sonar a las horas que elegiste para que no olvides un medicamento.",
@@ -4020,6 +4030,9 @@ enum L10n {
         .planJourneySubhead: "Cooper va vous aider à aller mieux.",
         .planReportNote: "Nous l’utiliserons pour constituer votre Rapport médical. Le consulter et le modifier est gratuit. Super permet de télécharger et partager le PDF avec votre médecin.",
         .planAddMoreOrFamily: "Ajouter plus de médicaments ou un proche",
+        .planPersistFailedHeadline: "Nous n’avons pas pu enregistrer vos médicaments",
+        .planPersistFailedBody: "Vérifiez votre connexion et réessayez. Vos informations sont toujours ici.",
+        .planPersistTryAgain: "Réessayer",
         .alarmSetupTitle: "Alarmes",
         .alarmSetupHeadline: "Autorisez Cooper à régler vos alarmes de dose",
         .alarmSetupBody: "Les alarmes à l’heure de la dose restent gratuites. Cooper peut sonner aux heures que vous avez choisies pour ne pas manquer un médicament.",

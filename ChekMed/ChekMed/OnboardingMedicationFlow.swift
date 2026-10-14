@@ -20,6 +20,45 @@ enum LaterAddPersistTarget: Equatable {
     case completeThenSeed
 }
 
+/// Later-add vs first-time/unfinished. Uses onboarding completion, not treatment presence.
+enum IntakeConfirmNavigation {
+    enum Destination: Equatable {
+        case postJourneySetup
+        case originatingSurface
+    }
+
+    static func destination(hasCompletedOnboarding: Bool) -> Destination {
+        hasCompletedOnboarding ? .originatingSurface : .postJourneySetup
+    }
+
+    static func shouldArmPostJourney(hasCompletedOnboarding: Bool) -> Bool {
+        destination(hasCompletedOnboarding: hasCompletedOnboarding) == .postJourneySetup
+    }
+}
+
+enum IntakeConfirmSessionEffects {
+    static func applySuccessfulPersist(session: SessionStore, treatments: CheckMedStore) {
+        session.markMedicationPlanConfirmed()
+        if IntakeConfirmNavigation.shouldArmPostJourney(
+            hasCompletedOnboarding: session.hasCompletedOnboarding
+        ) {
+            session.markPendingPostJourneySetup()
+        }
+        treatments.setSurfacesPlan(true)
+    }
+
+    static func applyFinish(session: SessionStore) {
+        switch IntakeConfirmNavigation.destination(
+            hasCompletedOnboarding: session.hasCompletedOnboarding
+        ) {
+        case .postJourneySetup:
+            session.startPostJourneyQueue()
+        case .originatingSurface:
+            session.finishFreshPlan(select: session.selectedMainTab)
+        }
+    }
+}
+
 enum LaterAddPersist {
     static func target(
         intent: LaterAddTreatmentIntent,
@@ -98,6 +137,18 @@ enum LaterAddPersistContractChecks {
             occupancyIfCurrentCompleted: 0
         ) != 0 {
             failures.append("later-add: start-new occupancy is 0 only when no FUTURE remains")
+        }
+        if IntakeConfirmNavigation.destination(hasCompletedOnboarding: true) != .originatingSurface {
+            failures.append("UX-1C: returning add and start-new return to the originating surface")
+        }
+        if IntakeConfirmNavigation.destination(hasCompletedOnboarding: false) != .postJourneySetup {
+            failures.append("UX-1C: first-time and unfinished setup still start post-journey")
+        }
+        if IntakeConfirmNavigation.shouldArmPostJourney(hasCompletedOnboarding: true) {
+            failures.append("UX-1C: returning users must not arm post-journey")
+        }
+        if !IntakeConfirmNavigation.shouldArmPostJourney(hasCompletedOnboarding: false) {
+            failures.append("UX-1C: first-time and unfinished setup must arm post-journey")
         }
         return failures
     }
@@ -1846,6 +1897,9 @@ struct PlanResumeView: View {
     @Environment(EntitlementStore.self) private var entitlements
     let drafts: [OnboardingPrescriptionDraft]
     var showsAddMore: Bool = true
+    var persistError: String? = nil
+    var isPersisting: Bool = false
+    var onDismissPersistError: (() -> Void)? = nil
     var onContinue: () -> Void
     var onBack: () -> Void
 
@@ -1868,6 +1922,9 @@ struct PlanResumeView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(CheckMedTheme.primary.opacity(0.35))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if let persistError, !persistError.isEmpty {
+                        persistErrorBanner(body: persistError)
+                    }
                     ForEach(Array(drafts.filter(\.hasMedicineName).enumerated()), id: \.offset) { _, draft in
                         resumeCard(draft)
                     }
@@ -1877,19 +1934,66 @@ struct PlanResumeView: View {
                 .padding(.bottom, 16)
             }
             VStack(spacing: 10) {
-                CheckMedButton(title: session.t(.continueButton), action: onContinue)
+                CheckMedButton(
+                    title: persistError == nil ? session.t(.continueButton) : session.t(.planPersistTryAgain),
+                    action: onContinue
+                )
+                .disabled(isPersisting)
                 if showsAddMore {
                     CheckMedButton(title: session.t(.planAddMoreOrFamily), style: .secondary) {
                         entitlements.presentPaywall()
                     }
+                    .disabled(isPersisting)
                 }
                 CheckMedButton(title: session.t(.back), style: .ghost, action: onBack)
+                    .disabled(isPersisting)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(CheckMedTheme.background)
+    }
+
+    private func persistErrorBanner(body: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 22, weight: .semibold))
+                .foregroundStyle(CheckMedTheme.danger)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(session.t(.planPersistFailedHeadline))
+                    .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                    .foregroundStyle(CheckMedTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(body)
+                    .font(.system(.footnote, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.ink.opacity(0.82))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(.isStaticText)
+            Spacer(minLength: 8)
+            if let onDismissPersistError {
+                Button(action: onDismissPersistError) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(session.t(.cancel))
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.danger.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(CheckMedTheme.danger.opacity(0.32), lineWidth: 1)
+        )
     }
 
     private func resumeCard(_ draft: OnboardingPrescriptionDraft) -> some View {

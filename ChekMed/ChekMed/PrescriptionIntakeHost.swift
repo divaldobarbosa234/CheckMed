@@ -28,6 +28,8 @@ struct AddPrescriptionIntakeHost: View {
     @State private var didNeedSlotGate = false
     @State private var oldPrescriptionWarningDate: Date? = nil
     @State private var laterAddIntent: LaterAddTreatmentIntent = .addToCurrent
+    @State private var persistError: String? = nil
+    @State private var isPersisting = false
 
     private enum Phase {
         case choose, camera, manual, analysing, slotLimit, confirm, planResume
@@ -118,6 +120,9 @@ struct AddPrescriptionIntakeHost: View {
             case .planResume:
                 PlanResumeView(
                     drafts: journeyDrafts(),
+                    persistError: persistError,
+                    isPersisting: isPersisting,
+                    onDismissPersistError: { persistError = nil },
                     onContinue: finishIntake,
                     onBack: { phase = .confirm }
                 )
@@ -297,8 +302,14 @@ struct AddPrescriptionIntakeHost: View {
     }
 
     /// Commit on Plan Resume Continue. Confirm only advances in memory.
+    private enum PersistDraftsResult {
+        case success
+        case blocked
+        case failed
+    }
+
     @discardableResult
-    private func persistConfirmedDrafts() -> Bool {
+    private func persistConfirmedDrafts() -> PersistDraftsResult {
         let liveCount = treatments.storedMedicineCount
         let persistTarget = laterAddPersistTarget
         let capBase = laterAddDraftOccupancyBase
@@ -315,7 +326,7 @@ struct AddPrescriptionIntakeHost: View {
                liveCount >= SuperLimits.freePrescriptions {
                 entitlements.presentPaywall()
             }
-            return false
+            return .blocked
         }
         let ok: Bool
         var persistedTreatmentId: UUID?
@@ -360,14 +371,11 @@ struct AddPrescriptionIntakeHost: View {
             #if DEBUG
             print("[CheckMed] persistConfirmedDrafts failed")
             #endif
-            return false
+            return .failed
         }
         let firstPersist = !didPersistPlan
         didPersistPlan = true
-        session.markMedicationPlanConfirmed()
-        // Always arm post-journey chain after any successful confirm (seed or add).
-        session.markPendingPostJourneySetup()
-        treatments.setSurfacesPlan(true)
+        IntakeConfirmSessionEffects.applySuccessfulPersist(session: session, treatments: treatments)
         if firstPersist, let persistedTreatmentId {
             treatments.archiveImportedSource(pending, treatmentId: persistedTreatmentId)
         }
@@ -375,18 +383,37 @@ struct AddPrescriptionIntakeHost: View {
             ImportUsage.incrementPhotoPDF(ownerId: session.planOwnerId)
         }
         path.reload()
-        return true
+        return .success
     }
 
     private func finishIntake() {
-        guard persistConfirmedDrafts() else { return }
-        // After journey: always alarms → notifications → Super → Phil before Home.
-        session.startPostJourneyQueue()
-        if let onFinished {
-            onFinished()
-        } else {
-            session.beginResumeSetup()
+        guard !isPersisting else { return }
+        isPersisting = true
+        persistError = nil
+        let result = persistConfirmedDrafts()
+        isPersisting = false
+        switch result {
+        case .blocked:
+            return
+        case .failed:
+            persistError = session.t(.planPersistFailedBody)
+            return
+        case .success:
+            break
+        }
+        IntakeConfirmSessionEffects.applyFinish(session: session)
+        switch IntakeConfirmNavigation.destination(
+            hasCompletedOnboarding: session.hasCompletedOnboarding
+        ) {
+        case .originatingSurface:
             dismiss()
+        case .postJourneySetup:
+            if let onFinished {
+                onFinished()
+            } else {
+                session.beginResumeSetup()
+                dismiss()
+            }
         }
     }
 }

@@ -1609,6 +1609,7 @@ enum TreatmentPreservationContractChecks {
 
         failures.append(contentsOf: TreatmentStartNewAtomicityContractChecks.failures())
         failures.append(contentsOf: UnfinishedPlanSafetyContractChecks.failures())
+        failures.append(contentsOf: IntakeReliabilityContractChecks.failures())
         return failures
     }
 }
@@ -2030,6 +2031,255 @@ enum UnfinishedPlanSafetyContractChecks {
                 !copyImpliesDeletion(L10n.string(.deletePlanAndStartNew, locale: locale)),
                 "SAF-1 I: deletePlanAndStartNew must not imply deletion (\(locale.rawValue))"
             )
+        }
+
+        return failures
+    }
+}
+
+enum IntakeReliabilityContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func draft(_ name: String) -> OnboardingPrescriptionDraft {
+            OnboardingPrescriptionDraft(
+                medicine: name,
+                dose: "1 tablet",
+                frequency: "1x",
+                duration: "5 days",
+                timesPerDay: "1",
+                doseTimes: ["09:00"]
+            )
+        }
+
+        expect(
+            IntakeConfirmNavigation.destination(hasCompletedOnboarding: true) == .originatingSurface,
+            "UX-1C 1/2: returning add and start-new skip post-journey"
+        )
+        expect(
+            IntakeConfirmNavigation.destination(hasCompletedOnboarding: false) == .postJourneySetup,
+            "UX-1C 3/4: first-time and unfinished setup keep post-journey"
+        )
+        expect(
+            !IntakeConfirmNavigation.shouldArmPostJourney(hasCompletedOnboarding: true),
+            "UX-1C: onboarding completion, not treatment presence, gates post-journey"
+        )
+        expect(
+            IntakeConfirmNavigation.shouldArmPostJourney(hasCompletedOnboarding: false),
+            "UX-1C: unfinished first-time still arms post-journey even if treatments exist"
+        )
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let lastWeek = calendar.date(byAdding: .day, value: -10, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let nextMonth = calendar.date(byAdding: .day, value: 30, to: today)!
+        let owner = UUID()
+        let profile = UUID()
+        let extraProfile = UUID()
+
+        let add = CheckMedStore(isolatedInMemoryForContracts: true)
+        add.debugContractBind(ownerId: owner, profileId: profile)
+        let addCurrent = add.debugInsertPlan(
+            title: "UX add current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "AddNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let addFuture = add.debugInsertPlan(
+            title: "UX add future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "AddSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        add.setActiveScope(profileId: extraProfile, includeUnscoped: false)
+        let addOther = add.debugInsertPlan(
+            title: "UX add other",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "AddOther",
+            ownerId: owner,
+            profileId: extraProfile
+        )
+        add.setActiveScope(profileId: profile, includeUnscoped: true)
+        let added = add.addFromDrafts(
+            [draft("AddExtra")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(added == addCurrent.treatmentId, "UX-1C 1: returning add appends CURRENT")
+        expect(add.debugTreatmentStatus(addCurrent.treatmentId) == "active", "UX-1C 7: CURRENT stays active after add")
+        expect(add.debugTreatmentStatus(addFuture.treatmentId) == "active", "UX-1C 7: FUTURE stays active after add")
+        expect(add.debugStoredTreatmentStatus(addOther.treatmentId) == "active", "UX-1C 7: other profile unchanged after add")
+        expect(add.debugMedicineName(addCurrent.medicineId) == "AddNow", "UX-1C 1: existing CURRENT medicine kept")
+
+        let startNew = CheckMedStore(isolatedInMemoryForContracts: true)
+        startNew.debugContractBind(ownerId: owner, profileId: profile)
+        let startCurrent = startNew.debugInsertPlan(
+            title: "UX start current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "StartNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let startFuture = startNew.debugInsertPlan(
+            title: "UX start future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "StartSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        let started = startNew.startNewTreatmentFromDrafts(
+            [draft("StartReplacement")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(started != nil && started != startCurrent.treatmentId, "UX-1C 2: Start New persists a new CURRENT")
+        expect(startNew.debugTreatmentStatus(startCurrent.treatmentId) == "completed", "UX-1C 2: Start New completes CURRENT")
+        expect(startNew.debugTreatmentStatus(startFuture.treatmentId) == "active", "UX-1C 7: FUTURE preserved on Start New")
+
+        let failSave = CheckMedStore(isolatedInMemoryForContracts: true)
+        failSave.debugContractBind(ownerId: owner, profileId: profile)
+        let failCurrent = failSave.debugInsertPlan(
+            title: "UX fail current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "FailNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        let failFuture = failSave.debugInsertPlan(
+            title: "UX fail future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "FailSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        let failCounts = failSave.debugLiveRecordCounts()
+        failSave.debugFailNextCanonicalSave = true
+        let failResult = failSave.startNewTreatmentFromDrafts(
+            [draft("ShouldRollBack")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(failResult == nil, "UX-1B 5: forced Start New save failure refuses")
+        expect(failSave.debugTreatmentStatus(failCurrent.treatmentId) == "active", "UX-1B 5: CURRENT rolled back")
+        expect(failSave.debugTreatmentStatus(failFuture.treatmentId) == "active", "UX-1B 5: FUTURE unchanged")
+        expect(failSave.debugLiveRecordCounts() == failCounts, "UX-1B 5: no false-success rows")
+        expect(
+            L10n.string(.planPersistFailedHeadline, locale: .english).isEmpty == false
+                && L10n.string(.planPersistFailedBody, locale: .english).isEmpty == false,
+            "UX-1B 5: persist failure copy exists"
+        )
+        let retry = failSave.startNewTreatmentFromDrafts(
+            [draft("ShouldRollBack")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(retry != nil, "UX-1B 5: retry after atomic failure succeeds")
+        expect(failSave.debugTreatmentStatus(failCurrent.treatmentId) == "completed", "UX-1B 5: retry completes CURRENT once")
+        let retryTree = failSave.journeyTreeSnapshot(now: now)
+        let replacementCount = retryTree.current.filter { $0.medicineNames.contains("ShouldRollBack") }.count
+        expect(replacementCount == 1, "UX-1B 6: retry does not duplicate the replacement treatment")
+        expect(failSave.storedMedicineCount == 2, "UX-1B 6: occupancy is FUTURE + one new CURRENT medicine")
+
+        let cap = CheckMedStore(isolatedInMemoryForContracts: true)
+        cap.debugContractBind(ownerId: owner, profileId: profile)
+        _ = cap.debugInsertPlan(
+            title: "UX cap current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "CapNow",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "UX cap future A",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonA",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "UX cap future B",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonB",
+            ownerId: owner,
+            profileId: profile
+        )
+        _ = cap.debugInsertPlan(
+            title: "UX cap future C",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "CapSoonC",
+            ownerId: owner,
+            profileId: profile
+        )
+        let capBefore = cap.storedMedicineCount
+        let capResult = cap.startNewTreatmentFromDrafts(
+            [draft("Overflow")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.freePrescriptions
+        )
+        expect(capResult == nil, "UX-1C 8: FREE-3A Start New still refuses when FUTURE fills the cap")
+        expect(cap.storedMedicineCount == capBefore, "UX-1C 8: occupancy unchanged after cap refusal")
+
+        let expectedHeadlines: [AppLocale: String] = [
+            .english: "We couldn’t save your medicines",
+            .portuguese: "Não foi possível guardar os seus medicamentos",
+            .spanish: "No se pudieron guardar sus medicamentos",
+            .french: "Nous n’avons pas pu enregistrer vos médicaments"
+        ]
+        let expectedRetry: [AppLocale: String] = [
+            .english: "Try again",
+            .portuguese: "Tentar novamente",
+            .spanish: "Intentar de nuevo",
+            .french: "Réessayer"
+        ]
+        for locale in AppLocale.allCases {
+            let headline = L10n.string(.planPersistFailedHeadline, locale: locale)
+            let body = L10n.string(.planPersistFailedBody, locale: locale)
+            let retry = L10n.string(.planPersistTryAgain, locale: locale)
+            expect(headline == expectedHeadlines[locale], "UX-1B 10: headline \(locale.rawValue)")
+            expect(!body.isEmpty && body != L10n.Key.planPersistFailedBody.rawValue, "UX-1B 10: body \(locale.rawValue)")
+            expect(
+                body.localizedCaseInsensitiveContains("try")
+                    || body.localizedCaseInsensitiveContains("tente")
+                    || body.localizedCaseInsensitiveContains("intent")
+                    || body.localizedCaseInsensitiveContains("réessay"),
+                "UX-1B 10: body is actionable \(locale.rawValue)"
+            )
+            expect(retry == expectedRetry[locale], "UX-1B 10: try-again \(locale.rawValue)")
         }
 
         return failures
