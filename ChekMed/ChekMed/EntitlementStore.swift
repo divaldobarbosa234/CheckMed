@@ -113,6 +113,15 @@ final class EntitlementStore {
     }
 
     init() {
+        #if DEBUG
+        if IntakeVerify.shouldIsolateProcess && !TH1LocalVerification.shouldIsolateProcess {
+            isSuper = false
+            usedDebugUnlock = false
+            entitlementSettled = true
+            introEligibilitySettled = true
+            return
+        }
+        #endif
         let persistedDebugUnlock = UserDefaults.standard.bool(forKey: Keys.debugUnlock)
         usedDebugUnlock = DebugSuperUnlockPolicy.restoresPersistedUnlock(
             persistedDebugUnlock,

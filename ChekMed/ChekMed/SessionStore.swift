@@ -494,13 +494,43 @@ final class SessionStore {
 
     /// Auth user id when signed in; otherwise the leftover on-device owner used only to adopt old rows.
     var planOwnerId: UUID {
-        auth.userId ?? Self.persistedLocalOwnerId()
+        #if DEBUG
+        if let intakeVerifyOwnerOverride { return intakeVerifyOwnerOverride }
+        #endif
+        return auth.userId ?? Self.persistedLocalOwnerId()
     }
 
     /// Remote profile when synced; otherwise a persisted local profile stamp for leftover SwiftData.
     var planProfileId: UUID {
-        profileId ?? Self.persistedLocalProfileId()
+        #if DEBUG
+        if let intakeVerifyProfileOverride { return intakeVerifyProfileOverride }
+        #endif
+        return profileId ?? Self.persistedLocalProfileId()
     }
+
+    #if DEBUG
+    private var intakeVerifyOwnerOverride: UUID?
+    private var intakeVerifyProfileOverride: UUID?
+    private var intakeVerifyOnboardedOverride: Bool?
+    private var intakeVerifyPlanConfirmedOverride: Bool?
+
+    /// In-memory only. Used by the DEBUG intake verification host. Never writes UserDefaults or Keychain.
+    func debugBindIntakeVerification(
+        ownerId: UUID,
+        profileId: UUID,
+        onboarded: Bool,
+        planConfirmed: Bool
+    ) {
+        intakeVerifyOwnerOverride = ownerId
+        intakeVerifyProfileOverride = profileId
+        intakeVerifyOnboardedOverride = onboarded
+        intakeVerifyPlanConfirmedOverride = planConfirmed
+    }
+
+    private var skipDurableSessionWritesForIntakeVerify: Bool {
+        IntakeVerify.isAllowed
+    }
+    #endif
 
     /// Local owner used before sign-in (for adopting leftover device rows onto the auth account).
     var localPlanOwnerId: UUID { Self.persistedLocalOwnerId() }
@@ -659,10 +689,18 @@ final class SessionStore {
     var hasChosenLanguage: Bool { localLanguageChosen }
     var hasSeenHowItWorks: Bool { localHowItWorksSeen }
 
-    var hasCompletedOnboarding: Bool { localOnboardingComplete || perUserOnboardingComplete }
+    var hasCompletedOnboarding: Bool {
+        #if DEBUG
+        if let intakeVerifyOnboardedOverride { return intakeVerifyOnboardedOverride }
+        #endif
+        return localOnboardingComplete || perUserOnboardingComplete
+    }
     /// True only after the user confirms a prescription (seed/add) or finishes resume of their plan.
     var hasConfirmedMedicationPlan: Bool {
-        localMedicationPlanConfirmed
+        #if DEBUG
+        if let intakeVerifyPlanConfirmedOverride { return intakeVerifyPlanConfirmedOverride }
+        #endif
+        return localMedicationPlanConfirmed
             || perUserMedicationPlanConfirmed
             || ProfileSetupKeychain.isPlanConfirmed(for: auth.userId)
     }
@@ -844,6 +882,9 @@ final class SessionStore {
 
     func markOnboardingComplete() {
         localOnboardingComplete = true
+        #if DEBUG
+        if skipDurableSessionWritesForIntakeVerify { return }
+        #endif
         UserDefaults.standard.set(true, forKey: Keys.onboardingComplete)
         if let userId = auth.userId {
             Self.persistPerUserOnboardingComplete(true, userId: userId)
@@ -956,6 +997,9 @@ final class SessionStore {
 
     func markMedicationPlanConfirmed() {
         localMedicationPlanConfirmed = true
+        #if DEBUG
+        if skipDurableSessionWritesForIntakeVerify { return }
+        #endif
         UserDefaults.standard.set(true, forKey: Keys.medicationPlanConfirmed)
         if let userId = auth.userId {
             UserDefaults.standard.set(true, forKey: Self.medicationPlanConfirmedKey(for: userId))
@@ -1076,12 +1120,18 @@ final class SessionStore {
     func markOnboardingPaywallOffered() {
         guard !localOnboardingPaywallOffered else { return }
         localOnboardingPaywallOffered = true
+        #if DEBUG
+        if skipDurableSessionWritesForIntakeVerify { return }
+        #endif
         UserDefaults.standard.set(true, forKey: Keys.onboardingPaywallOffered)
     }
 
     func markNotificationsPrompted() {
         guard !localNotificationsPrompted else { return }
         localNotificationsPrompted = true
+        #if DEBUG
+        if skipDurableSessionWritesForIntakeVerify { return }
+        #endif
         UserDefaults.standard.set(true, forKey: Keys.notificationsPrompted)
         if let userId = auth.userId {
             UserDefaults.standard.set(true, forKey: Self.notificationsPromptedKey(for: userId))
@@ -1763,6 +1813,9 @@ final class SessionStore {
     }
 
     private func persistPostJourney(_ step: PostJourneyStep?) {
+        #if DEBUG
+        if skipDurableSessionWritesForIntakeVerify { return }
+        #endif
         let raw: String? = {
             guard let step, step != .done else { return nil }
             return step.rawValue

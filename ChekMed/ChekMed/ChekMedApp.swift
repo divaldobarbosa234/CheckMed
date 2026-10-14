@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             TH1LocalVerification.logActivation(stage: "AppDelegate")
             return true
         }
+        if IntakeVerify.shouldIsolateProcess {
+            IntakeVerify.logActivation(stage: "AppDelegate")
+            return true
+        }
         #endif
         if let clientID = AuthConfig.googleClientID {
             GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
@@ -148,7 +152,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct ChekMedApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var session = SessionStore()
-    @State private var treatments = CheckMedStore()
+    @State private var treatments = Self.makeAppStore()
     @State private var path = TodayPathStore()
     @State private var entitlements = EntitlementStore()
     @State private var syncEngine = SyncEngine()
@@ -166,6 +170,14 @@ struct ChekMedApp: App {
                     .environment(\.locale, session.locale.foundationLocale)
             } else if TH1LocalVerification.isMisconfiguredRequest {
                 TH1LocalVerificationDeniedHost()
+            } else if IntakeVerify.isAllowed {
+                IntakeVerifyHost()
+                    .environment(session)
+                    .environment(entitlements)
+                    .environment(path)
+                    .environment(\.locale, session.locale.foundationLocale)
+            } else if IntakeVerify.isMisconfiguredRequest {
+                IntakeVerifyDeniedHost()
             } else {
                 standardRoot
             }
@@ -173,6 +185,17 @@ struct ChekMedApp: App {
             standardRoot
             #endif
         }
+    }
+
+    /// DEBUG intake isolate must not open the ordinary on-disk store.
+    /// TH-1 and production keep `CheckMedStore()` (disk, `liveStore` assignment).
+    private static func makeAppStore() -> CheckMedStore {
+        #if DEBUG
+        if IntakeVerify.shouldIsolateProcess && !TH1LocalVerification.shouldIsolateProcess {
+            return CheckMedStore(isolatedInMemoryForContracts: true)
+        }
+        #endif
+        return CheckMedStore()
     }
 
     @ViewBuilder
