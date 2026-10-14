@@ -1608,6 +1608,7 @@ enum TreatmentPreservationContractChecks {
         expect(onboard.debugMedicineName(onboardCurrent.medicineId) == "ReplacedOnboard", "TS-1: CURRENT replacement overwrites first medicine")
 
         failures.append(contentsOf: TreatmentStartNewAtomicityContractChecks.failures())
+        failures.append(contentsOf: UnfinishedPlanSafetyContractChecks.failures())
         return failures
     }
 }
@@ -1890,6 +1891,146 @@ enum TreatmentStartNewAtomicityContractChecks {
         expect(multiNew != nil, "atomic G: multi CURRENT Start New persists")
         expect(multi.debugTreatmentStatus(multiA.treatmentId) == "completed", "atomic G: CURRENT A completed together")
         expect(multi.debugTreatmentStatus(multiB.treatmentId) == "completed", "atomic G: CURRENT B completed together")
+
+        return failures
+    }
+}
+
+enum UnfinishedPlanSafetyContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        func draft(_ name: String) -> OnboardingPrescriptionDraft {
+            OnboardingPrescriptionDraft(
+                medicine: name,
+                dose: "1 tablet",
+                frequency: "1x",
+                duration: "5 days",
+                timesPerDay: "1",
+                doseTimes: ["09:00"]
+            )
+        }
+        func copyImpliesDeletion(_ text: String) -> Bool {
+            let folded = text.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: .current)
+            return ["delete", "apagar", "borrar", "supprimer"].contains { folded.contains($0) }
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        let lastWeek = calendar.date(byAdding: .day, value: -10, to: today)!
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+        let nextMonth = calendar.date(byAdding: .day, value: 30, to: today)!
+        let owner = UUID()
+        let profile = UUID()
+        let extraProfile = UUID()
+
+        let store = CheckMedStore(isolatedInMemoryForContracts: true)
+        store.debugContractBind(ownerId: owner, profileId: profile)
+        let current = store.debugInsertPlan(
+            title: "SAF current",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "SafNow",
+            ownerId: owner,
+            profileId: profile,
+            logStatus: "pending",
+            logScheduledAt: lastWeek
+        )
+        let future = store.debugInsertPlan(
+            title: "SAF future",
+            status: "active",
+            startDate: tomorrow,
+            endDate: nextMonth,
+            medicineName: "SafSoon",
+            ownerId: owner,
+            profileId: profile
+        )
+        store.setActiveScope(profileId: extraProfile, includeUnscoped: false)
+        let other = store.debugInsertPlan(
+            title: "SAF other",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "SafOther",
+            ownerId: owner,
+            profileId: extraProfile
+        )
+        store.setActiveScope(profileId: profile, includeUnscoped: true)
+        let beforeCounts = store.debugLiveRecordCounts()
+        let beforeMutations = store.pendingSyncMutationCount(ownerId: owner)
+        let beforeSurfaces = store.surfacesPlan
+        let session = SessionStore()
+        let confirmedBefore = session.hasConfirmedMedicationPlan
+        UnfinishedPlanPromptActions.continueAsNewIntake(session: session, treatments: store)
+        expect(store.debugTreatmentStatus(current.treatmentId) == "active", "SAF-1 A: CURRENT stays active")
+        expect(store.debugTreatmentStatus(future.treatmentId) == "active", "SAF-1 A: FUTURE stays active")
+        expect(store.debugMedicineName(current.medicineId) == "SafNow", "SAF-1 B: CURRENT medicine kept")
+        expect(current.logId != nil && store.debugDoseStatus(current.logId!) == "pending", "SAF-1 B: DoseLog kept")
+        expect(store.debugLiveRecordCounts() == beforeCounts, "SAF-1 B: live row counts unchanged")
+        expect(store.pendingSyncMutationCount(ownerId: owner) == beforeMutations, "SAF-1 C: no delete outbox")
+        expect(store.debugStoredTreatmentStatus(other.treatmentId) == "active", "SAF-1 G: other profile unchanged")
+        expect(store.surfacesPlan == beforeSurfaces, "SAF-1 H: surfacesPlan unchanged")
+        expect(session.hasConfirmedMedicationPlan == confirmedBefore, "SAF-1 H: confirmation flag unchanged")
+        session.finishFreshPlan(select: .home)
+        expect(store.debugTreatmentStatus(current.treatmentId) == "active", "SAF-1 D: cancel leaves CURRENT")
+        expect(store.debugTreatmentStatus(future.treatmentId) == "active", "SAF-1 D: cancel leaves FUTURE")
+        expect(!session.startFreshPrescription, "SAF-1 D: cancel clears fresh-intake presentation")
+
+        let resume = CheckMedStore(isolatedInMemoryForContracts: true)
+        resume.debugContractBind(ownerId: owner, profileId: profile)
+        let resumeCurrent = resume.debugInsertPlan(
+            title: "SAF resume",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "SafResume",
+            ownerId: owner,
+            profileId: profile
+        )
+        let resumeCounts = resume.debugLiveRecordCounts()
+        let resumeSession = SessionStore()
+        resumeSession.beginResumeSetup()
+        expect(resume.debugTreatmentStatus(resumeCurrent.treatmentId) == "active", "SAF-1 F: Finish does not complete")
+        expect(resume.debugLiveRecordCounts() == resumeCounts, "SAF-1 F: Finish is mutation-free")
+        expect(resumeSession.showResumeSetup, "SAF-1 F: Finish opens resume setup")
+
+        let intake = CheckMedStore(isolatedInMemoryForContracts: true)
+        intake.debugContractBind(ownerId: owner, profileId: profile)
+        let intakeCurrent = intake.debugInsertPlan(
+            title: "SAF intake",
+            status: "active",
+            startDate: lastWeek,
+            endDate: nextMonth,
+            medicineName: "SafIntake",
+            ownerId: owner,
+            profileId: profile
+        )
+        UnfinishedPlanPromptActions.continueAsNewIntake(session: SessionStore(), treatments: intake)
+        let replacement = intake.startNewTreatmentFromDrafts(
+            [draft("SafReplacement")],
+            ownerId: owner,
+            profileId: profile,
+            maximumActiveMedicines: SuperLimits.superPrescriptions
+        )
+        expect(replacement != nil && replacement != intakeCurrent.treatmentId, "SAF-1 E: later persist still uses TS-1 Start New")
+        expect(intake.debugTreatmentStatus(intakeCurrent.treatmentId) == "completed", "SAF-1 E: TS-1 completes CURRENT")
+
+        for locale in AppLocale.allCases {
+            expect(
+                !copyImpliesDeletion(L10n.string(.startNewPlan, locale: locale)),
+                "SAF-1 I: startNewPlan must not imply deletion (\(locale.rawValue))"
+            )
+            expect(
+                !copyImpliesDeletion(L10n.string(.deletePlanAndStartNew, locale: locale)),
+                "SAF-1 I: deletePlanAndStartNew must not imply deletion (\(locale.rawValue))"
+            )
+        }
 
         return failures
     }

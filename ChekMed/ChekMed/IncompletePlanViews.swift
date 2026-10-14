@@ -9,7 +9,6 @@ struct UnfinishedPlanPromptView: View {
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
     @Environment(EntitlementStore.self) private var entitlements
-    @Environment(TodayPathStore.self) private var path
     let kind: UnfinishedPlanPromptKind
     var onContinueAdd: (() -> Void)? = nil
 
@@ -55,11 +54,15 @@ struct UnfinishedPlanPromptView: View {
     }
 
     private func startNew() {
-        treatments.deleteActiveTreatments()
-        session.clearMedicationPlanConfirmed()
-        treatments.setSurfacesPlan(false)
-        path.reload()
-        session.beginFreshPlan()
+        UnfinishedPlanPromptActions.continueAsNewIntake(session: session, treatments: treatments)
+    }
+}
+
+/// Presentation-only. Must not write treatments, medicines, schedules, or DoseLogs.
+enum UnfinishedPlanPromptActions {
+    @MainActor
+    static func continueAsNewIntake(session: SessionStore, treatments _: CheckMedStore) {
+        session.beginUnfinishedFreshIntakePreservingTreatments()
     }
 }
 

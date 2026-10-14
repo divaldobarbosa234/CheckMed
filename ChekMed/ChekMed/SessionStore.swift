@@ -1022,6 +1022,18 @@ final class SessionStore {
         clearMedicationPlanConfirmed()
     }
 
+    /// Unfinished-plan "add a new prescription": open existing intake without
+    /// clearing confirmation, hiding treatments, or deleting canonical rows.
+    func beginUnfinishedFreshIntakePreservingTreatments() {
+        guard !needsIdentityProfile else { return }
+        showReturningWelcome = false
+        pendingReturningWelcome = false
+        showedReturningWelcomeThisSession = true
+        showResumeSetup = false
+        startFreshPrescription = true
+        didOfferUnfinishedPlanThisSession = true
+    }
+
     func finishFreshPlan(select tab: MainTab) {
         startFreshPrescription = false
         showResumeSetup = false

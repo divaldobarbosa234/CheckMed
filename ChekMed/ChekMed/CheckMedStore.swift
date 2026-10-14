@@ -1748,6 +1748,8 @@ final class CheckMedStore {
         }
     }
 
+    /// Explicit bulk tombstone of visible `status == "active"` treatments in the
+    /// selected profile. Unfinished-plan Start New must not call this.
     func deleteActiveTreatments() {
         let now = Date()
         let active = activeTreatments()
