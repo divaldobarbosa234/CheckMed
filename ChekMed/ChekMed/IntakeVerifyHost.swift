@@ -130,6 +130,10 @@ struct IntakeVerifyHost: View {
     @State private var lastScene: IntakeVerifyScene?
     @State private var lastNavigation = "none"
     @State private var inspectText = ""
+    /// True only after the unfinished resume queue reached the Dr. Cooper ready screen.
+    @State private var resumeReachedReady = false
+    /// One-shot so SwiftUI cannot dismiss the resume cover twice.
+    @State private var didDismissResumeCompletion = false
 
     init() {
         IntakeVerify.logActivation(stage: "HOST INIT")
@@ -199,6 +203,30 @@ struct IntakeVerifyHost: View {
                 inspectText = snapshot()
             }
         }
+        .onChange(of: session.postJourneyStep) { _, step in
+            guard presented == .resume, lastScene == .unfinishedResume else { return }
+            if step == .philReady {
+                resumeReachedReady = true
+            }
+            dismissResumeCoverIfGenuinelyComplete()
+        }
+        .onChange(of: session.showResumeSetup) { _, _ in
+            dismissResumeCoverIfGenuinelyComplete()
+        }
+    }
+
+    /// Dismiss only after GO TO HOME (`finishResumeSetup`), never on Confirm Back
+    /// (`showResumeSetup = false` without reaching ready) and never for Add / Start New covers.
+    private func dismissResumeCoverIfGenuinelyComplete() {
+        guard presented == .resume, lastScene == .unfinishedResume else { return }
+        guard resumeReachedReady else { return }
+        guard session.showResumeSetup == false else { return }
+        guard !didDismissResumeCompletion else { return }
+        didDismissResumeCompletion = true
+        lastNavigation = "resume finished → hub"
+        presented = nil
+        inspectText = snapshot()
+        print("[INTAKE-VERIFY] resume finished → hub")
     }
 
     private var hub: some View {
@@ -255,6 +283,8 @@ struct IntakeVerifyHost: View {
         treatments = store
         lastScene = scene
         lastNavigation = "none"
+        resumeReachedReady = false
+        didDismissResumeCompletion = false
         entitlements.showPaywall = false
         store.debugFailNextCanonicalSave = false
         seed(scene, store: store)
