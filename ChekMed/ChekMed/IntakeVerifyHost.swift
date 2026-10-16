@@ -165,38 +165,19 @@ struct IntakeVerifyHost: View {
             }
         }
         .fullScreenCover(item: $presented) { item in
-            switch item {
-            case .intake:
-                AddPrescriptionIntakeHost(
-                    onFinished: {
-                        lastNavigation = "post-journey (first-time/unfinished)"
-                        presented = nil
-                        inspectText = snapshot()
-                    },
-                    onCancel: {
-                        lastNavigation = "cancelled"
-                        presented = nil
+            // Paywall must be owned by the already-presented intake/resume cover.
+            // A sibling cover on the hub cannot appear over Confirm (stacked fullScreenCover).
+            presentedVerificationFlow(item)
+                .fullScreenCover(isPresented: Binding(
+                    get: { entitlements.showPaywall },
+                    set: { entitlements.showPaywall = $0 }
+                )) {
+                    NavigationStack {
+                        PaywallView()
+                            .environment(session)
+                            .environment(entitlements)
                     }
-                )
-                .environment(session)
-                .environment(treatments)
-                .environment(path)
-                .environment(entitlements)
-            case .resume:
-                ResumePlanSetupFlow()
-                    .environment(session)
-                    .environment(treatments)
-                    .environment(path)
-                    .environment(entitlements)
-            }
-        }
-        .fullScreenCover(isPresented: Binding(
-            get: { entitlements.showPaywall },
-            set: { entitlements.showPaywall = $0 }
-        )) {
-            PaywallView()
-                .environment(session)
-                .environment(entitlements)
+                }
         }
         .onChange(of: presented) { _, newValue in
             if newValue == nil {
@@ -227,6 +208,34 @@ struct IntakeVerifyHost: View {
         presented = nil
         inspectText = snapshot()
         print("[INTAKE-VERIFY] resume finished → hub")
+    }
+
+    @ViewBuilder
+    private func presentedVerificationFlow(_ item: IntakeVerifyPresented) -> some View {
+        switch item {
+        case .intake:
+            AddPrescriptionIntakeHost(
+                onFinished: {
+                    lastNavigation = "post-journey (first-time/unfinished)"
+                    presented = nil
+                    inspectText = snapshot()
+                },
+                onCancel: {
+                    lastNavigation = "cancelled"
+                    presented = nil
+                }
+            )
+            .environment(session)
+            .environment(treatments)
+            .environment(path)
+            .environment(entitlements)
+        case .resume:
+            ResumePlanSetupFlow()
+                .environment(session)
+                .environment(treatments)
+                .environment(path)
+                .environment(entitlements)
+        }
     }
 
     private var hub: some View {
