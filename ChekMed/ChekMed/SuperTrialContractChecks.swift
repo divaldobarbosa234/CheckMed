@@ -153,11 +153,19 @@ enum SuperTrialContractChecks {
             .paywallTrialAccentDays,
             .paywallTrialAccentDay,
             .paywallRenewalLegalTrialDays,
+            .confirmCapacitySavedMany,
+            .confirmCapacityAwaitingMany,
+            .confirmCapacityCanAddMany,
+            .confirmCapacityFreeAtCap,
+            .confirmCapacitySlotsUsed,
         ]
         let gateKeys: [L10n.Key] = [
             .treatmentsTrySuper,
             .scanLimitStartTrial,
             .confirmFreePlanFull,
+            .confirmFreeCapacityReached,
+            .confirmCapacityTitle,
+            .confirmCapacitySuperSupports,
             .treatmentsSlotsFull,
         ]
         let required: [L10n.Key] = formatKeys.sorted { $0.rawValue < $1.rawValue } + gateKeys + [

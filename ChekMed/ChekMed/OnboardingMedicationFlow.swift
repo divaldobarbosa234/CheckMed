@@ -93,6 +93,56 @@ enum ConfirmMedicineSlotCapacity {
         Swift.max(0, existingCount) + Swift.max(0, draftCount)
     }
 
+    /// Confirm copy only. Does not change occupancy or persist caps.
+    static func showsFreeCapacityExplanation(
+        isSuper: Bool,
+        existingCount: Int,
+        namedDraftCount: Int
+    ) -> Bool {
+        guard !isSuper else { return false }
+        return occupancy(existingCount: existingCount, draftCount: namedDraftCount)
+            >= SuperLimits.freePrescriptions
+    }
+
+    /// Confirm / Add prescription copy only. Does not change occupancy.
+    static func savedPhrase(count: Int, locale: AppLocale) -> String {
+        switch Swift.max(0, count) {
+        case 0: return L10n.string(.confirmCapacitySavedZero, locale: locale)
+        case 1: return L10n.string(.confirmCapacitySavedOne, locale: locale)
+        default: return L10n.string(.confirmCapacitySavedMany, locale: locale, args: [count])
+        }
+    }
+
+    static func awaitingPhrase(count: Int, locale: AppLocale) -> String {
+        switch Swift.max(0, count) {
+        case 0: return L10n.string(.confirmCapacityAwaitingZero, locale: locale)
+        case 1: return L10n.string(.confirmCapacityAwaitingOne, locale: locale)
+        default: return L10n.string(.confirmCapacityAwaitingMany, locale: locale, args: [count])
+        }
+    }
+
+    static func savedAwaitingLine(saved: Int, awaiting: Int, locale: AppLocale) -> String {
+        "\(savedPhrase(count: saved, locale: locale)) · \(awaitingPhrase(count: awaiting, locale: locale))"
+    }
+
+    static func addPrescriptionLine(saved: Int, remaining: Int, locale: AppLocale) -> String {
+        let savedText = savedPhrase(count: saved, locale: locale)
+        let room: String
+        if remaining <= 0 {
+            room = L10n.string(
+                .confirmCapacityFreeAtCap,
+                locale: locale,
+                args: [SuperLimits.freePrescriptions]
+            )
+        } else if remaining == 1 {
+            room = L10n.string(.confirmCapacityCanAddOne, locale: locale)
+        } else {
+            room = L10n.string(.confirmCapacityCanAddMany, locale: locale, args: [remaining])
+        }
+        let superText = L10n.string(.confirmCapacitySuperSupports, locale: locale)
+        return "\(savedText). \(room) \(superText)"
+    }
+
     static func decision(
         isSuper: Bool,
         existingCount: Int,
@@ -184,6 +234,50 @@ enum ConfirmMedicineSlotCapacityContractChecks {
             "confirm-slot: Free 2 stored + 1 draft cannot add another"
         )
         expect(
+            ConfirmMedicineSlotCapacity.showsFreeCapacityExplanation(
+                isSuper: false,
+                existingCount: 2,
+                namedDraftCount: 1
+            ),
+            "confirm-slot: 2 stored + 1 draft shows Free capacity copy"
+        )
+        expect(
+            !ConfirmMedicineSlotCapacity.showsFreeCapacityExplanation(
+                isSuper: false,
+                existingCount: 2,
+                namedDraftCount: 0
+            ),
+            "confirm-slot: 2 stored with no named draft still has a Free slot"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.showsFreeCapacityExplanation(
+                isSuper: false,
+                existingCount: 3,
+                namedDraftCount: 0
+            ),
+            "confirm-slot: 3 stored + 0 drafts shows Free capacity copy"
+        )
+        expect(
+            !ConfirmMedicineSlotCapacity.showsFreeCapacityExplanation(
+                isSuper: false,
+                existingCount: 1,
+                namedDraftCount: 1
+            ),
+            "confirm-slot: remaining Free capacity does not show the detailed summary"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.occupancy(existingCount: 2, draftCount: 1) == SuperLimits.freePrescriptions,
+            "confirm-slot: 2 stored + 1 named draft uses 3 of 3 Free slots"
+        )
+        expect(
+            !ConfirmMedicineSlotCapacity.showsFreeCapacityExplanation(
+                isSuper: true,
+                existingCount: 2,
+                namedDraftCount: 1
+            ),
+            "confirm-slot: Super does not use Free capacity copy"
+        )
+        expect(
             ConfirmMedicineSlotCapacity.decision(isSuper: true, existingCount: 11, draftCount: 0) == .allowed,
             "confirm-slot: Super can add the 12th pager slot"
         )
@@ -195,6 +289,118 @@ enum ConfirmMedicineSlotCapacityContractChecks {
             ConfirmMedicineSlotCapacity.decision(isSuper: true, existingCount: 12, draftCount: 0) == .superCeiling,
             "confirm-slot: Super with 12 stored medicines is ceiling"
         )
+
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 0, locale: .english) == "0 saved",
+            "confirm-slot: EN 0 saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 1, locale: .english) == "1 saved",
+            "confirm-slot: EN 1 saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 2, locale: .english) == "2 saved",
+            "confirm-slot: EN 2 saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.awaitingPhrase(count: 0, locale: .english) == "0 awaiting confirmation",
+            "confirm-slot: EN 0 awaiting"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.awaitingPhrase(count: 1, locale: .english) == "1 awaiting confirmation",
+            "confirm-slot: EN 1 awaiting"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.awaitingPhrase(count: 3, locale: .english) == "3 awaiting confirmation",
+            "confirm-slot: EN 3 awaiting"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedAwaitingLine(saved: 2, awaiting: 1, locale: .english)
+                == "2 saved · 1 awaiting confirmation",
+            "confirm-slot: EN 2 saved + 1 draft line"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedAwaitingLine(saved: 3, awaiting: 0, locale: .english)
+                == "3 saved · 0 awaiting confirmation",
+            "confirm-slot: EN 3 saved + 0 drafts line"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedAwaitingLine(saved: 0, awaiting: 3, locale: .english)
+                == "0 saved · 3 awaiting confirmation",
+            "confirm-slot: EN 0 saved + 3 drafts line"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 1, locale: .portuguese) == "1 salvo",
+            "confirm-slot: PT singular saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 2, locale: .portuguese) == "2 salvos",
+            "confirm-slot: PT plural saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 1, locale: .spanish) == "1 guardado",
+            "confirm-slot: ES singular saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 2, locale: .spanish) == "2 guardados",
+            "confirm-slot: ES plural saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.awaitingPhrase(count: 1, locale: .spanish) == "1 pendiente de confirmar",
+            "confirm-slot: ES singular awaiting"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.awaitingPhrase(count: 2, locale: .spanish) == "2 pendientes de confirmar",
+            "confirm-slot: ES plural awaiting"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 1, locale: .french) == "1 enregistré",
+            "confirm-slot: FR singular saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.savedPhrase(count: 2, locale: .french) == "2 enregistrés",
+            "confirm-slot: FR plural saved"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.addPrescriptionLine(saved: 2, remaining: 1, locale: .english)
+                == "2 saved. Free can add 1 more. Super supports up to 12 medicines.",
+            "confirm-slot: Add prescription 2 saved + 1 remaining"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.addPrescriptionLine(saved: 1, remaining: 2, locale: .english)
+                == "1 saved. Free can add 2 more. Super supports up to 12 medicines.",
+            "confirm-slot: Add prescription 1 saved + 2 remaining"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.addPrescriptionLine(saved: 3, remaining: 0, locale: .english)
+                == "3 saved. Free allows 3 at once. Super supports up to 12 medicines.",
+            "confirm-slot: Add prescription at Free cap"
+        )
+        expect(
+            ConfirmMedicineSlotCapacity.addPrescriptionLine(saved: 1, remaining: 1, locale: .portuguese)
+                .contains("1 salvo"),
+            "confirm-slot: PT Add prescription uses singular saved"
+        )
+
+        for locale in AppLocale.allCases {
+            let slots = L10n.string(.confirmCapacitySlotsUsed, locale: locale)
+            let title = L10n.string(.confirmCapacityTitle, locale: locale)
+            let pitch = L10n.string(.confirmFreeCapacityReached, locale: locale)
+            expect(!title.isEmpty, "confirm-slot: capacity title localized for \(locale.rawValue)")
+            expect(!pitch.isEmpty && !pitch.contains("%d"), "confirm-slot: Super pitch has no counts (\(locale.rawValue))")
+            expect(
+                slots.components(separatedBy: "%d").count == 3,
+                "confirm-slot: slots used keeps two counts (\(locale.rawValue))"
+            )
+            expect(
+                L10n.string(.confirmCapacitySavedMany, locale: locale).contains("%d"),
+                "confirm-slot: saved many keeps count (\(locale.rawValue))"
+            )
+            expect(
+                L10n.string(.confirmCapacityAwaitingMany, locale: locale).contains("%d"),
+                "confirm-slot: awaiting many keeps count (\(locale.rawValue))"
+            )
+        }
 
         let overflow = [named("One"), named("Two"), named("Three"), named("Four")]
         let cappedFree = overflow.cappedForPlan(isSuper: false, existingCount: 0)
@@ -399,9 +605,11 @@ struct OnboardingAddMedicationView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 if !entitlements.isSuper, medicineCount > 0 {
                     Text(
-                        remainingSlots > 0
-                            ? session.t(.confirmRemainingSlots, medicineCount, remainingSlots)
-                            : session.t(.confirmFreePlanFull)
+                        ConfirmMedicineSlotCapacity.addPrescriptionLine(
+                            saved: medicineCount,
+                            remaining: remainingSlots,
+                            locale: session.locale
+                        )
                     )
                     .font(.system(.caption, design: .rounded).weight(.semibold))
                     .foregroundStyle(CheckMedTheme.ink)
@@ -895,8 +1103,16 @@ struct OnboardingConfirmView: View {
     }
     private var namedDraftCount: Int { drafts.filter(\.hasMedicineName).count }
 
+    private var isFreeCapacityReached: Bool {
+        ConfirmMedicineSlotCapacity.showsFreeCapacityExplanation(
+            isSuper: entitlements.isSuper,
+            existingCount: existingMedicineCount,
+            namedDraftCount: namedDraftCount
+        )
+    }
+
     private var freePlanBanner: String? {
-        guard !entitlements.isSuper else { return nil }
+        guard !entitlements.isSuper, !isFreeCapacityReached else { return nil }
         // Fits remaining Free slots → Confirm as today, no upgrade copy.
         if namedDraftCount <= remainingSlots { return nil }
         if existingMedicineCount >= freeMedicineCap {
@@ -906,6 +1122,13 @@ struct OnboardingConfirmView: View {
             return session.t(.confirmRemainingSlots, existingMedicineCount, remainingSlots)
         }
         return session.t(.confirmFreePlanLimit)
+    }
+
+    private var confirmCapacityUsed: Int {
+        ConfirmMedicineSlotCapacity.occupancy(
+            existingCount: existingMedicineCount,
+            draftCount: namedDraftCount
+        )
     }
 
     var body: some View {
@@ -928,7 +1151,9 @@ struct OnboardingConfirmView: View {
                                 .font(.system(.caption, design: .rounded).weight(.semibold))
                                 .foregroundStyle(CheckMedTheme.muted)
                         }
-                        if let freePlanBanner {
+                        if isFreeCapacityReached {
+                            confirmCapacitySummary
+                        } else if let freePlanBanner {
                             Text(freePlanBanner)
                                 .font(.system(.caption, design: .rounded).weight(.semibold))
                                 .foregroundStyle(CheckMedTheme.ink)
@@ -1081,11 +1306,20 @@ struct OnboardingConfirmView: View {
                         .accessibilityLabel(session.t(.confirmMedicineOf, index + 1, drafts.count))
                     }
                     Button(action: addMedicineSlot) {
-                        pagerCircle(selected: false, systemImage: "plus")
+                        pagerCircle(selected: isFreeCapacityReached, systemImage: "plus")
                     }
                     .buttonStyle(.plain)
                     .fixedSize()
-                    .accessibilityLabel(session.t(.confirmAddMedicine))
+                    .accessibilityLabel(
+                        isFreeCapacityReached
+                            ? session.t(.confirmAddMedicineSuper)
+                            : session.t(.confirmAddMedicine)
+                    )
+                    .accessibilityHint(
+                        isFreeCapacityReached
+                            ? session.t(.confirmAddMedicineSuperHint)
+                            : session.t(.confirmAddMedicineHint)
+                    )
                 }
             }
             if drafts.count > 1 {
@@ -1097,6 +1331,45 @@ struct OnboardingConfirmView: View {
             }
         }
         .accessibilityElement(children: .contain)
+    }
+
+    private var confirmCapacitySummary: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(session.t(.confirmCapacityTitle))
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.ink)
+            Text(
+                ConfirmMedicineSlotCapacity.savedAwaitingLine(
+                    saved: existingMedicineCount,
+                    awaiting: namedDraftCount,
+                    locale: session.locale
+                )
+            )
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.ink)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(session.t(.confirmCapacitySlotsUsed, confirmCapacityUsed, SuperLimits.freePrescriptions))
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.primaryShadow)
+                .monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+            Text(session.t(.confirmFreeCapacityReached))
+                .font(.system(.caption2, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            CheckMedTheme.mintWash.opacity(0.9),
+            in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1)
+        )
+        .accessibilityElement(children: .combine)
     }
 
     private func pagerCircle(selected: Bool, title: String? = nil, systemImage: String? = nil) -> some View {
@@ -1111,7 +1384,7 @@ struct OnboardingConfirmView: View {
             if let systemImage {
                 Image(systemName: systemImage)
                     .font(.system(size: 14, weight: .heavy))
-                    .foregroundStyle(CheckMedTheme.ink)
+                    .foregroundStyle(selected ? CheckMedTheme.onPrimary : CheckMedTheme.ink)
             } else if let title {
                 Text(title)
                     .font(.system(.subheadline, design: .rounded).weight(.heavy))
