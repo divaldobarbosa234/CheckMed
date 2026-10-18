@@ -2,12 +2,27 @@ import GoogleSignIn
 import SwiftUI
 import UIKit
 
+#if DEBUG
+/// Explicit launch-only DEBUG contract runner. Interactive Debug does not set this.
+enum DebugContractLaunch {
+    static let environmentKey = "CHECKMED_DEBUG_CONTRACTS"
+
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.environment[environmentKey] == "1"
+    }
+}
+#endif
+
 final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         #if DEBUG
+        if CapacityContractLaunch.shouldIsolateProcess {
+            CapacityContractLaunch.runFromAppDelegate()
+            return true
+        }
         if TH1LocalVerification.shouldIsolateProcess {
             TH1LocalVerification.logActivation(stage: "AppDelegate")
             return true
@@ -22,7 +37,18 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
         ReminderScheduler.shared.configure()
         #if DEBUG
-        Task {
+        AuthIsolationDiagnostics.recordLaunch()
+        #endif
+        #if DEBUG
+        // Interactive Debug must not run the heavyweight suite. Explicit
+        // CHECKMED_DEBUG_CONTRACTS=1 still executes every suite and asserts.
+        if CapacityContractLaunch.isRequested {
+            print(
+                "[CheckMed] DEBUG contracts skipped (capacity-only). "
+                    + "Full suite requires \(DebugContractLaunch.environmentKey)=1."
+            )
+        } else if DebugContractLaunch.isRequested {
+            Task {
             let rewardReport = RewardEngineContractChecks.runtimeReport()
             print("RewardEngine runtime:\n\(rewardReport)")
             if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
@@ -142,6 +168,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 ].compactMap { $0 }.joined(separator: " | ")
             )
         }
+        } else {
+            print(
+                "[CheckMed] DEBUG contracts skipped (interactive). "
+                    + "Set \(DebugContractLaunch.environmentKey)=1 to run the full suite."
+            )
+        }
         #endif
         return true
     }
@@ -178,6 +210,8 @@ struct ChekMedApp: App {
                     .environment(\.locale, session.locale.foundationLocale)
             } else if IntakeVerify.isMisconfiguredRequest {
                 IntakeVerifyDeniedHost()
+            } else if CapacityContractLaunch.isRequested {
+                CapacityContractHost()
             } else {
                 standardRoot
             }
@@ -191,6 +225,9 @@ struct ChekMedApp: App {
     /// TH-1 and production keep `CheckMedStore()` (disk, `liveStore` assignment).
     private static func makeAppStore() -> CheckMedStore {
         #if DEBUG
+        if CapacityContractLaunch.shouldIsolateProcess {
+            return CheckMedStore(isolatedInMemoryForContracts: true)
+        }
         if IntakeVerify.shouldIsolateProcess && !TH1LocalVerification.shouldIsolateProcess {
             return CheckMedStore(isolatedInMemoryForContracts: true)
         }

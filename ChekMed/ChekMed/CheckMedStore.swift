@@ -176,16 +176,19 @@ final class CheckMedStore {
         context = ModelContext(container)
         context.autosaveEnabled = true
         calendar.timeZone = .current
+        // Live store only. `object: nil` on NSManagedObjectContextDidSave also
+        // received isolated in-memory contract saves and ran FreezeDiag.print on
+        // the main queue during DEBUG startup (OPEN freeze).
         NotificationCenter.default.addObserver(
-            forName: Notification.Name.NSManagedObjectContextDidSave,
-            object: nil,
+            forName: ModelContext.didSave,
+            object: context,
             queue: .main
         ) { _ in
             FreezeDiag.log("SWIFTDATA AUTOSAVE/DIDSAVE NSManagedObjectContextDidSave")
         }
         NotificationCenter.default.addObserver(
-            forName: Notification.Name.NSManagedObjectContextWillSave,
-            object: nil,
+            forName: ModelContext.willSave,
+            object: context,
             queue: .main
         ) { _ in
             FreezeDiag.log("SWIFTDATA WILLSAVE NSManagedObjectContextWillSave")

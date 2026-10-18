@@ -270,10 +270,15 @@ enum TreatmentLifecycleContractChecks {
 }
 
 enum MedicationCapacitySafetyContractChecks {
+    /// Set by the last `failures()` call. DEBUG capacity runner only.
+    static var lastExecutedCheckCount = 0
+
     @MainActor
     static func failures() -> [String] {
         var failures: [String] = []
+        var checks = 0
         func expect(_ condition: Bool, _ message: String) {
+            checks += 1
             if !condition { failures.append(message) }
         }
         func draft(_ name: String) -> OnboardingPrescriptionDraft {
@@ -657,6 +662,7 @@ enum MedicationCapacitySafetyContractChecks {
         duplicates.removeDuplicateMedicinesIfNeeded()
         expect(duplicates.storedMedicineCount == 1, "capacity: legitimate duplicate cleanup remains active")
 
+        lastExecutedCheckCount = checks
         return failures
     }
 }
