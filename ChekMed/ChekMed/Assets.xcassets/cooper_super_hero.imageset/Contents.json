@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "cooper_super_hero.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

@@ -164,7 +164,6 @@ final class EntitlementStore {
                 await transaction.finish()
                 await updateEntitlementFromStore()
                 await refreshIntroEligibility()
-                if isSuper { showPaywall = false }
             case .userCancelled:
                 userStatus = .cancelled
             case .pending:
@@ -192,7 +191,6 @@ final class EntitlementStore {
         await refreshIntroEligibility()
         if isSuper && !usedDebugUnlock {
             userStatus = .restored
-            showPaywall = false
         } else if usedDebugUnlock {
             userStatus = .restoredDebug
         } else {
