@@ -908,6 +908,12 @@ struct HelpSupportScreen: View {
                 Link(destination: CheckMedPublicWeb.siteURL) {
                     labelRow("globe", session.t(.profileVisitSite), CheckMedPublicWeb.siteHost)
                 }
+                Link(destination: CheckMedPublicWeb.supportURL) {
+                    labelRow("questionmark.circle.fill", session.t(.profileSupportPage), CheckMedPublicWeb.supportURL.host ?? CheckMedPublicWeb.siteHost)
+                }
+                Link(destination: CheckMedPublicWeb.supportMailto) {
+                    labelRow("envelope.fill", session.t(.profileTalkToUs), CheckMedPublicWeb.supportEmail)
+                }
                 Button { go(.privacyPolicy) } label: { labelRow("hand.raised.fill", session.t(.privacyPolicyTitle), "") }
                 Button { go(.termsOfUse) } label: { labelRow("doc.text.fill", session.t(.termsOfUseTitle), "") }
                 Text(session.t(.profileDeleteGuidance))

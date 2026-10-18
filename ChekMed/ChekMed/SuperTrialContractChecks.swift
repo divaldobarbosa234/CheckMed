@@ -188,7 +188,19 @@ enum SuperTrialContractChecks {
             .paywallRestore,
             .termsOfUseTitle,
             .privacyPolicyTitle,
+            .legalViewOnWebsite,
+            .profileSupportPage,
+            .profileTalkToUs,
         ]
+
+        expect(
+            CheckMedPublicWeb.privacyURL.host == "connycooper.com"
+                && CheckMedPublicWeb.termsURL.path.hasPrefix("/terms")
+                && CheckMedPublicWeb.supportURL.path.hasPrefix("/support")
+                && CheckMedPublicWeb.legalNoticeURL.path.hasPrefix("/legal")
+                && CheckMedPublicWeb.supportEmail == "support@connycooper.com",
+            "O4: official Conny Cooper legal URLs unchanged"
+        )
 
         for locale in AppLocale.allCases {
             for key in required {

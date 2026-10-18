@@ -179,6 +179,7 @@ private struct PrivacyInfoCard: View {
 
 struct LegalDocumentView: View {
     let kind: LegalDocumentKind
+    @Environment(SessionStore.self) private var session
 
     private var document: LegalDocument { kind.document }
 
@@ -188,6 +189,14 @@ struct LegalDocumentView: View {
                 Text(document.lastUpdatedLine)
                     .font(.system(.caption, design: .rounded).weight(.bold))
                     .foregroundStyle(CheckMedTheme.muted)
+
+                Link(destination: kind.officialURL) {
+                    Text(session.t(.legalViewOnWebsite))
+                        .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                        .underline()
+                }
+                .tint(CheckMedTheme.primaryShadow)
+                .accessibilityHint(kind.officialURL.absoluteString)
 
                 ForEach(document.blocks) { block in
                     switch block.kind {

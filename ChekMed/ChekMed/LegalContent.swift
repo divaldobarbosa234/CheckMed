@@ -1,26 +1,8 @@
 import Foundation
 
-/// Single source for lawyer-facing legal copy shown in the app.
-///
-/// Transcribed from `CheckMed_Legal_Draft_for_Cursor.pdf` (pre-launch draft).
-/// Placeholders such as `[LEGAL COMPANY NAME]`, `[EMAIL]`, and `[ADDRESS]` are kept as-is.
-/// Do not invent legal facts. UI chrome is localized separately in `L10n`.
-///
-/// LAWYER TODO — confirm before publication (from the draft checklist and counsel notes):
-/// - Legal basis for every processing activity (GDPR / LOPDGDD)
-/// - Health-data condition and, where applicable, explicit consent mechanism
-/// - Consent wording for each processing activity
-/// - Retention periods (account, prescriptions, uploads, support, technical/security logs)
-/// - Data deletion / erasure process
-/// - AI providers, data sent, processing locations, retention, model-training use, safeguards
-/// - International transfers and transfer safeguards
-/// - Analytics tools, legal basis, and disclosures (optional; never bundled with Accept)
-/// - Marketing / advertising (optional; never bundled with Accept)
-/// - Medical-device classification (intended purpose, claims, EU MDR)
-/// - User age (`[AGE]`)
-/// - Public Privacy Policy URL
-/// - Terms wording, liability, jurisdiction, LSSI-CE / consumer / e-commerce
-/// - DPIA/EIPD, App Store / Play health-data declarations, EU Health Data Space as the product evolves
+/// In-app legal copy aligned with the published Conny Cooper pages
+/// (`https://connycooper.com/privacy/`, `/terms/`, `/legal/`, `/support/`).
+/// Do not invent legal identity, addresses, prices, or URLs.
 enum LegalDocumentKind: String, Hashable, Identifiable {
     case privacyPolicy
     case termsOfUse
@@ -31,6 +13,13 @@ enum LegalDocumentKind: String, Hashable, Identifiable {
         switch self {
         case .privacyPolicy: LegalContent.privacyPolicy
         case .termsOfUse: LegalContent.termsOfUse
+        }
+    }
+
+    var officialURL: URL {
+        switch self {
+        case .privacyPolicy: CheckMedPublicWeb.privacyURL
+        case .termsOfUse: CheckMedPublicWeb.termsURL
         }
     }
 }
@@ -73,205 +62,153 @@ struct LegalBlock: Identifiable {
 }
 
 enum LegalContent {
-    static let lastUpdatedPlaceholder = "[DATE]"
-
     static let privacyPolicy = LegalDocument(
         title: "Privacy Policy",
-        lastUpdatedLine: "Last updated: [DATE]",
+        lastUpdatedLine: "Effective date: 4 October 2026",
         blocks: [
             .paragraph(
-                "CheckMed (\"CheckMed\", \"we\", \"us\", \"our\") respects your privacy and is committed to protecting your personal information.",
-                id: "pp-intro-1"
+                "This policy explains how personal information is handled when you use the Conny Cooper app, website and support services. The official page is https://connycooper.com/privacy/",
+                id: "pp-intro"
             ),
+            .heading("Who we are", id: "pp-who-h"),
             .paragraph(
-                "This Privacy Policy explains how we collect, use, store and protect information when you use the CheckMed application and related services.",
-                id: "pp-intro-2"
-            ),
-            .heading("Who is responsible for your data?", id: "pp-controller-h"),
-            .labeled(
-                label: "Data Controller:",
-                value: "",
-                id: "pp-controller-label"
+                "Conny Cooper is operated by Divaldo Magalhães Lucas, an individual operator established in Spain. For data-protection purposes, Divaldo Magalhães Lucas is the controller of personal information processed for Conny Cooper.",
+                id: "pp-who"
             ),
             .stacked(
                 [
-                    "[LEGAL COMPANY NAME]",
-                    "[COMPANY ADDRESS]",
-                    "[NIF/CIF]",
-                    "[EMAIL]",
-                    "[DATA PROTECTION EMAIL]",
+                    "Divaldo Magalhães Lucas",
+                    "Calle Nebrija 9, Valladolid, Spain",
+                    "NIF: Z51668279E",
+                    "support@connycooper.com",
                 ],
                 id: "pp-controller-lines"
             ),
+            .heading("Scope and age", id: "pp-scope-h"),
+            .paragraph(
+                "This policy applies to the Conny Cooper iOS app, the website at connycooper.com, and related support. Conny Cooper is available worldwide and is intended for people aged 16 or older. There is no guest or anonymous account.",
+                id: "pp-scope"
+            ),
             .heading("What information may we collect?", id: "pp-collect-h"),
             .labeled(
-                label: "Account information:",
-                value: "name or nickname, email address, account credentials, language and app preferences.",
+                label: "Account and profile:",
+                value: "user identifier, email where supplied, display name or nickname, date of birth, language, time zone, pronouns or gender, and optional family-seat information. You can sign in using Apple, Google, or email and password. Supabase provides authentication and cloud account services.",
                 id: "pp-collect-account"
             ),
             .labeled(
-                label: "Prescription and medication information:",
-                value: "photographs of prescriptions, uploaded PDFs, manually entered prescription information, medicine names, dosages, frequency, treatment duration, medication schedules and notes voluntarily added by the user.",
+                label: "Medication and treatment:",
+                value: "treatments, medicine core fields, treatment dates, dose schedules, and dose logs or statuses synchronised through Supabase. Additional medicine details, notes, refill or stock details, reward records, local community notes, and original prescription images or PDFs may remain on your device.",
                 id: "pp-collect-meds"
             ),
             .labeled(
-                label: "Technical information:",
-                value: "device type, operating system, app version, error/diagnostic information and security information, as applicable to the actual implementation.",
-                id: "pp-collect-tech"
+                label: "Support communications:",
+                value: "contact details and information you include so that we can respond to and manage your request.",
+                id: "pp-collect-support"
             ),
-            .heading("How can you provide prescription information?", id: "pp-methods-h"),
+            .heading("Prescription scanning", id: "pp-ocr-h"),
             .paragraph(
-                "Users may be able to take a photograph, upload a PDF, or enter information manually. The final policy must describe the actual processing performed for each method.",
-                id: "pp-methods"
-            ),
-            .heading("Why do we use your information?", id: "pp-why-h"),
-            .paragraph(
-                "To provide core functionality; read and organize prescription information; create medication schedules; provide requested reminders; store information the user chooses to save; provide explanations and accessibility/voice features; maintain and secure the app; detect errors, abuse or security incidents; provide support; comply with legal obligations; and improve the app where legally permitted.",
-                id: "pp-why"
+                "Camera images and photos are processed on the device using Apple Vision. PDFs are processed using PDFKit and on-device Apple Vision. Manual entry does not use OCR. Original prescription images and PDFs are not uploaded to Supabase for OCR. You are responsible for checking extracted information before relying on it.",
+                id: "pp-ocr"
             ),
             .heading("Health information", id: "pp-health-h"),
             .paragraph(
-                "Prescription and medication information may constitute health data and therefore receives enhanced protection under applicable data-protection law. The final legal basis and, where applicable, explicit consent mechanism for each processing activity must be confirmed by counsel.",
+                "Medication and treatment information can constitute information concerning health under applicable data-protection law. We process this information only to provide the features you choose to use and on an appropriate legal basis, including explicit consent where applicable.",
                 id: "pp-health"
             ),
-            .heading("Artificial intelligence", id: "pp-ai-h"),
+            .heading("How we use information", id: "pp-why-h"),
             .paragraph(
-                "Some features may use AI or automated technologies to extract prescription information, organize medication data, generate explanations, or provide voice/conversational assistance. AI output may contain errors and should be verified against the original prescription, packaging and professional instructions. The final policy must identify actual AI providers, data flows, retention, training use, processing locations and safeguards.",
-                id: "pp-ai"
+                "To create and maintain your account; provide medication and treatment-organisation features; synchronise supported account-linked information; provide configured reminders and alarms on your device; provide optional nearby-pharmacy search; manage Conny Cooper Super access and purchase restoration; provide support and respond to privacy requests; protect the service; and comply with legal obligations.",
+                id: "pp-why"
+            ),
+            .heading("Purchases", id: "pp-buy-h"),
+            .paragraph(
+                "Conny Cooper Super purchases and restores are handled by Apple through StoreKit. Conny Cooper receives the purchase or entitlement information needed to provide and restore access, but does not directly receive or store your payment-card information.",
+                id: "pp-buy"
             ),
             .heading("Medical disclaimer", id: "pp-disclaimer-h"),
             .paragraph(
-                "CheckMed is designed to help users organize and understand information about their medications. It does not replace a doctor, pharmacist, nurse, emergency service or other qualified healthcare professional.",
-                id: "pp-disclaimer-1"
+                "Conny Cooper is not a doctor, pharmacist, diagnostic service or emergency service and does not replace a qualified healthcare professional. Users should not change, stop or start medication based solely on information in the app. Emergencies require local emergency services.",
+                id: "pp-disclaimer"
             ),
+            .heading("Service providers", id: "pp-providers-h"),
             .paragraph(
-                "Users should not change, stop or start medication based solely on information provided by CheckMed. Emergency situations require appropriate professional/emergency assistance.",
-                id: "pp-disclaimer-2"
+                "Supabase provides authentication, account profiles, supported medication-data synchronisation and account deletion. Apple provides Sign in with Apple, StoreKit, on-device Vision and PDFKit, local notifications, AlarmKit, and MapKit where used. Google provides Google Sign-In when you select that method. Google is not used as an OCR recipient in the current release.",
+                id: "pp-providers"
             ),
-            .heading("Service providers and international transfers", id: "pp-transfers-h"),
+            .heading("Retention, deletion and rights", id: "pp-rights-h"),
             .paragraph(
-                "Depending on the actual architecture, service providers may include cloud hosting, authentication, AI, analytics, customer support, security and notification providers. The final policy must list relevant providers and international-transfer safeguards where required.",
-                id: "pp-transfers"
-            ),
-            .heading("Retention", id: "pp-retention-h"),
-            .paragraph(
-                "Personal information should be kept only as long as necessary for the relevant purpose or as required by law. Final retention periods must be completed for account data, prescriptions, uploaded documents, support communications and technical/security logs.",
-                id: "pp-retention"
-            ),
-            .heading("User rights", id: "pp-rights-h"),
-            .paragraph(
-                "Depending on applicable law, users may have rights of access, rectification, erasure, restriction, objection, portability and withdrawal of consent where consent is the legal basis, as well as applicable rights concerning automated decision-making. Contact: [PRIVACY EMAIL].",
+                "Account-linked information is retained while needed to provide your account and the service, and as otherwise required or permitted by law. You can initiate permanent deletion in the app: Profile → Delete account & data. Signing out is not account deletion. Privacy requests: support@connycooper.com. You may complain to the Spanish Data Protection Agency where it is the competent authority.",
                 id: "pp-rights"
             ),
-            .heading("Security", id: "pp-security-h"),
+            .heading("No advertising or cross-app tracking", id: "pp-ads-h"),
             .paragraph(
-                "CheckMed should implement appropriate technical and organizational measures, such as encryption, access controls, authentication, secure infrastructure, logging/monitoring, backups, security testing and data minimization, consistent with the actual system.",
-                id: "pp-security"
+                "The current release does not include advertising SDKs, cross-app tracking, App Tracking Transparency tracking, analytics SDKs, crash-reporting SDKs or behavioural advertising. Local analytics or marketing preference controls do not, by themselves, send analytics or marketing data.",
+                id: "pp-ads"
             ),
-            .heading("Children, changes and contact", id: "pp-children-h"),
+            .heading("Contact", id: "pp-contact-h"),
             .paragraph(
-                "CheckMed is intended for users aged [AGE] or older unless the final legal assessment states otherwise. The policy may be updated as the service changes. Contact: [LEGAL COMPANY NAME], [EMAIL], [ADDRESS], [NIF/CIF].",
-                id: "pp-children"
+                "Privacy questions and requests: support@connycooper.com. Also see https://connycooper.com/privacy/ and the Legal Notice at https://connycooper.com/legal/",
+                id: "pp-contact"
             ),
         ]
     )
 
     static let termsOfUse = LegalDocument(
         title: "Terms of Use",
-        lastUpdatedLine: "Last updated: [DATE]",
+        lastUpdatedLine: "Effective date: 4 October 2026",
         blocks: [
-            .heading("CHECKMED — TERMS OF USE", id: "tou-title"),
-            .heading("1. What CheckMed does", id: "tou-1-h"),
             .paragraph(
-                "CheckMed is a digital tool designed to help users organize prescription and medication information. Depending on available features, it may allow users to photograph prescriptions, upload PDFs, enter information manually, organize medication information, create schedules, receive reminders, listen to medication-related information, and receive AI-assisted explanations.",
+                "These terms apply to your account and use of the Conny Cooper app, website, support services and Conny Cooper Super. The official page is https://connycooper.com/terms/",
+                id: "tou-intro"
+            ),
+            .heading("1. Operator", id: "tou-1-h"),
+            .paragraph(
+                "Conny Cooper is operated by Divaldo Magalhães Lucas, an individual operator established in Spain. Contact: support@connycooper.com. Further operator information appears in the Legal Notice at https://connycooper.com/legal/",
                 id: "tou-1"
             ),
-            .heading("2. CheckMed is not a healthcare professional", id: "tou-2-h"),
+            .heading("2. Acceptance, Apple terms and age", id: "tou-2-h"),
             .paragraph(
-                "CheckMed does not provide medical care. The application is not a doctor, pharmacist, nurse or emergency medical service and does not replace professional medical advice.",
+                "By creating an account or using Conny Cooper, you agree to these Terms of Use and the Apple Standard End User License Agreement. You must be at least 16 years old. There is no child-account or parental-consent account system.",
                 id: "tou-2"
             ),
-            .heading("3. Accuracy of information", id: "tou-3-h"),
+            .heading("3. Accounts", id: "tou-3-h"),
             .paragraph(
-                "Prescription photographs, PDFs, manually entered information and AI-generated information may contain errors. Users should verify important medication information against the original prescription, packaging and instructions from a qualified healthcare professional or pharmacist.",
+                "Conny Cooper requires an account. You may sign in with Apple, Google, or email and password. You must provide accurate information and keep account access secure.",
                 id: "tou-3"
             ),
-            .heading("4. Emergency situations", id: "tou-4-h"),
+            .heading("4. Not medical advice or an emergency service", id: "tou-4-h"),
             .paragraph(
-                "CheckMed is not an emergency service. Users experiencing potentially serious symptoms or a medical emergency should seek immediate professional/emergency assistance.",
+                "Conny Cooper is a medication and treatment organisation companion. Cooper is a companion character, not a clinician. The app does not provide diagnosis, prescribing or clinical decisions. Do not use it for emergency assistance. Contact local emergency services in an emergency.",
                 id: "tou-4"
             ),
-            .heading("5. User responsibility", id: "tou-5-h"),
+            .heading("5. Medication information and OCR", id: "tou-5-h"),
             .paragraph(
-                "Users are responsible for providing accurate information, reviewing extracted information, keeping their account secure, checking medication instructions and following advice from qualified healthcare professionals.",
+                "You are responsible for checking information you enter or import. Prescription scanning uses on-device text extraction and can be incomplete or inaccurate. Review and confirm extracted information against the original prescription and your qualified healthcare professional’s instructions.",
                 id: "tou-5"
             ),
-            .heading("6. Prescription processing", id: "tou-6-h"),
+            .heading("6. Conny Cooper Super", id: "tou-6-h"),
             .paragraph(
-                "When a prescription is photographed or uploaded, CheckMed may use OCR and/or AI to extract information. Automated extraction can be incorrect and must be reviewed by the user.",
+                "Conny Cooper Super provides premium features through Apple in-app purchases. Available subscriptions, billing periods, current prices, and any trial or promotion are shown by Apple before purchase. These terms do not set a price because displayed offers can vary by storefront and time. Apple processes payment and manages billing. Unless Apple states otherwise, subscriptions renew according to the terms shown at purchase. Manage or cancel through your Apple account settings and use Restore Purchases in the app where needed. Trials apply only where Apple offers them. Refunds are handled under Apple’s purchase terms and mandatory consumer law.",
                 id: "tou-6"
             ),
-            .heading("7. AI-generated information", id: "tou-7-h"),
+            .heading("7. Account deletion", id: "tou-7-h"),
             .paragraph(
-                "AI-generated content can be inaccurate, incomplete or misleading and should be treated as assistance/information rather than medical advice.",
+                "You can permanently delete your account from Profile → Delete account & data. Signing out does not delete your account.",
                 id: "tou-7"
             ),
-            .heading("8. Availability", id: "tou-8-h"),
+            .heading("8. Applicable law", id: "tou-8-h"),
             .paragraph(
-                "CheckMed aims to be reliable but cannot guarantee uninterrupted operation, absence of errors, correct interpretation of every prescription or correct generation of every reminder.",
+                "These terms are governed by Spanish law. If you are a consumer, this choice does not deprive you of mandatory protections available under the law of your country of residence.",
                 id: "tou-8"
             ),
-            .heading("9. Accounts", id: "tou-9-h"),
-            .paragraph(
-                "Where accounts are required, users must provide accurate information and protect their credentials.",
-                id: "tou-9"
-            ),
-            .heading("10. Prohibited use", id: "tou-10-h"),
-            .paragraph(
-                "Users must not use CheckMed unlawfully, attempt unauthorized access, interfere with security, reverse engineer where prohibited by law, upload malicious content, abuse automated systems, or misuse the service to provide professional medical services unless expressly authorized.",
-                id: "tou-10"
-            ),
-            .heading("11. Intellectual property", id: "tou-11-h"),
-            .paragraph(
-                "CheckMed software, branding, designs, characters, logos, text and original content are owned by or licensed to [LEGAL COMPANY NAME], subject to applicable rights and exceptions.",
-                id: "tou-11"
-            ),
-            .heading("12. Third-party services", id: "tou-12-h"),
-            .paragraph(
-                "CheckMed may depend on third-party services that have their own terms and privacy policies. The final version should identify relevant providers where required.",
-                id: "tou-12"
-            ),
-            .heading("13. Subscriptions and payments", id: "tou-13-h"),
-            .paragraph(
-                "If paid subscriptions are introduced, additional terms covering pricing, billing, renewals, cancellation, refunds and platform payments will apply.",
-                id: "tou-13"
-            ),
-            .heading("14. Liability", id: "tou-14-h"),
-            .paragraph(
-                "Any limitation of liability must comply with mandatory consumer and applicable law. This section requires specific legal review before publication, particularly because CheckMed handles health-related information.",
-                id: "tou-14"
-            ),
-            .heading("15. Suspension or termination", id: "tou-15-h"),
-            .paragraph(
-                "Access may be suspended or terminated where reasonably necessary, including for security threats, abuse, fraud, violation of the Terms or legal requirements. Users may stop using the service at any time.",
-                id: "tou-15"
-            ),
-            .heading("16. Changes to the service and Terms", id: "tou-16-h"),
-            .paragraph(
-                "CheckMed may evolve and features may be added, modified or removed. Material changes to the Terms will be communicated through appropriate means where required.",
-                id: "tou-16"
-            ),
-            .heading("17. Applicable law and contact", id: "tou-17-h"),
-            .paragraph(
-                "The Terms should be governed by applicable Spanish and EU law, subject to mandatory consumer rights. The final jurisdiction clause must be reviewed by Spanish counsel.",
-                id: "tou-17"
-            ),
+            .heading("9. Contact", id: "tou-9-h"),
             .stacked(
                 [
-                    "[LEGAL COMPANY NAME]",
-                    "[EMAIL]",
-                    "[ADDRESS]",
-                    "[NIF/CIF]",
+                    "Divaldo Magalhães Lucas",
+                    "Calle Nebrija 9, Valladolid, Spain",
+                    "NIF: Z51668279E",
+                    "support@connycooper.com",
+                    "https://connycooper.com/support/",
                 ],
                 id: "tou-contact"
             ),

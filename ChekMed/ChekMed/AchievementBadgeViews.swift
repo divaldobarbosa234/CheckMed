@@ -113,9 +113,15 @@ enum ProgressOverlayGeometry {
     static let bottomClearance: CGFloat = 52 + 10 + 58 + 16
 }
 
-/// Public marketing destination. Do not scatter this URL through presentation code.
+/// Public marketing and legal destinations. Do not invent URLs.
 enum CheckMedPublicWeb {
     static let siteURL = URL(string: "https://connycooper.com")!
+    static let privacyURL = URL(string: "https://connycooper.com/privacy/")!
+    static let termsURL = URL(string: "https://connycooper.com/terms/")!
+    static let supportURL = URL(string: "https://connycooper.com/support/")!
+    static let legalNoticeURL = URL(string: "https://connycooper.com/legal/")!
+    static let supportEmail = "support@connycooper.com"
+    static let supportMailto = URL(string: "mailto:support@connycooper.com")!
     static var siteHost: String { siteURL.host ?? "connycooper.com" }
 }
 

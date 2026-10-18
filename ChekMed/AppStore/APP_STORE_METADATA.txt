@@ -1,0 +1,107 @@
+Conny Cooper — App Store metadata (copy into App Store Connect)
+Source: published site + in-app claims. Do not invent prices.
+Limits: subtitle 30, keywords 100, description 4000, review notes 4000.
+
+NAME
+Conny Cooper
+
+SUBTITLE
+EN (25): Your treatment companion.
+PT-BR (29): Seu companheiro de tratamento.
+ES (29): Tu compañero de tratamiento.
+FR (28): Votre compagnon de traitement.
+
+CATEGORY
+Medical
+Secondary: Health & Fitness (owner confirm)
+
+PRIVACY POLICY URL
+https://connycooper.com/privacy/
+
+SUPPORT URL
+https://connycooper.com/support/
+
+MARKETING URL
+https://connycooper.com
+
+EULA
+Apple Standard EULA (terms add service rules at https://connycooper.com/terms/)
+
+COPYRIGHT
+2026 Divaldo Magalhães Lucas
+
+KEYWORDS (each locale, comma-separated, max 100 chars)
+EN (92): medication,reminder,prescription,medicine,dose,adherence,schedule,treatment,pharmacy,alarm
+PT (94): medicamento,lembrete,receita,dose,adesao,tratamento,farmacia,alarme,organizacao,saude
+ES (88): medicamento,recordatorio,receta,dosis,adherencia,tratamiento,farmacia,alarma,salud
+FR (90): medicament,rappel,ordonnance,dose,observance,traitement,pharmacie,alarme,sante
+
+DESCRIPTION — ENGLISH
+Conny Cooper helps you organise prescriptions, schedules and dose reminders. Cooper is a companion character, not a clinician.
+
+Photograph a prescription, import a PDF, or enter medicines manually. Review extracted text on your device before you save. Conny Cooper does not diagnose, prescribe, or replace your doctor or pharmacist.
+
+Free includes your account, today’s path, reminders, and Taken. Taken stays free. Conny Cooper Super is an optional Apple subscription for extra room and premium features shown in the app. Prices, billing period, and any trial are shown by Apple before you buy. Manage or cancel in your Apple ID subscriptions. Restore Purchases is in the app.
+
+Age 16+. No guest accounts. Support: https://connycooper.com/support/ and support@connycooper.com
+Privacy: https://connycooper.com/privacy/
+Terms: https://connycooper.com/terms/
+
+DESCRIPTION — PORTUGUESE (BRAZIL)
+O Conny Cooper ajuda a organizar receitas, horários e lembretes de dose. O Cooper é um personagem companheiro, não um clínico.
+
+Fotografe uma receita, importe um PDF ou insira os medicamentos manualmente. Revise o texto extraído no aparelho antes de salvar. O Conny Cooper não diagnostica, não receita e não substitui médico ou farmacêutico.
+
+O plano gratuito inclui conta, o caminho de hoje, lembretes e Tomado. Tomado continua gratuito. O Conny Cooper Super é uma assinatura opcional da Apple. Preço, período e qualquer teste são mostrados pela Apple antes da compra. Cancele nas assinaturas do Apple ID.
+
+16 anos ou mais. Sem contas de convidado. Ajuda: https://connycooper.com/support/ e support@connycooper.com
+
+DESCRIPTION — SPANISH
+Conny Cooper te ayuda a organizar recetas, horarios y recordatorios de toma. Cooper es un personaje compañero, no un clínico.
+
+Fotografía una receta, importa un PDF o introduce los medicamentos a mano. Revisa el texto extraído en el dispositivo antes de guardar. Conny Cooper no diagnostica, no receta y no sustituye a tu médico o farmacéutico.
+
+El plan gratuito incluye cuenta, el camino de hoy, recordatorios y Tomado. Tomado sigue siendo gratuito. Conny Cooper Super es una suscripción opcional de Apple. El precio, el periodo y cualquier prueba los muestra Apple antes de comprar. Cancela en las suscripciones de Apple ID.
+
+16 años o más. Sin cuentas de invitado. Ayuda: https://connycooper.com/support/ y support@connycooper.com
+
+DESCRIPTION — FRENCH
+Conny Cooper vous aide à organiser ordonnances, horaires et rappels de prise. Cooper est un personnage compagnon, pas un clinicien.
+
+Photographiez une ordonnance, importez un PDF ou saisissez les médicaments à la main. Vérifiez le texte extrait sur l’appareil avant d’enregistrer. Conny Cooper ne diagnostique pas, ne prescrit pas et ne remplace pas un médecin ou un pharmacien.
+
+L’offre gratuite inclut le compte, le parcours du jour, les rappels et Pris. Pris reste gratuit. Conny Cooper Super est un abonnement Apple optionnel. Le prix, la période et tout essai sont affichés par Apple avant l’achat. Annulez dans les abonnements de l’identifiant Apple.
+
+16 ans ou plus. Pas de compte invité. Aide : https://connycooper.com/support/ et support@connycooper.com
+
+REVIEW NOTES
+Conny Cooper is a medication organisation companion. Sign-in: Apple, Google, or email. No guest mode.
+Demo: create an account, add a medicine (photo/PDF/manual), confirm, and use Taken on a due dose.
+Subscriptions: Conny Cooper Super via StoreKit. Do not use Debug unlock. Prices are Apple’s localised StoreKit prices, not listed in these notes.
+Privacy policy: https://connycooper.com/privacy/
+Support: support@connycooper.com
+Account deletion: Profile → Delete account & data.
+OCR default path is on-device Apple Vision. Original Rx files are not uploaded to Supabase for OCR. Confirm Release xcconfig has empty Google Cloud Vision / Document AI secrets so those optional cloud OCR paths cannot run.
+Product minimum age is 16 (policy on connycooper.com). That is not an App Store age rating.
+Operator: Divaldo Magalhães Lucas, Calle Nebrija 9, Valladolid, Spain, NIF Z51668279E.
+
+NEEDS OWNER — App Privacy nutrition label (confirm each, do not copy blindly)
+- Email Address: yes if email sign-in (linked, not tracking, App Functionality)
+- Name: display name / nickname
+- User ID: account / auth identifiers (also Google/Apple sign-in SDKs)
+- Health: medication/treatment data is health-related; not HealthKit. Confirm Health vs Other Health & Fitness
+- Photos or Videos: camera/library Rx images archived locally
+- Purchase History: StoreKit Super entitlement (not a local purchase-history database)
+- Coarse Location: nearby pharmacy search only (hundred-metre accuracy); not Precise Location
+- Date of birth / pronouns / gender: collected in profile; map in ASC (no first-class DOB type)
+- Contact Info / Customer Support: emails to support@connycooper.com
+- Tracking: No. No advertising SDK.
+- Used for tracking: No for all of the above
+
+NEEDS OWNER — other
+- App Store age-rating questionnaire (separate from the 16+ product policy)
+- Screenshots / preview
+- Production Super prices in App Store Connect (do not copy local StoreKit 4.99 / 39.99)
+- Secondary category
+- Official ES/PT/FR translations of the full website legal pages (in-app legal body is English, matching the published site)
+- Confirm production GOOGLE_CLOUD_* / Document AI secrets are empty so published “Google is not an OCR recipient” remains true
