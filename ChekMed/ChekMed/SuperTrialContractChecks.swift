@@ -126,8 +126,8 @@ enum SuperTrialContractChecks {
 
         expect(
             SuperProductID.monthly == "com.checkmed.super.monthly"
-                && SuperProductID.yearly == "com.checkmed.super.yearly",
-            "O4: StoreKit product IDs unchanged"
+                && SuperProductID.yearly == "com.checkmed.super.annual",
+            "O4: StoreKit product IDs match App Store Connect"
         )
         expect(
             SuperLimits.freePrescriptions == 3

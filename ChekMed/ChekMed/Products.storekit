@@ -84,7 +84,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.checkmed.super.yearly",
+          "productID" : "com.checkmed.super.annual",
           "recurringSubscriptionPeriod" : "P1Y",
           "referenceName" : "Super Yearly",
           "subscriptionGroupID" : "21481201",

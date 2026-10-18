@@ -3,7 +3,7 @@ import StoreKit
 
 enum SuperProductID {
     static let monthly = "com.checkmed.super.monthly"
-    static let yearly = "com.checkmed.super.yearly"
+    static let yearly = "com.checkmed.super.annual"
     static var all: Set<String> { [monthly, yearly] }
 }
 
