@@ -91,6 +91,51 @@ enum SyncProtocolContractChecks {
             ),
             "protocol: test activation accepts only the disposable local host"
         )
+        let isolatedEnv = [CheckMedLocalIsolation.environmentKey: CheckMedLocalIsolation.requiredValue]
+        let isolatedURL = AuthConfig.supabaseURL(environment: isolatedEnv)
+        let isolatedKey = AuthConfig.supabaseAnonKey(environment: isolatedEnv)
+        expect(
+            isolatedURL?.absoluteString == "http://127.0.0.1:54321",
+            "protocol: local-isolation env resolves only to 127.0.0.1:54321"
+        )
+        expect(
+            isolatedURL?.host?.contains("supabase.co") != true,
+            "protocol: local-isolation env cannot resolve a hosted Supabase host"
+        )
+        expect(
+            isolatedKey != nil
+                && isolatedURL != nil
+                && SyncProtocolTestActivation.authorizes(url: isolatedURL!, anonKey: isolatedKey!),
+            "protocol: local-isolation env uses the disposable local-demo anon key"
+        )
+        let simctlEnv = [CheckMedLocalIsolation.simctlChildKey: CheckMedLocalIsolation.requiredValue]
+        expect(
+            AuthConfig.supabaseURL(environment: simctlEnv)?.absoluteString == "http://127.0.0.1:54321",
+            "protocol: SIMCTL_CHILD_ local-isolation env resolves only to 127.0.0.1:54321"
+        )
+        let invalidIsolationEnv = [CheckMedLocalIsolation.environmentKey: "0"]
+        let invalidIsolationURL = AuthConfig.supabaseURL(environment: invalidIsolationEnv)
+        expect(
+            invalidIsolationURL == nil,
+            "protocol: invalid local-isolation flag fails closed and does not select hosted AuthConfig"
+        )
+        expect(
+            invalidIsolationURL?.host?.contains("supabase.co") != true,
+            "protocol: invalid local-isolation flag cannot resolve a hosted Supabase host"
+        )
+        let ordinaryURL = AuthConfig.supabaseURL(environment: [:])
+        expect(
+            ordinaryURL == nil || ordinaryURL?.scheme == "https",
+            "protocol: ordinary Debug AuthConfig stays HTTPS and does not use localhost"
+        )
+        expect(
+            ordinaryURL?.host != "127.0.0.1",
+            "protocol: ordinary Debug AuthConfig does not bind 127.0.0.1"
+        )
+        expect(
+            !SyncProtocolActivation.outboxConsumptionAuthorized,
+            "protocol: local isolation must not enable outbox consumption"
+        )
         #endif
 
         let owner = UUID()

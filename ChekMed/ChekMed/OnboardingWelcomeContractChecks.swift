@@ -186,6 +186,51 @@ enum OnboardingWelcomeContractChecks {
         )
 
         expect(
+            OnboardingWelcomeRouting.preSignInFunnelComplete(firstTime),
+            "O0: language + privacy + Sign-in completes the pre-auth funnel"
+        )
+        var afterAuthBeforeWelcome = firstTime
+        afterAuthBeforeWelcome.hasSeenWelcome = false
+        expect(
+            OnboardingWelcomeRouting.preSignInFunnelComplete(afterAuthBeforeWelcome)
+                && OnboardingWelcomeRouting.hostPhase(afterAuthBeforeWelcome) == .welcome,
+            "O0: successful auth with completed pre-auth funnel reaches Welcome"
+        )
+        var returningAuth = firstTime
+        returningAuth.isReturningAuthenticated = true
+        returningAuth.hasCompletedOnboarding = true
+        expect(
+            OnboardingWelcomeRouting.hostPhase(returningAuth) == .home,
+            "O0: returning authenticated user does not stay on Sign-in"
+        )
+        expect(
+            OnboardingWelcomeRouting.hostPhase(unsigned) == .signIn,
+            "O0: unauthenticated user cannot leave Sign-in"
+        )
+        var missingLanguage = firstTime
+        missingLanguage.hasChosenLanguage = false
+        expect(
+            !OnboardingWelcomeRouting.preSignInFunnelComplete(missingLanguage)
+                && OnboardingWelcomeRouting.hostPhase(missingLanguage) == .language,
+            "O0: incomplete pre-auth cannot skip language"
+        )
+        var missingPrivacy = firstTime
+        missingPrivacy.hasAcknowledgedPrivacy = false
+        expect(
+            !OnboardingWelcomeRouting.preSignInFunnelComplete(missingPrivacy)
+                && OnboardingWelcomeRouting.hostPhase(missingPrivacy) == .privacy,
+            "O0: incomplete pre-auth cannot skip privacy"
+        )
+        var missingSignIn = firstTime
+        missingSignIn.hasCompletedSignInThisInstall = false
+        missingSignIn.isSessionUnlocked = true
+        expect(
+            !OnboardingWelcomeRouting.preSignInFunnelComplete(missingSignIn)
+                && OnboardingWelcomeRouting.hostPhase(missingSignIn) == .signIn,
+            "O0: incomplete Sign-in cannot skip to Welcome"
+        )
+
+        expect(
             OnboardingWelcomeRouting.afterWelcome(hasCareContext: false, needsIdentityProfile: true)
                 != .welcome,
             "O0: finishing Welcome does not re-enter Welcome"

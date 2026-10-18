@@ -57,6 +57,11 @@ enum OnboardingWelcomeRouting: Equatable {
         return !input.hasCareContext
     }
 
+    /// Language → privacy → this-install Sign-in. Welcome is not part of this funnel.
+    static func preSignInFunnelComplete(_ input: Input) -> Bool {
+        input.hasChosenLanguage && input.hasAcknowledgedPrivacy && input.hasCompletedSignInThisInstall
+    }
+
     static func hostPhase(_ input: Input) -> Step {
         if input.allowsGuest {
             return .signIn

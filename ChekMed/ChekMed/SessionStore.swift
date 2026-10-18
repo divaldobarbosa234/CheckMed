@@ -564,6 +564,11 @@ final class SessionStore {
         localLanguageChosen && localHowItWorksSeen && localPrivacyAcknowledged
     }
 
+    /// Language → privacy → this-install Sign-in. Welcome is after authentication.
+    var hasFinishedPreSignInFunnel: Bool {
+        localLanguageChosen && localPrivacyAcknowledged && localSignInScreenSeen
+    }
+
     /// User completed the Sign-in screen this install (not a silent Keychain restore).
     var hasCompletedSignInThisInstall: Bool { localSignInScreenSeen }
 

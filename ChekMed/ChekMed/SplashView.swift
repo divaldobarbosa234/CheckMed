@@ -16,6 +16,7 @@ struct SplashView: View {
             CheckMedTheme.primary.ignoresSafeArea()
             PhilView(size: 228, mood: .celebrate)
             splashVideo
+                .allowsHitTesting(false)
             VStack {
                 Spacer()
                 Text(session.t(.splashTagline))
@@ -85,11 +86,13 @@ private struct SplashPlayerLayer: UIViewRepresentable {
         view.playerLayer.player = player
         view.playerLayer.backgroundColor = UIColor(red: 69 / 255, green: 185 / 255, blue: 79 / 255, alpha: 1).cgColor
         view.playerLayer.videoGravity = .resizeAspectFill
+        view.isUserInteractionEnabled = false
         return view
     }
 
     func updateUIView(_ uiView: PlayerView, context: Context) {
         uiView.playerLayer.player = player
+        uiView.isUserInteractionEnabled = false
         let ended = player.currentItem.map { $0.currentTime() >= $0.duration && $0.duration.isNumeric } ?? false
         if player.timeControlStatus != .playing, !ended {
             player.play()

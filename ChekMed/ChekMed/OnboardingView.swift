@@ -327,6 +327,9 @@ struct FirstTimeOnboardingView: View {
         .onChange(of: session.postAuthKind) { _, _ in
             routeAfterAuthIfNeeded()
         }
+        .onChange(of: session.restorationComplete) { _, _ in
+            routeAfterAuthIfNeeded()
+        }
         .onChange(of: scenePhase) { _, phase in
             replayOnboardingIfUnsignedAfterLeaving(phase)
         }
@@ -345,14 +348,53 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func routeAfterAuthIfNeeded() {
-        guard session.isSessionUnlocked else { return }
-        guard session.hasFinishedPreAuthFunnel else { return }
-        guard session.hasCompletedSignInThisInstall else { return }
-        guard session.restorationComplete else { return }
-        if session.hasCompletedOnboarding || session.postAuthKind == .returning { return }
-        if session.kind == .authenticated, session.postAuthKind != .newAccount { return }
-        guard phase == .signIn else { return }
-        advance(to: firstTimePhaseAfterSignIn())
+        #if DEBUG
+        LaunchLog.nav(
+            "O0 afterAuth unlocked=\(session.isSessionUnlocked) signIn=\(session.hasCompletedSignInThisInstall) "
+                + "restored=\(session.restorationComplete) postAuth=\(String(describing: session.postAuthKind)) "
+                + "phase=\(phase) hasUser=\(session.auth.userId != nil)"
+        )
+        #endif
+        let blockedBy: String?
+        let shouldAdvance: Bool
+        if !session.isSessionUnlocked {
+            blockedBy = "notAuthenticated"
+            shouldAdvance = false
+        } else if !session.hasFinishedPreSignInFunnel {
+            blockedBy = "preAuthFunnelIncomplete"
+            shouldAdvance = false
+        } else if !session.hasCompletedSignInThisInstall {
+            blockedBy = "signInNotCompletedThisInstall"
+            shouldAdvance = false
+        } else if !session.restorationComplete {
+            blockedBy = "restorationIncomplete"
+            shouldAdvance = false
+        } else if session.hasCompletedOnboarding || session.postAuthKind == .returning {
+            blockedBy = "returningOrOnboarded"
+            shouldAdvance = false
+        } else if session.kind == .authenticated, session.postAuthKind != .newAccount {
+            blockedBy = "postAuthKindNotNewAccount"
+            shouldAdvance = false
+        } else if phase != .signIn {
+            blockedBy = "phaseNotSignIn"
+            shouldAdvance = false
+        } else {
+            blockedBy = nil
+            shouldAdvance = true
+        }
+        #if DEBUG
+        O0GateDiagnostics.record(
+            authenticated: session.isSessionUnlocked,
+            restorationComplete: session.restorationComplete,
+            postAuthKind: String(describing: session.postAuthKind),
+            phase: phase.rawValue,
+            blockedBy: blockedBy,
+            advanced: shouldAdvance
+        )
+        #endif
+        if shouldAdvance {
+            advance(to: firstTimePhaseAfterSignIn())
+        }
     }
 
     /// Skip and Continue on Welcome both land here exactly once.

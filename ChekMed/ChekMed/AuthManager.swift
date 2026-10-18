@@ -122,6 +122,13 @@ final class AuthManager {
             let generation = leftoverSignOutGeneration
             apply(session: nil)
             releaseRestoreGate(reason: "new install")
+            #if DEBUG
+            if CheckMedLocalIsolation.isRequested(environment: ProcessInfo.processInfo.environment) {
+                GIDSignIn.sharedInstance.signOut()
+                LaunchLog.auth("isolation skip leftover remote signOut")
+                return
+            }
+            #endif
             Task { [weak self] in
                 GIDSignIn.sharedInstance.signOut()
                 guard let self, generation == self.leftoverSignOutGeneration, !self.isAuthenticated else {
@@ -173,15 +180,18 @@ final class AuthManager {
     }
 
     func signIn(email: String, password: String) async {
-        await run {
-            _ = try await $0.auth.signIn(email: email, password: password)
+        await run { client in
+            let session = try await client.auth.signIn(email: email, password: password)
+            self.adoptInteractiveSession(session)
         }
     }
 
     func signUp(email: String, password: String) async {
         await run { client in
             let response = try await client.auth.signUp(email: email, password: password)
-            if response.session == nil {
+            if let session = response.session {
+                self.adoptInteractiveSession(session)
+            } else {
                 self.statusMessage = "Check your email to confirm the account, then log in."
             }
         }
@@ -357,10 +367,52 @@ final class AuthManager {
     """
 
     private func configureClient() {
+        let env = ProcessInfo.processInfo.environment
+        #if DEBUG
+        if CheckMedLocalIsolation.intentPresent(environment: env) {
+            guard CheckMedLocalIsolation.isRequested(environment: env),
+                  let url = AuthConfig.supabaseURL,
+                  let key = AuthConfig.supabaseAnonKey,
+                  AuthConfig.isIsolatedLoopbackEndpoint(url)
+            else {
+                client = nil
+                LaunchLog.auth("isolation fail-closed: hosted Info.plist client refused")
+                AuthIsolationDiagnostics.write(
+                    intent: true,
+                    requested: CheckMedLocalIsolation.isRequested(environment: env),
+                    endpoint: AuthConfig.supabaseURL?.absoluteString ?? "nil",
+                    hostedFallback: false,
+                    probe: "not-sent"
+                )
+                return
+            }
+            client = SupabaseClient(
+                supabaseURL: url,
+                supabaseKey: key,
+                options: SupabaseClientOptions(
+                    auth: .init(
+                        storage: IsolatedLocalAuthStorage.shared,
+                        emitLocalSessionAsInitialSession: true
+                    )
+                )
+            )
+            LaunchLog.auth("isolation client \(url.host ?? "?"):\(url.port.map(String.init) ?? "-")")
+            let constructed = url
+            Task { await AuthIsolationDiagnostics.probeHealth(clientURL: constructed) }
+            return
+        }
+        #endif
         guard let url = AuthConfig.supabaseURL, let key = AuthConfig.supabaseAnonKey else {
             client = nil
             return
         }
+        #if DEBUG
+        if url.host?.contains("supabase.co") == true, CheckMedLocalIsolation.intentPresent(environment: env) {
+            client = nil
+            LaunchLog.auth("isolation fail-closed: blocked hosted supabase.co client")
+            return
+        }
+        #endif
         client = SupabaseClient(
             supabaseURL: url,
             supabaseKey: key,
@@ -443,12 +495,38 @@ final class AuthManager {
             LaunchLog.auth("listener removed")
             listenerTask?.cancel()
         }
-        listenerTask = Task { [weak self] in
+        listenerTask = Self.observeAuthStateChanges(client: client) { [weak self] event, session in
+            await self?.handleAuthChange(event, session)
+        }
+    }
+
+    /// Must not inherit `@MainActor` from `start()` — otherwise `signIn` and the
+    /// listener both sit on MainActor and a successful token response never applies.
+    nonisolated private static func observeAuthStateChanges(
+        client: SupabaseClient,
+        onChange: @escaping @Sendable (AuthChangeEvent, Session?) async -> Void
+    ) -> Task<Void, Never> {
+        Task {
             LaunchLog.auth("listener registered")
             for await (event, session) in client.auth.authStateChanges {
-                await self?.handleAuthChange(event, session)
+                await onChange(event, session)
             }
             LaunchLog.auth("listener removed")
+        }
+    }
+
+    /// Publish the SDK session immediately. Failed logins throw and never reach here.
+    /// Must enqueue post-auth routing here: applying first makes the later
+    /// `.signedIn` listener look like `sameUser` and skip `onAuthenticated`.
+    private func adoptInteractiveSession(_ session: Session) {
+        leftoverSignOutGeneration += 1
+        CheckMedAuthPersistence.skipRestoreThisProcess = false
+        apply(session: session)
+        LaunchLog.auth("interactive session applied user=\(session.user.id.uuidString)")
+        Task { [weak self] in
+            guard let self else { return }
+            LaunchLog.auth("interactive session enqueue post-auth hasUser=true")
+            await self.onAuthenticated?(false)
         }
     }
 
@@ -813,6 +891,37 @@ enum CheckMedAuthPersistence {
     }
 }
 
+#if DEBUG
+/// Unsigned Simulator Keychain hangs or swallows session writes, so `currentUser`
+/// stayed nil after HTTP 200. Isolation keeps the session in process memory only
+/// (not UserDefaults tokens). Hosted/Release still uses Keychain.
+private final class IsolatedLocalAuthStorage: AuthLocalStorage, @unchecked Sendable {
+    static let shared = IsolatedLocalAuthStorage()
+
+    private let lock = NSLock()
+    private var values: [String: Data] = [:]
+
+    func store(key: String, value: Data) throws {
+        lock.lock()
+        values[key] = value
+        lock.unlock()
+        CheckMedAuthPersistence.bindSessionToThisInstall()
+    }
+
+    func retrieve(key: String) throws -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values[key]
+    }
+
+    func remove(key: String) throws {
+        lock.lock()
+        values[key] = nil
+        lock.unlock()
+    }
+}
+#endif
+
 /// Persists the Supabase session in UserDefaults for this install and mirrors
 /// into Keychain. Keychain is only read back when `installSessionToken` exists
 /// (UserDefaults — wiped on delete), so uninstall cannot silently log the user in.
@@ -844,6 +953,85 @@ private struct CheckMedAuthStorage: AuthLocalStorage {
         try? keychain.remove(key: key)
     }
 }
+
+#if DEBUG
+enum AuthIsolationDiagnostics {
+    static let reportName = "checkmed-auth-isolation.txt"
+
+    static func recordLaunch() {
+        let env = ProcessInfo.processInfo.environment
+        let keys = env.keys.filter { $0.contains("CHECKMED") }.sorted().joined(separator: ",")
+        let url = AuthConfig.supabaseURL
+        let hosted = url?.host?.contains("supabase.co") == true
+        write(
+            intent: CheckMedLocalIsolation.intentPresent(environment: env)
+                || CheckMedLocalIsolation.intentPresent(environment: ProcessInfo.processInfo.environment),
+            requested: CheckMedLocalIsolation.isRequested(environment: env),
+            endpoint: url?.absoluteString ?? "nil",
+            hostedFallback: hosted,
+            probe: "launch-keys=\(keys.isEmpty ? "none" : keys)"
+        )
+        if CheckMedLocalIsolation.intentPresent(environment: env),
+           let url,
+           AuthConfig.isIsolatedLoopbackEndpoint(url)
+        {
+            Task { await probeHealth(clientURL: url) }
+        }
+    }
+
+    static func write(
+        intent: Bool,
+        requested: Bool,
+        endpoint: String,
+        hostedFallback: Bool,
+        probe: String
+    ) {
+        let body = [
+            "intent: \(intent)",
+            "requested: \(requested)",
+            "endpoint: \(endpoint)",
+            "hostedFallback: \(hostedFallback)",
+            "probe: \(probe)",
+        ].joined(separator: "\n")
+        LaunchLog.auth("isolation diagnostics endpoint=\(endpoint) probe=\(probe)")
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        try? body.write(to: docs.appendingPathComponent(reportName), atomically: true, encoding: .utf8)
+    }
+
+    static func probeHealth(clientURL: URL) async {
+        let hosted = clientURL.host?.contains("supabase.co") == true
+        guard AuthConfig.isIsolatedLoopbackEndpoint(clientURL), !hosted else {
+            write(
+                intent: true,
+                requested: true,
+                endpoint: clientURL.absoluteString,
+                hostedFallback: hosted,
+                probe: "refused-non-local"
+            )
+            return
+        }
+        var request = URLRequest(url: clientURL.appending(path: "auth/v1/health"))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 5
+        request.setValue("ChekMed-IsolationProbe", forHTTPHeaderField: "User-Agent")
+        let probe: String
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            probe = "health-status=\(status) reached=\(clientURL.host ?? "?"):\(clientURL.port ?? -1)"
+        } catch {
+            probe = "health-error"
+        }
+        write(
+            intent: true,
+            requested: true,
+            endpoint: clientURL.absoluteString,
+            hostedFallback: false,
+            probe: probe
+        )
+    }
+}
+#endif
 
 private enum AuthFlowError: LocalizedError {
     case missingGoogleIDToken

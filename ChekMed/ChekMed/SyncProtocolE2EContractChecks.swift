@@ -110,19 +110,11 @@ private final class Harness {
     static func bootstrap() async throws -> Harness {
         let email = "e2e-\(UUID().uuidString.lowercased())@isolated.local"
         let password = "Isolated-E2E-\(UUID().uuidString.prefix(8))"
-        let client = SupabaseClient(
-            supabaseURL: SyncProtocolTestActivation.disposableURL,
-            supabaseKey: SyncProtocolTestActivation.localDemoAnonKey
-        )
-        let admin = SupabaseClient(
-            supabaseURL: SyncProtocolTestActivation.disposableURL,
-            supabaseKey: SyncProtocolTestActivation.localDemoServiceRoleKey
-        )
+        let client = isolatedClient(key: SyncProtocolTestActivation.localDemoAnonKey)
+        let admin = isolatedClient(key: SyncProtocolTestActivation.localDemoServiceRoleKey)
         _ = try await client.auth.signUp(email: email, password: password)
-        try await client.auth.signIn(email: email, password: password)
-        guard let owner = client.auth.currentUser?.id else {
-            throw E2EError.message("signed-in owner missing")
-        }
+        let session = try await client.auth.signIn(email: email, password: password)
+        let owner = session.user.id
         struct ProfileRow: Decodable { var id: UUID }
         let profiles: [ProfileRow] = try await client
             .from("profiles")
@@ -484,13 +476,10 @@ private final class Harness {
         }
 
         do {
-            let other = SupabaseClient(
-                supabaseURL: SyncProtocolTestActivation.disposableURL,
-                supabaseKey: SyncProtocolTestActivation.localDemoAnonKey
-            )
+            let other = isolatedClient(key: SyncProtocolTestActivation.localDemoAnonKey)
             let otherEmail = "e2e-other-\(UUID().uuidString.lowercased())@isolated.local"
             _ = try await other.auth.signUp(email: otherEmail, password: "Isolated-E2E-other")
-            try await other.auth.signIn(email: otherEmail, password: "Isolated-E2E-other")
+            _ = try await other.auth.signIn(email: otherEmail, password: "Isolated-E2E-other")
             var crossReplay = false
             do {
                 _ = try await SyncEngine.debugApplyMutation(client: other, work: replayWork)
@@ -655,6 +644,44 @@ private final class Harness {
             throw E2EError.message("local admin \(method) \(path) -> \(status) \(String(data: data, encoding: .utf8) ?? "")")
         }
     }
+}
+
+/// Process-local session store. Default Keychain storage is swallowed on unsigned
+/// Simulator installs, so `currentUser` stayed nil after a successful local sign-in.
+private final class IsolatedE2EAuthStorage: AuthLocalStorage, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String: Data] = [:]
+
+    func store(key: String, value: Data) throws {
+        lock.lock()
+        values[key] = value
+        lock.unlock()
+    }
+
+    func retrieve(key: String) throws -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values[key]
+    }
+
+    func remove(key: String) throws {
+        lock.lock()
+        values[key] = nil
+        lock.unlock()
+    }
+}
+
+private func isolatedClient(key: String) -> SupabaseClient {
+    SupabaseClient(
+        supabaseURL: SyncProtocolTestActivation.disposableURL,
+        supabaseKey: key,
+        options: SupabaseClientOptions(
+            auth: .init(
+                storage: IsolatedE2EAuthStorage(),
+                storageKey: "checkmed.e2e.\(UUID().uuidString)"
+            )
+        )
+    )
 }
 
 private enum E2EError: Error {
