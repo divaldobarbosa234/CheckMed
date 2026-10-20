@@ -34,6 +34,16 @@ enum FirstTimePhase: String, Equatable {
     }
 
     var persistable: Bool { self != .splash && self != .analysing && self != .slotLimit }
+
+    /// Host is on an in-progress prescription intake. Root must not jump to Home.
+    var isActiveMedicineSetup: Bool {
+        switch self {
+        case .addMedication, .camera, .manualEntry, .analysing, .slotLimit, .confirm, .planResume:
+            true
+        default:
+            false
+        }
+    }
 }
 
 struct FirstTimeOnboardingView: View {
@@ -103,6 +113,7 @@ struct FirstTimeOnboardingView: View {
                 NavigationStack {
                     SignInView(onAuthenticated: {
                         session.markSignInScreenCompleted()
+                        routeAfterAuthIfNeeded()
                     })
                 }
                 .transition(insert)
@@ -439,23 +450,12 @@ struct FirstTimeOnboardingView: View {
         case .careContext: return .careContext
         case .profile: return .profile
         case .addMedication: return .addMedication
-        case .home, .restoring: return firstTimePhaseAfterCareContext()
+        case .home, .restoring: return .signIn
         }
     }
 
     private func welcomeRoutingInput() -> OnboardingWelcomeRouting.Input {
-        OnboardingWelcomeRouting.Input(
-            hasChosenLanguage: session.hasChosenLanguage,
-            hasAcknowledgedPrivacy: session.hasAcknowledgedPrivacy,
-            hasCompletedSignInThisInstall: session.hasCompletedSignInThisInstall,
-            isSessionUnlocked: session.isSessionUnlocked,
-            hasSeenWelcome: session.hasSeenHowItWorks,
-            hasCareContext: session.hasCareContext,
-            hasCompletedOnboarding: session.hasCompletedOnboarding,
-            isReturningAuthenticated: session.postAuthKind == .returning || session.hasCompletedOnboarding,
-            needsIdentityProfile: session.needsIdentityProfile,
-            userDataSettled: session.restorationComplete && session.userDataLoadState.isSettled
-        )
+        session.welcomeRoutingInput()
     }
 
     private var insert: AnyTransition {
@@ -645,27 +645,24 @@ struct FirstTimeOnboardingView: View {
             return firstTimePhase(for: step)
         }
 
-        // Returning / Keychain: RootView should have left FirstTimeOnboarding already.
-        // If we are still here, do not open Adicionar receita.
-        let keychainDone = ProfileSetupKeychain.isComplete(for: session.auth.userId)
-            || ProfileSetupKeychain.isOnboardingComplete(for: session.auth.userId)
-        if session.hasCompletedOnboarding || session.postAuthKind == .returning || keychainDone {
+        // Fully onboarded / returning accounts are not first-time users. Missing
+        // the optional Care Context preference must not restart onboarding.
+        if session.hasCompletedOnboarding || session.postAuthKind == .returning {
             if session.pendingPostJourneySetup { return .planResume }
-            // Stay idle; root router will present ReturningWelcome / Home.
             return .signIn
         }
 
         switch saved {
-        case .language, .howItWorks, .privacy, .signIn, .careContext:
+        case .language, .howItWorks, .privacy, .signIn, .careContext, .profile, .addMedication:
+            // Saved .profile / .addMedication from older builds skipped Care Context.
+            // hostPhase resumes the earliest unfinished Welcome → Care → Profile step.
             return firstTimePhaseAfterSignIn()
-        case .profile:
-            return session.needsIdentityProfile ? .profile : .addMedication
         case .confirm where session.hasConfirmedMedicationPlan || treatments.activeTreatmentCount > 0,
              .planResume where session.hasConfirmedMedicationPlan || treatments.activeTreatmentCount > 0:
             return .planResume
         case .organize:
             return .alarmSetup
-        case .notifications, .alarmSetup, .trial, .ready, .addMedication, .camera, .manualEntry:
+        case .notifications, .alarmSetup, .trial, .ready, .camera, .manualEntry:
             return saved
         default:
             return saved

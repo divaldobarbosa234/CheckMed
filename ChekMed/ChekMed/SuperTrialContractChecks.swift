@@ -113,7 +113,7 @@ enum SuperTrialContractChecks {
             hasCompletedSignInThisInstall: true,
             isSessionUnlocked: true,
             hasSeenWelcome: false,
-            hasCareContext: false,
+            hasCareContext: true,
             hasCompletedOnboarding: true,
             isReturningAuthenticated: true,
             needsIdentityProfile: false,
@@ -121,7 +121,13 @@ enum SuperTrialContractChecks {
         )
         expect(
             OnboardingWelcomeRouting.hostPhase(returning) == .home,
-            "O4: returning users do not replay acquisition"
+            "O4: returning users with saved Care Context do not replay Super acquisition"
+        )
+        var returningMissingCare = returning
+        returningMissingCare.hasCareContext = false
+        expect(
+            OnboardingWelcomeRouting.hostPhase(returningMissingCare) == .home,
+            "O4: missing Care Context is not treated as Super acquisition"
         )
 
         expect(
@@ -153,6 +159,12 @@ enum SuperTrialContractChecks {
             .paywallTrialAccentDays,
             .paywallTrialAccentDay,
             .paywallRenewalLegalTrialDays,
+            .paywallChooseTrialSubtitleDays,
+            .paywallChooseTrialSubtitleDay,
+            .paywallTimelineTodayBodyDays,
+            .paywallTimelineTodayBodyDay,
+            .paywallTimelineBillingTitleDays,
+            .paywallTimelineBillingTitleDay,
             .confirmCapacitySavedMany,
             .confirmCapacityAwaitingMany,
             .confirmCapacityCanAddMany,
@@ -183,6 +195,21 @@ enum SuperTrialContractChecks {
             .paywallRestoreEmpty,
             .onboardingTrialOfferChecking,
             .onboardingTrialOfferStandard,
+            .paywallBrandKicker,
+            .paywallDiscoverTitle,
+            .paywallChooseTitle,
+            .paywallChooseTrialTitle,
+            .paywallChooseTrialSubtitleGeneric,
+            .paywallChooseStandardSubtitle,
+            .paywallTimelineToday,
+            .paywallTimelineTodayBodyGeneric,
+            .paywallTimelineBillingTitleGeneric,
+            .paywallTimelineBillingBody,
+            .paywallIncludedBoth,
+            .paywallBestValue,
+            .paywallSuccessTitle,
+            .paywallSuccessContinue,
+            .paywallNext,
             .paywallSuper10,
             .refillSuperBody,
             .paywallRestore,

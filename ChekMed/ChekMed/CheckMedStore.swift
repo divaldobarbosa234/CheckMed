@@ -321,6 +321,16 @@ final class CheckMedStore {
         }
     }
 
+    /// Read-only owner ids on live treatments. Does not write or filter by the bound owner.
+    func canonicalOwnerIds() -> Set<UUID> {
+        Set(
+            allTreatments().compactMap { row in
+                guard row.deletedAt == nil else { return nil }
+                return row.ownerId
+            }
+        )
+    }
+
     var activeTreatmentCount: Int {
         _ = revision
         guard surfacesPlan else { return 0 }
@@ -4373,7 +4383,11 @@ final class CheckMedStore {
         _ = isolatedInMemoryForContracts
     }
 
-    init(contractStoreURL: URL, allowsSave: Bool = true) throws {
+    init(
+        contractStoreURL: URL,
+        allowsSave: Bool = true,
+        configurationName: String = "CheckMedOutboxContracts"
+    ) throws {
         let schema = Schema([
             TreatmentRecord.self,
             MedicineRecord.self,
@@ -4386,7 +4400,7 @@ final class CheckMedStore {
             CommunityCommentRecord.self,
         ])
         let configuration = ModelConfiguration(
-            "CheckMedOutboxContracts",
+            configurationName,
             schema: schema,
             url: contractStoreURL,
             allowsSave: allowsSave,

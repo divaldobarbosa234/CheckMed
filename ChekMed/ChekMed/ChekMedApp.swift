@@ -23,6 +23,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             CapacityContractLaunch.runFromAppDelegate()
             return true
         }
+        if SeedDurableContractLaunch.shouldIsolateProcess {
+            SeedDurableContractLaunch.runFromAppDelegate()
+            return true
+        }
         if TH1LocalVerification.shouldIsolateProcess {
             TH1LocalVerification.logActivation(stage: "AppDelegate")
             return true
@@ -212,6 +216,8 @@ struct ChekMedApp: App {
                 IntakeVerifyDeniedHost()
             } else if CapacityContractLaunch.isRequested {
                 CapacityContractHost()
+            } else if SeedDurableContractLaunch.isRequested {
+                SeedDurableContractHost()
             } else {
                 standardRoot
             }
@@ -226,6 +232,9 @@ struct ChekMedApp: App {
     private static func makeAppStore() -> CheckMedStore {
         #if DEBUG
         if CapacityContractLaunch.shouldIsolateProcess {
+            return CheckMedStore(isolatedInMemoryForContracts: true)
+        }
+        if SeedDurableContractLaunch.shouldIsolateProcess {
             return CheckMedStore(isolatedInMemoryForContracts: true)
         }
         if IntakeVerify.shouldIsolateProcess && !TH1LocalVerification.shouldIsolateProcess {
@@ -254,17 +263,21 @@ struct ChekMedApp: App {
                 bindStores()
             }
             .onChange(of: session.profileId) { _, profileId in
+                guard authorizeAuthenticatedBinding() else { return }
                 treatments.bindIdentity(ownerId: session.planOwnerId, profileId: profileId)
                 family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
             }
             .onChange(of: session.timeZoneName) { _, _ in
+                guard authorizeAuthenticatedBinding() else { return }
                 treatments.setTimeZone(session.foundationTimeZone)
                 ReminderScheduler.shared.reschedule(force: true)
             }
             .onChange(of: session.locale) { _, _ in
+                guard authorizeAuthenticatedBinding() else { return }
                 ReminderScheduler.shared.reschedule(force: true)
             }
             .onChange(of: entitlements.isSuper) { _, isSuper in
+                guard authorizeAuthenticatedBinding() else { return }
                 if !isSuper {
                     family.selectPrimary()
                     family.applyScope(to: treatments, primaryProfileId: session.planProfileId)
@@ -274,6 +287,10 @@ struct ChekMedApp: App {
     }
 
     private func bindStores() {
+        guard authorizeAuthenticatedBinding() else {
+            session.startAuthIfNeeded()
+            return
+        }
         let ownerId = session.planOwnerId
         let profileId = session.planProfileId
         if let authId = session.auth.userId, authId != session.localPlanOwnerId {
@@ -320,7 +337,11 @@ struct ChekMedApp: App {
         session.onLocalTreatmentsCheck = { [treatments] in
             treatments.hasExistingTreatments
         }
+        session.onCanonicalOwnerIds = { [treatments] in
+            treatments.canonicalOwnerIds()
+        }
         session.onBindAuthenticatedIdentity = { [treatments, syncEngine, session, family] in
+            guard Self.bindingAuthorized(session: session, treatments: treatments) else { return }
             let ownerId = session.planOwnerId
             let profileId = session.planProfileId
             if let authenticatedOwnerId = session.auth.userId {
@@ -338,6 +359,9 @@ struct ChekMedApp: App {
             treatments.setPhilPlanStatus(status)
         }
         session.onPostAuthSync = { [treatments, syncEngine, session, family] in
+            guard Self.bindingAuthorized(session: session, treatments: treatments) else {
+                return SessionStore.UserDataRestoreResult(hasTreatments: false, failed: true)
+            }
             let ownerId = session.planOwnerId
             let profileId = session.planProfileId
             if let authenticatedOwnerId = session.auth.userId {
@@ -371,6 +395,52 @@ struct ChekMedApp: App {
         }
         treatments.removeDuplicateMedicinesIfNeeded()
         session.startAuthIfNeeded()
+    }
+
+    private var isDebugIsolatedLaunch: Bool {
+        #if DEBUG
+        CapacityContractLaunch.shouldIsolateProcess
+            || SeedDurableContractLaunch.shouldIsolateProcess
+            || TH1LocalVerification.shouldIsolateProcess
+            || IntakeVerify.shouldIsolateProcess
+        #else
+        false
+        #endif
+    }
+
+    private func authorizeAuthenticatedBinding() -> Bool {
+        Self.bindingAuthorized(session: session, treatments: treatments, isolated: isDebugIsolatedLaunch)
+    }
+
+    /// Fail closed before adoptOwner / bindIdentity / replica for a different auth user.
+    /// Does not write DoseLogs or cancel reminders.
+    @discardableResult
+    private static func bindingAuthorized(
+        session: SessionStore,
+        treatments: CheckMedStore,
+        isolated: Bool = false
+    ) -> Bool {
+        if isolated { return true }
+        guard let authId = session.auth.userId else { return true }
+        #if DEBUG
+        if session.debugSkipInstallOwnerGuard { return true }
+        #endif
+        let decision = InstallAccountGuard.evaluate(
+            incoming: authId,
+            persistedBound: InstallAccountGuard.boundOwnerId(),
+            localOwner: session.localPlanOwnerId,
+            existingOwners: treatments.canonicalOwnerIds()
+        )
+        switch decision {
+        case .allow:
+            return true
+        case .claim:
+            session.claimInstallOwnerIfNeeded(authId)
+            return true
+        case .reject:
+            session.noteInstallOwnerRejected()
+            return false
+        }
     }
 
     /// Show Home treatments from local SwiftData as soon as identity is bound.

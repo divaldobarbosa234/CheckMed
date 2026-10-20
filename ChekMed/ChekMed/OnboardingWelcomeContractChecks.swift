@@ -74,6 +74,155 @@ enum OnboardingWelcomeContractChecks {
             "O2: Care Context is presented after Welcome"
         )
         expect(
+            OnboardingWelcomeRouting.shouldKeepFirstTimeHost(afterWelcome),
+            "O2: incomplete Care Context stays on first-time host, not root Profile/Home"
+        )
+        expect(
+            OnboardingWelcomeRouting.hostPhase(afterWelcome) != .profile,
+            "O2: existing incomplete Care Context cannot open Profile yet"
+        )
+        var identityDue = afterWelcome
+        identityDue.needsIdentityProfile = true
+        expect(
+            OnboardingWelcomeRouting.shouldKeepFirstTimeHost(identityDue)
+                && OnboardingWelcomeRouting.hostPhase(identityDue) == .careContext,
+            "O2: identity-incomplete account still sees Care Context before Let's get to know you"
+        )
+        var careDone = afterWelcome
+        careDone.hasCareContext = true
+        expect(
+            !OnboardingWelcomeRouting.shouldPresentCareContext(careDone)
+                && !OnboardingWelcomeRouting.shouldKeepFirstTimeHost(careDone)
+                && OnboardingWelcomeRouting.hostPhase(careDone) == .profile,
+            "O2: saved Care Context is not repeated; Profile may follow"
+        )
+        var fullyOnboarded = afterWelcome
+        fullyOnboarded.hasCompletedOnboarding = true
+        fullyOnboarded.isReturningAuthenticated = true
+        fullyOnboarded.hasCareContext = true
+        fullyOnboarded.needsIdentityProfile = false
+        expect(
+            OnboardingWelcomeRouting.hostPhase(fullyOnboarded) == .home
+                && !OnboardingWelcomeRouting.shouldKeepFirstTimeHost(fullyOnboarded),
+            "O2: returning fully onboarded account with saved Care Context goes Home"
+        )
+        var build4Style = afterWelcome
+        build4Style.hasCompletedOnboarding = true
+        build4Style.isReturningAuthenticated = true
+        build4Style.hasCareContext = false
+        build4Style.needsIdentityProfile = false
+        expect(
+            OnboardingWelcomeRouting.hostPhase(build4Style) == .home
+                && !OnboardingWelcomeRouting.shouldPresentCareContext(build4Style)
+                && !OnboardingWelcomeRouting.shouldKeepFirstTimeHost(build4Style)
+                && OnboardingWelcomeRouting.appRoot(settledRoot(build4Style)) == .home,
+            "O2: missing optional Care Context does not keep an onboarded user on first-time host"
+        )
+        expect(
+            OnboardingWelcomeRouting.shouldKeepFirstTimeHost(firstTime),
+            "O2: fresh signed-in account keeps first-time host for Welcome then Care Context"
+        )
+
+        func settledRoot(_ funnel: OnboardingWelcomeRouting.Input) -> OnboardingWelcomeRouting.RootInput {
+            OnboardingWelcomeRouting.RootInput(
+                launchRestoreReleased: true,
+                isRestoring: false,
+                isSessionUnlocked: funnel.isSessionUnlocked,
+                userDataFailed: false,
+                userDataSettled: true,
+                isResolvingPostAuth: false,
+                isPlanSurfaceReady: true,
+                needsIdentityProfile: funnel.needsIdentityProfile,
+                isReturningConfiguredUser: funnel.isReturningAuthenticated || funnel.hasCompletedOnboarding,
+                hasCompletedOnboarding: funnel.hasCompletedOnboarding,
+                funnel: funnel
+            )
+        }
+        expect(
+            OnboardingWelcomeRouting.appRoot(settledRoot(firstTime)) == .firstTime,
+            "ROOT: authenticated new user with incomplete onboarding is firstTime, not accountProfile"
+        )
+        expect(
+            OnboardingWelcomeRouting.appRoot(settledRoot(afterWelcome)) == .firstTime
+                && OnboardingWelcomeRouting.appRoot(settledRoot(afterWelcome)) != .accountProfile
+                && OnboardingWelcomeRouting.appRoot(settledRoot(afterWelcome)) != .home,
+            "ROOT: missing care context cannot be bypassed by accountProfile or home"
+        )
+        var identityCompleteNoCare = afterWelcome
+        identityCompleteNoCare.needsIdentityProfile = false
+        expect(
+            OnboardingWelcomeRouting.appRoot(settledRoot(identityCompleteNoCare)) == .firstTime,
+            "ROOT: name/DOB complete does not skip Care Context"
+        )
+        var careSaved = afterWelcome
+        careSaved.hasCareContext = true
+        expect(
+            OnboardingWelcomeRouting.appRoot(settledRoot(careSaved)) == .accountProfile,
+            "ROOT: completed care context with missing identity uses accountProfile"
+        )
+        var newUserIntake = careSaved
+        newUserIntake.needsIdentityProfile = false
+        expect(
+            OnboardingWelcomeRouting.appRoot(settledRoot(newUserIntake)) == .firstTime
+                && OnboardingWelcomeRouting.hostPhase(newUserIntake) == .addMedication,
+            "ROOT: first-time user after Care Context + identity stays on first-time medicine setup, not Home"
+        )
+        expect(
+            OnboardingWelcomeRouting.appRoot(settledRoot(fullyOnboarded)) == .home,
+            "ROOT: fully onboarded returning account reaches Home"
+        )
+        var activeConfirm = settledRoot(fullyOnboarded)
+        activeConfirm.hasActiveFirstTimeIntake = true
+        expect(
+            OnboardingWelcomeRouting.appRoot(activeConfirm) == .firstTime,
+            "ROOT: saving Care Context / returning flags must not unmount an active confirm flow"
+        )
+        var activeNewUserConfirm = settledRoot(newUserIntake)
+        activeNewUserConfirm.hasActiveFirstTimeIntake = true
+        expect(
+            OnboardingWelcomeRouting.appRoot(activeNewUserConfirm) == .firstTime,
+            "ROOT: first-time confirm survives Care Context already saved"
+        )
+        expect(
+            FirstTimePhase.confirm.isActiveMedicineSetup
+                && FirstTimePhase.addMedication.isActiveMedicineSetup
+                && !FirstTimePhase.careContext.isActiveMedicineSetup
+                && !FirstTimePhase.signIn.isActiveMedicineSetup,
+            "ROOT: confirm and add-medication are active intake; Care Context is not"
+        )
+        expect(
+            SessionStore.debugDestination(from: settledRoot(firstTime)) == .firstTime,
+            "ROOT: SessionStore maps a new account to firstTime"
+        )
+        expect(
+            SessionStore.debugDestination(from: settledRoot(fullyOnboarded)) == .home,
+            "ROOT: SessionStore maps a configured returning account to Home"
+        )
+        var missingCareConfigured = settledRoot(fullyOnboarded)
+        missingCareConfigured.funnel.hasCareContext = false
+        expect(
+            SessionStore.debugDestination(from: missingCareConfigured) == .home,
+            "ROOT: SessionStore maps configured + missing Care Context to Home"
+        )
+        expect(
+            SessionStore.debugDestination(from: activeConfirm) == .firstTime,
+            "ROOT: SessionStore keeps active confirm on firstTime"
+        )
+        var restoring = settledRoot(afterWelcome)
+        restoring.launchRestoreReleased = false
+        restoring.isRestoring = true
+        expect(
+            OnboardingWelcomeRouting.appRoot(restoring) == .restoring,
+            "ROOT: session restore before launch gate stays restoring"
+        )
+        var afterRestore = settledRoot(afterWelcome)
+        afterRestore.userDataSettled = false
+        afterRestore.funnel.userDataSettled = false
+        expect(
+            OnboardingWelcomeRouting.appRoot(afterRestore) == .resolvingPostAuth,
+            "ROOT: authenticated restore with unsettled data does not jump to Profile/Home"
+        )
+        expect(
             OnboardingWelcomeRouting.afterCareContext(needsIdentityProfile: true) == .profile,
             "O2: Care Context Continue goes to Personal Profile when identity is incomplete"
         )
@@ -115,24 +264,23 @@ enum OnboardingWelcomeContractChecks {
         returning.hasSeenWelcome = false
         returning.hasCareContext = false
         expect(
-            OnboardingWelcomeRouting.hostPhase(returning) == .home,
-            "O0: returning authenticated user does not replay Welcome"
+            OnboardingWelcomeRouting.hostPhase(returning) == .home
+                && !OnboardingWelcomeRouting.shouldPresentWelcome(returning)
+                && !OnboardingWelcomeRouting.shouldPresentCareContext(returning),
+            "O0: returning authenticated user does not replay Welcome or Care Context"
         )
         expect(
-            !OnboardingWelcomeRouting.shouldPresentWelcome(returning),
-            "O0: returning identity skips Welcome"
-        )
-        expect(
-            !OnboardingWelcomeRouting.shouldPresentCareContext(returning),
-            "O2: returning identity skips Care Context"
+            OnboardingWelcomeRouting.appRoot(settledRoot(returning)) == .home,
+            "O2: returning identity without a saved Care Context still goes Home"
         )
 
         var reinstall = returning
         reinstall.hasSeenWelcome = false
         reinstall.hasCareContext = false
         expect(
-            OnboardingWelcomeRouting.hostPhase(reinstall) == .home,
-            "O2: reinstall with same returning identity skips Care Context"
+            OnboardingWelcomeRouting.hostPhase(reinstall) == .home
+                && OnboardingWelcomeRouting.appRoot(settledRoot(reinstall)) == .home,
+            "O2: reinstall of an onboarded identity does not restart first-time onboarding for missing Care Context"
         )
 
         var sameIdentity = firstTime
@@ -201,7 +349,14 @@ enum OnboardingWelcomeContractChecks {
         returningAuth.hasCompletedOnboarding = true
         expect(
             OnboardingWelcomeRouting.hostPhase(returningAuth) == .home,
-            "O0: returning authenticated user does not stay on Sign-in"
+            "O0: returning authenticated user without Care Context goes Home, not Sign-in or Care Context"
+        )
+        var returningAuthComplete = returningAuth
+        returningAuthComplete.hasCareContext = true
+        returningAuthComplete.needsIdentityProfile = false
+        expect(
+            OnboardingWelcomeRouting.hostPhase(returningAuthComplete) == .home,
+            "O0: returning authenticated user with saved Care Context reaches Home"
         )
         expect(
             OnboardingWelcomeRouting.hostPhase(unsigned) == .signIn,
@@ -409,9 +564,12 @@ enum OnboardingWelcomeContractChecks {
             !OnboardingReadyAdvance.consumeContinue(alreadyFinished: true),
             "O5: second Ready CTA is ignored"
         )
+        var o5Returning = returning
+        o5Returning.hasCareContext = true
+        o5Returning.needsIdentityProfile = false
         expect(
-            OnboardingWelcomeRouting.hostPhase(returning) == .home,
-            "O5: returning configured users bypass Ready"
+            OnboardingWelcomeRouting.hostPhase(o5Returning) == .home,
+            "O5: returning users with saved Care Context bypass Ready"
         )
 
         let readyCopy: [AppLocale: (String, String, String)] = [

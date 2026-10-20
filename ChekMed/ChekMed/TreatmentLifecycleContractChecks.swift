@@ -1617,6 +1617,8 @@ enum TreatmentPreservationContractChecks {
         failures.append(contentsOf: UnfinishedPlanSafetyContractChecks.failures())
         failures.append(contentsOf: IntakeReliabilityContractChecks.failures())
         failures.append(contentsOf: PersistSeedAddAtomicityContractChecks.failures())
+        failures.append(contentsOf: SeedFromDraftsDurableContractChecks.failures())
+        failures.append(contentsOf: InstallAccountGuardContractChecks.failures())
         return failures
     }
 }
@@ -2509,6 +2511,103 @@ enum PersistSeedAddAtomicityContractChecks {
         expect(nameCount(currentNames(single, now: now), "SingleNow") == 1, "PERSIST-1 J: original medicine kept")
         expect(nameCount(currentNames(single, now: now), "SingleExtra") == 1, "PERSIST-1 J: one extra medicine appended")
 
+        return failures
+    }
+}
+
+/// File-backed `seedFromDrafts` reopen. Disposable temp store only; not the live app container.
+enum SeedFromDraftsDurableContractChecks {
+    @MainActor
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ message: String) {
+            if !condition { failures.append(message) }
+        }
+        let medicineName = "DurableSeedMed"
+        let draft = OnboardingPrescriptionDraft(
+            medicine: medicineName,
+            dose: "1 tablet",
+            frequency: "1x",
+            duration: "5 days",
+            timesPerDay: "1",
+            doseTimes: ["09:00"]
+        )
+        let owner = UUID()
+        let profile = UUID()
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("checkmed-seed-durable-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = directory.appendingPathComponent("store.sqlite")
+        let configurationName = "CheckMedSeedDurable-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            var seededId: UUID?
+            var afterSeed = (treatments: 0, medicines: 0, schedules: 0, logs: 0)
+            var writer: CheckMedStore? = try CheckMedStore(
+                contractStoreURL: storeURL,
+                configurationName: configurationName
+            )
+            writer?.debugContractBind(ownerId: owner, profileId: profile)
+            let before = writer?.debugLiveRecordCounts()
+            expect(before?.treatments == 0 && before?.medicines == 0, "DURABLE-1: empty file-backed store before seed")
+            expect(writer?.storedMedicineCount == 0, "DURABLE-1: storedMedicineCount is 0 before seed")
+            seededId = writer?.seedFromDrafts(
+                [draft],
+                ownerId: owner,
+                profileId: profile,
+                maximumActiveMedicines: SuperLimits.superPrescriptions
+            )
+            expect(seededId != nil, "DURABLE-1: seedFromDrafts returns a treatment id")
+            if let counts = writer?.debugLiveRecordCounts() {
+                afterSeed = counts
+            }
+            expect(afterSeed.treatments == 1, "DURABLE-1: exactly one Treatment after seed")
+            expect(afterSeed.medicines == 1, "DURABLE-1: exactly one Medicine after seed")
+            expect(writer?.storedMedicineCount == 1, "DURABLE-1: storedMedicineCount is 1 after seed")
+            expect(afterSeed.schedules >= 1, "DURABLE-1: seed writes a schedule")
+            expect(
+                writer?.debugLiveMedicationRowsMatch(ownerId: owner, profileId: profile) == true,
+                "DURABLE-1: seeded rows bind to the contract owner/profile"
+            )
+            if let seededId {
+                expect(writer?.debugStoredTreatmentStatus(seededId) == "active", "DURABLE-1: seeded treatment is active")
+            }
+            let namesAfterSeed = writer?.journeyTreeSnapshot(now: Date()).current.flatMap(\.medicineNames) ?? []
+            expect(namesAfterSeed.filter { $0 == medicineName }.count == 1, "DURABLE-1: medicine name present once after seed")
+            expect(namesAfterSeed.count == 1, "DURABLE-1: no extra current medicines after seed")
+            writer = nil
+            do {
+                let reopened = try CheckMedStore(
+                    contractStoreURL: storeURL,
+                    configurationName: configurationName
+                )
+                reopened.debugContractBind(ownerId: owner, profileId: profile)
+                let reopenedCounts = reopened.debugLiveRecordCounts()
+                expect(reopenedCounts.treatments == 1, "DURABLE-1: Treatment survives reopen")
+                expect(reopenedCounts.medicines == 1, "DURABLE-1: Medicine survives reopen")
+                expect(reopened.storedMedicineCount == 1, "DURABLE-1: storedMedicineCount is 1 after reopen")
+                expect(reopenedCounts.treatments == afterSeed.treatments, "DURABLE-1: treatment count unchanged on reopen")
+                expect(reopenedCounts.medicines == afterSeed.medicines, "DURABLE-1: medicine count unchanged on reopen")
+                expect(reopenedCounts.schedules == afterSeed.schedules, "DURABLE-1: schedule count unchanged on reopen")
+                expect(reopenedCounts.logs == afterSeed.logs, "DURABLE-1: DoseLog count unchanged on reopen")
+                expect(
+                    reopened.debugLiveMedicationRowsMatch(ownerId: owner, profileId: profile),
+                    "DURABLE-1: reopened rows still bind to the contract owner/profile"
+                )
+                if let seededId {
+                    expect(
+                        reopened.debugStoredTreatmentStatus(seededId) == "active",
+                        "DURABLE-1: same treatment id remains active after reopen"
+                    )
+                }
+                let names = reopened.journeyTreeSnapshot(now: Date()).current.flatMap(\.medicineNames)
+                expect(names.filter { $0 == medicineName }.count == 1, "DURABLE-1: medicine name present once after reopen")
+                expect(names.count == 1, "DURABLE-1: no duplicate current medicines after reopen")
+            }
+        } catch {
+            failures.append("DURABLE-1: file-backed seedFromDrafts reopen failed")
+        }
         return failures
     }
 }

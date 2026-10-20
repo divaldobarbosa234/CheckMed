@@ -222,6 +222,7 @@ final class SessionStore {
             defaults.removeObject(forKey: Keys.signInScreenSeenThisInstall)
             defaults.removeObject(forKey: Keys.introSplashSeen)
             defaults.removeObject(forKey: Keys.firstTimePhase)
+            InstallAccountGuard.clear()
             defaults.set(ISO8601DateFormatter().string(from: Date()), forKey: Keys.preAuthInstallStamp)
             return
         }
@@ -285,6 +286,8 @@ final class SessionStore {
     private var philReadyFailsafe: Task<Void, Never>?
     @ObservationIgnored
     private var isHandlingAuth = false
+    @ObservationIgnored
+    private var isRejectingInstallOwner = false
     /// Last user whose data restore completed this process (idempotent).
     private var completedRestoreUserId: UUID?
     private var inFlightRestoreId: UUID?
@@ -313,6 +316,9 @@ final class SessionStore {
     /// Local SwiftData already has treatments for the bound owner.
     @ObservationIgnored
     var onLocalTreatmentsCheck: (() -> Bool)?
+    /// Live treatment owner ids (unscoped). Read-only.
+    @ObservationIgnored
+    var onCanonicalOwnerIds: (() -> Set<UUID>)?
     /// Persist Phil plan status with the treatments store (SwiftData + Keychain).
     @ObservationIgnored
     var onPhilPlanPersist: ((PhilPlanStatus) -> Void)?
@@ -362,62 +368,50 @@ final class SessionStore {
     }
 
     private func computeRootDestination() -> RootDestination {
-        // `.restoring` is launch-only: unknown session. After the first auth
-        // event (or no-session), this process never returns here — including
-        // mood taps, Google double-fire, and replica pull.
-        if !launchRestoreReleased, auth.isRestoring {
-            return .restoring
-        }
-        if isSessionUnlocked, userDataLoadState == .failed {
-            return .loadError
-        }
-        // Pre-auth is UserDefaults-only. A restored configured account must
-        // not replay splash → language → Google while those flags are empty.
-        if !isReturningConfiguredUser,
-           (!hasFinishedLegalPreAuth || !hasCompletedSignInThisInstall || !isSessionUnlocked) {
-            return .firstTime
-        }
-        if !isSessionUnlocked {
-            return .firstTime
-        }
-        // Interactive Google/Apple: never paint Home from Keychain flags while
-        // SwiftData is still empty and replica has not finished.
-        if isResolvingPostAuth {
-            return .resolvingPostAuth
-        }
-        // Unlocked is not "data ready". Home must not paint the empty scan
-        // state while userDataLoadState is still notLoaded/loading.
-        if isSessionUnlocked, !userDataLoadState.isSettled {
-            return .resolvingPostAuth
-        }
-        if isSessionUnlocked, !isPlanSurfaceReady {
-            return .resolvingPostAuth
-        }
+        Self.destination(matching: OnboardingWelcomeRouting.appRoot(rootRoutingInput()))
+    }
 
-        if let step = postJourneyStep, step != .done {
-            return .resumeSetup
+    /// 1:1 map used by `computeRootDestination`. Keep RootView cases in sync.
+    private static func destination(matching root: OnboardingWelcomeRouting.AppRoot) -> RootDestination {
+        switch root {
+        case .restoring: return .restoring
+        case .resolvingPostAuth: return .resolvingPostAuth
+        case .loadError: return .loadError
+        case .firstTime: return .firstTime
+        case .resumeSetup: return .resumeSetup
+        case .returningWelcome: return .returningWelcome
+        case .accountProfile: return .accountProfile
+        case .addPrescription: return .addPrescription
+        case .home: return .home
         }
-        // Armed-only (confirmed, still on Your Journey) must not steal the intake/onboarding host.
-        if showResumeSetup {
-            return .resumeSetup
-        }
-        if needsReturningWelcomeGate {
-            return .returningWelcome
-        }
-        if DoseLoop.shouldPresentIdentitySetup(
+    }
+
+    #if DEBUG
+    /// Production mapping used by `rootDestination` / `computeRootDestination`.
+    static func debugDestination(from input: OnboardingWelcomeRouting.RootInput) -> RootDestination {
+        destination(matching: OnboardingWelcomeRouting.appRoot(input))
+    }
+    #endif
+
+    private func rootRoutingInput() -> OnboardingWelcomeRouting.RootInput {
+        OnboardingWelcomeRouting.RootInput(
+            launchRestoreReleased: launchRestoreReleased,
+            isRestoring: auth.isRestoring,
+            isSessionUnlocked: isSessionUnlocked,
+            userDataFailed: userDataLoadState == .failed,
+            userDataSettled: userDataLoadState.isSettled,
+            isResolvingPostAuth: isResolvingPostAuth,
+            isPlanSurfaceReady: isPlanSurfaceReady,
+            hasActivePostJourney: postJourneyStep.map { $0 != .done } ?? false,
+            showResumeSetup: showResumeSetup,
+            needsReturningWelcomeGate: needsReturningWelcomeGate,
             needsIdentityProfile: needsIdentityProfile,
-            isReturningConfiguredUser: isReturningConfiguredUser
-        ) {
-            return .accountProfile
-        }
-        if startFreshPrescription {
-            return .addPrescription
-        }
-        if !hasCompletedOnboarding, !isReturningConfiguredUser {
-            return .firstTime
-        }
-
-        return .home
+            isReturningConfiguredUser: isReturningConfiguredUser,
+            startFreshPrescription: startFreshPrescription,
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            hasActiveFirstTimeIntake: FirstTimePhase(rawValue: localFirstTimePhase)?.isActiveMedicineSetup == true,
+            funnel: welcomeRoutingInput()
+        )
     }
 
     /// True only after interactive returning sign-in, until Progress / Add dismisses miss-you.
@@ -525,7 +519,11 @@ final class SessionStore {
         intakeVerifyProfileOverride = profileId
         intakeVerifyOnboardedOverride = onboarded
         intakeVerifyPlanConfirmedOverride = planConfirmed
+        debugSkipInstallOwnerGuard = true
     }
+
+    /// Intake/TH-1 hosts must not persist the install owner stamp.
+    private(set) var debugSkipInstallOwnerGuard = false
 
     private var skipDurableSessionWritesForIntakeVerify: Bool {
         IntakeVerify.isAllowed
@@ -572,8 +570,8 @@ final class SessionStore {
     /// User completed the Sign-in screen this install (not a silent Keychain restore).
     var hasCompletedSignInThisInstall: Bool { localSignInScreenSeen }
 
-    /// Silent restore of an already-configured account. Not "medicines exist ⇒ skip
-    /// onboarding" for a brand-new install — Keychain/onboarding/plan flags only.
+    /// Silent restore of an already-configured account. Name/DOB in Keychain is
+    /// identity, not finished onboarding — that alone must not skip medicine setup.
     private var isReturningConfiguredUser: Bool {
         guard isSessionUnlocked else { return false }
         if hasCompletedOnboarding { return true }
@@ -581,13 +579,27 @@ final class SessionStore {
         if hasMedicalData { return true }
         if ProfileSetupKeychain.isOnboardingComplete(for: auth.userId) { return true }
         if ProfileSetupKeychain.isPlanConfirmed(for: auth.userId) { return true }
-        if ProfileSetupKeychain.isComplete(for: auth.userId) { return true }
         return false
     }
 
     /// Language → privacy → explicit Sign-in, then Welcome. All UserDefaults; wiped on app delete.
     var hasFinishedPreAuthFunnel: Bool {
         hasFinishedLegalPreAuth && hasCompletedSignInThisInstall
+    }
+
+    func welcomeRoutingInput() -> OnboardingWelcomeRouting.Input {
+        OnboardingWelcomeRouting.Input(
+            hasChosenLanguage: hasChosenLanguage,
+            hasAcknowledgedPrivacy: hasAcknowledgedPrivacy,
+            hasCompletedSignInThisInstall: hasCompletedSignInThisInstall,
+            isSessionUnlocked: isSessionUnlocked,
+            hasSeenWelcome: hasSeenHowItWorks,
+            hasCareContext: hasCareContext,
+            hasCompletedOnboarding: hasCompletedOnboarding,
+            isReturningAuthenticated: postAuthKind == .returning || hasCompletedOnboarding,
+            needsIdentityProfile: needsIdentityProfile,
+            userDataSettled: restorationComplete && userDataLoadState.isSettled
+        )
     }
 
     var displayName: String {
@@ -1426,15 +1438,22 @@ final class SessionStore {
         UserDefaults.standard.removeObject(forKey: Self.medicationPlanConfirmedKey(for: userId))
         CareContextStore.clear(for: userId)
         ProfileSetupKeychain.clear(for: userId)
+        if InstallAccountGuard.boundOwnerId() == userId {
+            InstallAccountGuard.clear()
+        }
     }
 
     func requestProvider(_ provider: AuthProvider) {
+        Task { await requestProviderAndWait(provider) }
+    }
+
+    func requestProviderAndWait(_ provider: AuthProvider) async {
         switch provider {
         case .apple:
-            Task { await auth.signInWithApple() }
+            await auth.signInWithApple()
         case .google:
             LaunchLog.auth("Google button tapped")
-            Task { await auth.signInWithGoogle() }
+            await auth.signInWithGoogle()
         case .facebook:
             auth.clearMessages()
             auth.presentFacebookUnavailable(t(.facebookUnavailable))
@@ -1502,12 +1521,73 @@ final class SessionStore {
         isHandlingAuth = false
     }
 
+    func claimInstallOwnerIfNeeded(_ ownerId: UUID) {
+        #if DEBUG
+        if skipDurableSessionWritesForIntakeVerify || debugSkipInstallOwnerGuard { return }
+        #endif
+        InstallAccountGuard.claim(ownerId)
+    }
+
+    func noteInstallOwnerRejected() {
+        guard !isRejectingInstallOwner else { return }
+        isRejectingInstallOwner = true
+        LaunchLog.auth(
+            "install owner guard reject user=\(auth.userId?.uuidString ?? "nil") "
+                + "bound=\(InstallAccountGuard.boundOwnerId()?.uuidString ?? "nil")"
+        )
+        auth.presentError(t(.installAccountMismatch))
+        Task { @MainActor in
+            await auth.signOut()
+            isRejectingInstallOwner = false
+        }
+    }
+
+    /// Fail closed before Keychain associate, replica, or adoptOwner for a mismatched auth user.
+    private func authorizeInstallOwnerOrReject() async -> Bool {
+        #if DEBUG
+        if debugSkipInstallOwnerGuard { return true }
+        #endif
+        guard let incoming = auth.userId else { return false }
+        let persisted = InstallAccountGuard.boundOwnerId()
+        let owners = onCanonicalOwnerIds?()
+        let decision: InstallAccountGuard.Decision
+        if let persisted {
+            decision = InstallAccountGuard.evaluate(
+                incoming: incoming,
+                persistedBound: persisted,
+                localOwner: localPlanOwnerId,
+                existingOwners: owners ?? []
+            )
+        } else if let owners {
+            decision = InstallAccountGuard.evaluate(
+                incoming: incoming,
+                persistedBound: nil,
+                localOwner: localPlanOwnerId,
+                existingOwners: owners
+            )
+        } else {
+            LaunchLog.auth("install owner guard fail-closed: store owners unavailable")
+            decision = .reject
+        }
+        switch decision {
+        case .allow:
+            return true
+        case .claim:
+            claimInstallOwnerIfNeeded(incoming)
+            return true
+        case .reject:
+            noteInstallOwnerRejected()
+            return false
+        }
+    }
+
     /// New vs returning after sign-in / session restore.
     /// Session-known first: hydrate Keychain / local flags, route, then replica in background.
     /// Empty SwiftData while replica runs is not a new user.
     /// Configured users (medicines / plan / report) go Home — not miss-you.
     private func handleAuthenticated(isRestore: Bool) async {
         markLaunchSessionKnown()
+        guard await authorizeInstallOwnerOrReject() else { return }
         if !isResolvingPostAuth {
             preparePostAuth(isRestore: isRestore)
         }
@@ -1579,7 +1659,6 @@ final class SessionStore {
         let keychainPlan = ProfileSetupKeychain.isPlanConfirmed(for: auth.userId)
         let previouslyOnboarded = perUserOnboardingComplete
             || keychainOnboarded
-            || keychainProfile
             || keychainPlan
             || (isRestore && localOnboardingComplete)
             || hasConfirmedMedicationPlan
@@ -1681,14 +1760,10 @@ final class SessionStore {
         }
         if !isRestore {
             clearSessionOnboardingFlag()
-            if !identityComplete {
-                setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
-            } else {
-                setFirstTimePhaseRaw(FirstTimePhase.addMedication.rawValue)
-            }
-        } else if !identityComplete {
-            setFirstTimePhaseRaw(FirstTimePhase.profile.rawValue)
         }
+        // Do not write .profile / .addMedication here. That skipped Welcome and
+        // "What brings you here?" (Care Context). FirstTime hostPhase owns
+        // Welcome → Care Context → Profile for incomplete new accounts.
         LaunchLog.auth("newAccount phase=\(localFirstTimePhase) identity=\(identityComplete) restore=\(isRestore)")
     }
 
@@ -1698,7 +1773,7 @@ final class SessionStore {
             || ProfileSetupKeychain.load().isComplete
         let keychainOnboarded = ProfileSetupKeychain.isOnboardingComplete(for: auth.userId)
             || ProfileSetupKeychain.isOnboardingComplete(for: nil)
-        if keychainProfile || keychainOnboarded || localOnboardingComplete || perUserOnboardingComplete || hasMedicalData {
+        if keychainOnboarded || localOnboardingComplete || perUserOnboardingComplete || hasMedicalData {
             enterReturningAfterAuth(
                 hasTreatments: hasMedicalData,
                 keychainProfile: keychainProfile,

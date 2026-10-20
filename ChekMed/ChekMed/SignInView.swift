@@ -14,6 +14,7 @@ struct SignInView: View {
     @State private var toast: Banner?
     @State private var toastTask: Task<Void, Never>?
     @State private var readyForBanners = false
+    @State private var didNotifyAuthenticated = false
 
     private enum Mode {
         case login, signUp, reset
@@ -57,12 +58,7 @@ struct SignInView: View {
         }
         .onChange(of: session.kind) { _, kind in
             guard kind == .authenticated else { return }
-            session.markSignInScreenCompleted()
-            if let onAuthenticated {
-                onAuthenticated()
-            } else {
-                dismiss()
-            }
+            notifyAuthenticatedIfNeeded()
         }
         .onChange(of: session.auth.errorMessage) { _, message in
             guard readyForBanners, let message, !message.isEmpty else { return }
@@ -362,12 +358,38 @@ struct SignInView: View {
         #endif
     }
 
-    private func requestOrConfirmProvider(_ provider: AuthProvider) {
-        if session.isSessionUnlocked {
-            session.confirmRestoredAccountOnSignInScreen()
-            return
+    private func notifyAuthenticatedIfNeeded() {
+        guard session.isSessionUnlocked else { return }
+        guard !didNotifyAuthenticated else { return }
+        didNotifyAuthenticated = true
+        session.markSignInScreenCompleted()
+        if let onAuthenticated {
+            onAuthenticated()
+        } else {
+            dismiss()
         }
-        session.requestProvider(provider)
+    }
+
+    private func requestOrConfirmProvider(_ provider: AuthProvider) {
+        // Provider buttons must start that provider. A leftover Keychain session
+        // must not swallow Google/Apple into a silent "continue" that can leave
+        // the tester on this screen with no sheet and no error.
+        Task { @MainActor in
+            let adoptCount = session.auth.interactiveAdoptCount
+            await session.requestProviderAndWait(provider)
+            if let message = session.auth.errorMessage, !message.isEmpty {
+                showBanner(message, isError: true)
+                return
+            }
+            if let note = session.auth.statusMessage, !note.isEmpty {
+                showBanner(note, isError: false)
+            }
+            // Only after this attempt adopted a session. Leftover Keychain
+            // auth, cancel, and Facebook-unavailable must not leave Sign-in.
+            guard session.auth.interactiveAdoptCount > adoptCount else { return }
+            guard session.isSessionUnlocked else { return }
+            notifyAuthenticatedIfNeeded()
+        }
     }
 
     private func toggleMode() {

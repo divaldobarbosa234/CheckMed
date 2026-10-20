@@ -62,6 +62,9 @@ final class AuthManager {
     private(set) var hasAppleIdentity = false
     private(set) var errorMessage: String?
     private(set) var statusMessage: String?
+    /// Increments only when `adoptInteractiveSession` runs (email/Google success).
+    /// Sign-in UI uses this to ignore leftover sessions, cancels, and failures.
+    private(set) var interactiveAdoptCount = 0
 
     var isConfigured: Bool { client != nil }
     /// SyncEngine only. Screens must not call Supabase except through SessionStore auth/profile.
@@ -336,8 +339,10 @@ final class AuthManager {
         }
 
         leftoverSignOutGeneration += 1
-        isLoading = true
-        LaunchLog.auth("Starting Google sign-in")
+        // Do not set isLoading before GID presents. SignInView disables the
+        // hosting controller while isLoading, which can prevent the Google
+        // sheet from appearing and then look like a dead tap.
+        LaunchLog.auth("Starting Google sign-in presenter=\(type(of: presenter))")
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleClientID)
 
         do {
@@ -352,9 +357,7 @@ final class AuthManager {
         } catch {
             if Self.isGoogleCancel(error) {
                 errorMessage = nil
-                statusMessage = nil
-            } else if Self.isGoogleKeychainNoise(error) {
-                errorMessage = "Google sign-in didn't complete. Try again."
+                statusMessage = "Google sign-in was cancelled."
             } else {
                 errorMessage = Self.googleMessage(for: error)
             }
@@ -447,20 +450,24 @@ final class AuthManager {
                 additionalScopes: nil,
                 nonce: hashedNonce
             )
-            try await exchangeGoogleTokens(
+            isLoading = true
+            let session = try await exchangeGoogleTokens(
                 idToken: result.user.idToken?.tokenString,
                 accessToken: result.user.accessToken.tokenString,
                 nonce: rawNonce,
                 client: client
             )
+            adoptInteractiveSession(session)
         } catch {
             if let tokens = Self.liveGoogleTokens() {
-                try await exchangeGoogleTokens(
+                isLoading = true
+                let session = try await exchangeGoogleTokens(
                     idToken: tokens.idToken,
                     accessToken: tokens.accessToken,
                     nonce: rawNonce,
                     client: client
                 )
+                adoptInteractiveSession(session)
                 return
             }
             guard retryOnKeychain, Self.isGoogleKeychainNoise(error) else { throw error }
@@ -478,9 +485,9 @@ final class AuthManager {
         accessToken: String,
         nonce: String,
         client: SupabaseClient
-    ) async throws {
+    ) async throws -> Session {
         guard let idToken else { throw AuthFlowError.missingGoogleIDToken }
-        _ = try await client.auth.signInWithIdToken(
+        return try await client.auth.signInWithIdToken(
             credentials: OpenIDConnectCredentials(
                 provider: .google,
                 idToken: idToken,
@@ -520,6 +527,7 @@ final class AuthManager {
     /// `.signedIn` listener look like `sameUser` and skip `onAuthenticated`.
     private func adoptInteractiveSession(_ session: Session) {
         leftoverSignOutGeneration += 1
+        interactiveAdoptCount += 1
         CheckMedAuthPersistence.skipRestoreThisProcess = false
         apply(session: session)
         LaunchLog.auth("interactive session applied user=\(session.user.id.uuidString)")
@@ -714,10 +722,10 @@ final class AuthManager {
         let ns = error as NSError
         if ns.domain == kGIDSignInErrorDomain {
             switch ns.code {
-            case GIDSignInError.canceled.rawValue,
-                 GIDSignInError.keychain.rawValue,
-                 GIDSignInError.hasNoAuthInKeychain.rawValue:
-                return "Google sign-in didn't complete. Try again."
+            case GIDSignInError.canceled.rawValue:
+                return "Google sign-in was cancelled."
+            case GIDSignInError.keychain.rawValue, GIDSignInError.hasNoAuthInKeychain.rawValue:
+                return "Google sign-in couldn't save or restore the account on this device. Try again."
             case GIDSignInError.EMM.rawValue:
                 return "This Google account is managed by an organization and couldn't sign in here."
             case GIDSignInError.scopesAlreadyGranted.rawValue:
@@ -725,14 +733,21 @@ final class AuthManager {
             case GIDSignInError.mismatchWithCurrentUser.rawValue:
                 return "That Google account doesn't match the current user. Sign out and try again."
             default:
-                return "Google sign-in didn't complete. Try again."
+                let raw = ns.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+                if raw.isEmpty {
+                    return "Google sign-in didn't complete (error \(ns.code)). Try again."
+                }
+                return "Google sign-in didn't complete (error \(ns.code)): \(raw)"
             }
         }
         let raw = ns.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
         if raw.localizedCaseInsensitiveContains("nonce") || raw.localizedCaseInsensitiveContains("id_token") {
             return "Google sign-in couldn't be verified. Try again."
         }
-        return "Google sign-in didn't complete. Try again."
+        if raw.isEmpty {
+            return "Google sign-in didn't complete. Try again."
+        }
+        return raw
     }
 
     private static func randomNonce(length: Int = 32) -> String {
@@ -790,11 +805,7 @@ final class AuthManager {
 
     private static func isGoogleCancel(_ error: Error) -> Bool {
         let ns = error as NSError
-        if ns.domain == kGIDSignInErrorDomain && ns.code == GIDSignInError.canceled.rawValue {
-            return true
-        }
-        let raw = ns.localizedDescription.lowercased()
-        return raw.contains("canceled") || raw.contains("cancelled")
+        return ns.domain == kGIDSignInErrorDomain && ns.code == GIDSignInError.canceled.rawValue
     }
 
     /// Keychain save/restore failures are SDK persistence, not a user-facing Sign in error.
@@ -818,13 +829,28 @@ final class AuthManager {
     }
 
     private static func topViewController() -> UIViewController? {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first?.windows.first
-        var controller = window?.rootViewController
-        while let presented = controller?.presentedViewController {
-            controller = presented
+        let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = windowScenes.first(where: { $0.activationState == .foregroundActive })
+            ?? windowScenes.first
+        let windows = (scene?.windows ?? []).filter { !$0.isHidden && $0.alpha > 0 }
+        let ranked = windows.sorted { lhs, rhs in
+            if lhs.isKeyWindow != rhs.isKeyWindow { return lhs.isKeyWindow }
+            if (lhs.windowLevel == .normal) != (rhs.windowLevel == .normal) {
+                return lhs.windowLevel == .normal
+            }
+            return false
         }
-        return controller
+        for window in ranked {
+            var controller = window.rootViewController
+            while let presented = controller?.presentedViewController {
+                controller = presented
+            }
+            guard let controller else { continue }
+            if controller.viewIfLoaded?.window != nil || controller.view.window != nil {
+                return controller
+            }
+        }
+        return ranked.first?.rootViewController
     }
 }
 
