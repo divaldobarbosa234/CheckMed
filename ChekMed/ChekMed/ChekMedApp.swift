@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let missedAckFailures = await MainActor.run { MissedDosePresentationContractChecks.failures() }
             let skippedLabelFailures = CompletedSkippedLabelContractChecks.failures()
             let welcomeFailures = OnboardingWelcomeContractChecks.failures()
+            let quietDayFailures = await MainActor.run { HomeQuietDayContractChecks.failures() }
             let superTrialFailures = SuperTrialContractChecks.failures()
             let clockFailures = CheckMedClockContractChecks.failures()
             let rewardFailures = RewardEngineContractChecks.failures()
@@ -86,7 +87,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             let syncOutboxFailures = await SyncOutboxContractChecks.failures()
             let syncProtocolFailures = await SyncProtocolContractChecks.failures()
             let syncProtocolE2EFailures = await SyncProtocolE2EContractChecks.failures()
-            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + confirmSlotFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures + syncProtocolFailures + syncProtocolE2EFailures
+            let failures = doseFailures + gamificationFailures + journeyFailures + weeklyFailures + streakFailures + philFailures + prescriptionDateFailures + laterAddFailures + confirmSlotFailures + journeyTreeFailures + lifecycleFailures + capacitySafetyFailures + titleFailures + missedAckFailures + skippedLabelFailures + welcomeFailures + quietDayFailures + superTrialFailures + clockFailures + rewardFailures + syncTransportFailures + syncOutboxFailures + syncProtocolFailures + syncProtocolE2EFailures
             print("DoseLoop failures:", doseFailures)
             print("Gamification failures:", gamificationFailures)
             print("DailyJourney failures:", journeyFailures)
@@ -103,6 +104,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("MissedDosePresentation failures:", missedAckFailures)
             print("CompletedSkippedLabel failures:", skippedLabelFailures)
             print("OnboardingWelcome failures:", welcomeFailures)
+            print("HomeQuietDay failures:", quietDayFailures)
             print("SuperTrial failures:", superTrialFailures)
             print("TestClock failures:", clockFailures)
             print("RewardEngine failures:", rewardFailures)
@@ -127,6 +129,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                 "MissedDosePresentation failures: \(missedAckFailures)",
                 "CompletedSkippedLabel failures: \(skippedLabelFailures)",
                 "OnboardingWelcome failures: \(welcomeFailures)",
+                "HomeQuietDay failures: \(quietDayFailures)",
                 "SuperTrial failures: \(superTrialFailures)",
                 "TestClock failures: \(clockFailures)",
                 "RewardEngine failures: \(rewardFailures)",
@@ -161,6 +164,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     missedAckFailures.isEmpty ? nil : "MISSED DOSE PRESENTATION FAILURE: \(missedAckFailures.joined(separator: "; "))",
                     skippedLabelFailures.isEmpty ? nil : "COMPLETED SKIPPED LABEL FAILURE: \(skippedLabelFailures.joined(separator: "; "))",
                     welcomeFailures.isEmpty ? nil : "ONBOARDING WELCOME FAILURE: \(welcomeFailures.joined(separator: "; "))",
+                    quietDayFailures.isEmpty ? nil : "HOME QUIET DAY FAILURE: \(quietDayFailures.joined(separator: "; "))",
                     superTrialFailures.isEmpty ? nil : "SUPER TRIAL FAILURE: \(superTrialFailures.joined(separator: "; "))",
                     clockFailures.isEmpty ? nil : "TEST CLOCK FAILURE: \(clockFailures.joined(separator: "; "))",
                     journeyTreeFailures.isEmpty ? nil : "JOURNEY TREE FAILURE: \(journeyTreeFailures.joined(separator: "; "))",

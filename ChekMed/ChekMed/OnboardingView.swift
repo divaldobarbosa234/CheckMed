@@ -74,7 +74,7 @@ struct FirstTimeOnboardingView: View {
 
     var body: some View {
         ZStack {
-            switch phase {
+            switch displayedPhase {
             case .splash:
                 SplashView {
                     session.markIntroSplashSeen()
@@ -323,6 +323,15 @@ struct FirstTimeOnboardingView: View {
         }
         .onChange(of: session.kind) { oldKind, kind in
             if oldKind == .authenticated, !session.isSessionUnlocked {
+                if !SessionStore.shouldReplayIntroSplashAfterSignOut(
+                    pendingInstallOwnerMismatch: session.pendingInstallOwnerMismatch
+                ) {
+                    afterSplash = .signIn
+                    if phase != .signIn {
+                        advance(to: .signIn, persist: true, animated: false)
+                    }
+                    return
+                }
                 if phase.requiresAuth { return }
                 afterSplash = .language
                 didBootstrapPhase = false
@@ -347,8 +356,14 @@ struct FirstTimeOnboardingView: View {
     }
 
     private func replayOnboardingIfUnsignedAfterLeaving(_ phase: ScenePhase) {
-        guard !session.isSessionUnlocked else { return }
-        guard !session.auth.isRestoring, !session.isLoading, session.userDataLoadState != .loading else { return }
+        guard SessionStore.shouldRestartPreAuthOnBackground(
+            isSessionUnlocked: session.isSessionUnlocked,
+            isRestoring: session.auth.isRestoring,
+            isLoading: session.isLoading,
+            isUserDataLoading: session.userDataLoadState == .loading,
+            isProviderAuthenticationUIPresented: session.auth.isProviderAuthenticationUIPresented,
+            pendingInstallOwnerMismatch: session.pendingInstallOwnerMismatch
+        ) else { return }
         if phase == .background {
             session.restartPreAuthOnboarding()
             afterSplash = .language
@@ -507,11 +522,40 @@ struct FirstTimeOnboardingView: View {
         }
     }
 
+    /// Default `@State phase` is `.splash`. After post-auth remount, do not render
+    /// OPEN Splash while bootstrap catches up — resume Welcome / Care Context.
+    private var displayedPhase: FirstTimePhase {
+        if session.pendingInstallOwnerMismatch, phase == .splash {
+            return .signIn
+        }
+        if phase == .splash, !shouldReplayIntroSplashNow {
+            return firstTimePhaseAfterSignIn()
+        }
+        return phase
+    }
+
+    private var shouldReplayIntroSplashNow: Bool {
+        OnboardingWelcomeRouting.shouldReplayIntroSplashOnBootstrap(
+            isSessionUnlocked: session.isSessionUnlocked,
+            hasCompletedSignInThisInstall: session.hasCompletedSignInThisInstall,
+            pendingInstallOwnerMismatch: session.pendingInstallOwnerMismatch,
+            introSplashUnseen: session.shouldPlayIntroSplash,
+            isRestoring: session.auth.isRestoring,
+            isUserDataLoading: session.userDataLoadState == .loading
+        )
+    }
+
     private func bootstrapPhase() {
+        if session.pendingInstallOwnerMismatch {
+            afterSplash = .signIn
+            didBootstrapPhase = true
+            phase = .signIn
+            return
+        }
         if !didBootstrapPhase, session.consumeIncompleteColdLaunchIfNeeded() {
             afterSplash = nextPreAuthPhase(saved: .language)
             didBootstrapPhase = true
-            phase = session.auth.isRestoring ? afterSplash : .splash
+            phase = introSplashPhase(fallback: afterSplash)
             return
         }
         afterSplash = destinationAfterSplash()
@@ -525,21 +569,29 @@ struct FirstTimeOnboardingView: View {
         if !session.hasFinishedPreAuthFunnel {
             afterSplash = nextPreAuthPhase(saved: .language)
             didBootstrapPhase = true
-            phase = session.auth.isRestoring ? afterSplash : .splash
+            phase = introSplashPhase(fallback: afterSplash)
             return
         }
-        if !session.isSessionUnlocked, !session.auth.isRestoring, !session.isLoading, session.userDataLoadState != .loading {
+        if !session.isSessionUnlocked,
+           !session.auth.isRestoring,
+           !session.isLoading,
+           !session.auth.isProviderAuthenticationUIPresented,
+           session.userDataLoadState != .loading {
             session.restartPreAuthOnboarding()
             afterSplash = .language
         }
         didBootstrapPhase = true
-        if session.shouldPlayIntroSplash, !session.auth.isRestoring, session.userDataLoadState != .loading {
+        if shouldReplayIntroSplashNow {
             phase = .splash
         } else {
             session.markIntroSplashSeen()
             phase = afterSplash
         }
         routeAfterAuthIfNeeded()
+    }
+
+    private func introSplashPhase(fallback: FirstTimePhase) -> FirstTimePhase {
+        shouldReplayIntroSplashNow ? .splash : fallback
     }
 
     /// Alarms → notifications → trial → Phil. Never jump to Home from journey.

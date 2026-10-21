@@ -288,6 +288,8 @@ final class SessionStore {
     private var isHandlingAuth = false
     @ObservationIgnored
     private var isRejectingInstallOwner = false
+    /// Presentation hold after fail-closed install-owner reject. Not ownership state.
+    private(set) var pendingInstallOwnerMismatch = false
     /// Last user whose data restore completed this process (idempotent).
     private var completedRestoreUserId: UUID?
     private var inFlightRestoreId: UUID?
@@ -863,6 +865,7 @@ final class SessionStore {
     /// Language and appearance stay. Do not call while a provider sheet is in progress.
     func restartPreAuthOnboarding() {
         guard kind != .authenticated, !auth.isRestoring else { return }
+        guard !auth.isProviderAuthenticationUIPresented else { return }
         localOnboardingComplete = false
         localOnboardingPaywallOffered = false
         localPrivacyAcknowledged = false
@@ -1165,6 +1168,33 @@ final class SessionStore {
     var googleConfigured: Bool { auth.isGoogleConfigured }
     var isRestoring: Bool { auth.isRestoring }
     var isLoading: Bool { auth.isLoading }
+
+    /// Scene `.background` may restart the unsigned funnel, except during Google/Apple UI
+    /// or while Sign-in is holding an install-owner mismatch.
+    static func shouldRestartPreAuthOnBackground(
+        isSessionUnlocked: Bool,
+        isRestoring: Bool,
+        isLoading: Bool,
+        isUserDataLoading: Bool,
+        isProviderAuthenticationUIPresented: Bool,
+        pendingInstallOwnerMismatch: Bool = false
+    ) -> Bool {
+        guard !pendingInstallOwnerMismatch else { return false }
+        guard !isSessionUnlocked else { return false }
+        guard !isRestoring, !isLoading, !isUserDataLoading else { return false }
+        guard !isProviderAuthenticationUIPresented else { return false }
+        return true
+    }
+
+    /// Rejected install-owner sessions stay on Sign-in. Other unsigned drops may replay splash.
+    static func shouldReplayIntroSplashAfterSignOut(pendingInstallOwnerMismatch: Bool) -> Bool {
+        !pendingInstallOwnerMismatch
+    }
+
+    /// SignInView must not erase the mismatch copy on appear while the hold is active.
+    static func shouldClearSignInMessagesOnAppear(pendingInstallOwnerMismatch: Bool) -> Bool {
+        !pendingInstallOwnerMismatch
+    }
     var hasAppleIdentity: Bool { auth.hasAppleIdentity }
     var errorMessage: String? { auth.errorMessage }
     var lastAuthNote: String? { auth.statusMessage }
@@ -1531,10 +1561,20 @@ final class SessionStore {
     func noteInstallOwnerRejected() {
         guard !isRejectingInstallOwner else { return }
         isRejectingInstallOwner = true
+        #if DEBUG
+        AuthTransitionDiagnostics.record(fields: [
+            "site=SessionStore.noteInstallOwnerRejected",
+            "wasAuthenticated=\(auth.isAuthenticated)",
+            "boundPresent=\(InstallAccountGuard.boundOwnerId() != nil)",
+        ])
+        #endif
         LaunchLog.auth(
             "install owner guard reject user=\(auth.userId?.uuidString ?? "nil") "
                 + "bound=\(InstallAccountGuard.boundOwnerId()?.uuidString ?? "nil")"
         )
+        if !pendingInstallOwnerMismatch {
+            pendingInstallOwnerMismatch = true
+        }
         auth.presentError(t(.installAccountMismatch))
         Task { @MainActor in
             await auth.signOut()
@@ -1567,12 +1607,25 @@ final class SessionStore {
             )
         } else {
             LaunchLog.auth("install owner guard fail-closed: store owners unavailable")
+            #if DEBUG
+            AuthTransitionDiagnostics.record(fields: [
+                "site=authorizeInstallOwnerOrReject.ownersUnavailable",
+                "decision=reject",
+                "boundPresent=\(persisted != nil)",
+            ])
+            #endif
             decision = .reject
         }
         switch decision {
         case .allow:
+            if pendingInstallOwnerMismatch {
+                pendingInstallOwnerMismatch = false
+            }
             return true
         case .claim:
+            if pendingInstallOwnerMismatch {
+                pendingInstallOwnerMismatch = false
+            }
             claimInstallOwnerIfNeeded(incoming)
             return true
         case .reject:

@@ -20,17 +20,33 @@ enum InstallAccountGuard {
         localOwner: UUID,
         existingOwners: Set<UUID>
     ) -> Decision {
+        let decision: Decision
         if let persistedBound {
-            return persistedBound == incoming ? .allow : .reject
+            decision = persistedBound == incoming ? .allow : .reject
+        } else {
+            let foreign = existingOwners.filter { $0 != localOwner }
+            if foreign.count > 1 {
+                decision = .reject
+            } else if foreign.isEmpty {
+                decision = .claim
+            } else {
+                decision = foreign.contains(incoming) ? .claim : .reject
+            }
         }
-        let foreign = existingOwners.filter { $0 != localOwner }
-        if foreign.count > 1 {
-            return .reject
-        }
-        if foreign.isEmpty {
-            return .claim
-        }
-        return foreign.contains(incoming) ? .claim : .reject
+        #if DEBUG
+        let foreignCount = existingOwners.filter { $0 != localOwner }.count
+        AuthTransitionDiagnostics.record(fields: [
+            "site=InstallAccountGuard.evaluate",
+            "decision=\(decision)",
+            "boundPresent=\(persistedBound != nil)",
+            "incomingEqualsBound=\(persistedBound.map { $0 == incoming } ?? false)",
+            "incomingEqualsLocal=\(incoming == localOwner)",
+            "incomingInExistingOwners=\(existingOwners.contains(incoming))",
+            "existingOwnerCount=\(existingOwners.count)",
+            "foreignOwnerCount=\(foreignCount)",
+        ])
+        #endif
+        return decision
     }
 
     static func boundOwnerId(defaults: UserDefaults = .standard) -> UUID? {

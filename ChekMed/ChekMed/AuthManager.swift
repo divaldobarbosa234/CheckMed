@@ -55,6 +55,11 @@ enum AppleDeletionAuthFailure: Error {
 final class AuthManager {
     private(set) var isRestoring = true
     private(set) var isLoading = false
+    /// True from just before Google/Apple provider UI is presented until that call returns.
+    /// Separate from `isLoading`: Google must keep `isLoading == false` while GID presents
+    /// (`SignInView` disables the host when loading). Scene `.background` during that UI
+    /// must not restart pre-auth onboarding.
+    private(set) var isProviderAuthenticationUIPresented = false
     private(set) var isAuthenticated = false
     private(set) var displayName = "friend"
     private(set) var companionName = "Phil"
@@ -105,6 +110,9 @@ final class AuthManager {
     private var sawInitialSession = false
     /// Invalidates leftover Keychain sign-out so it cannot wipe a live Google session.
     private var leftoverSignOutGeneration = 0
+    #if DEBUG
+    private var applySite = "apply"
+    #endif
     private let appleSignIn = AppleSignInCoordinator()
     private var pendingAppleDisplayName: String?
 
@@ -123,12 +131,24 @@ final class AuthManager {
         if skipPersistedSession {
             leftoverSignOutGeneration += 1
             let generation = leftoverSignOutGeneration
+            #if DEBUG
+            AuthTransitionDiagnostics.record(fields: [
+                "site=leftoverSignOut.start",
+                "generation=\(generation)",
+                "wasAuthenticated=\(isAuthenticated)",
+            ])
+            applySite = "leftoverSignOut.startApply"
+            #endif
             apply(session: nil)
             releaseRestoreGate(reason: "new install")
             #if DEBUG
             if CheckMedLocalIsolation.isRequested(environment: ProcessInfo.processInfo.environment) {
                 GIDSignIn.sharedInstance.signOut()
                 LaunchLog.auth("isolation skip leftover remote signOut")
+                AuthTransitionDiagnostics.record(fields: [
+                    "site=leftoverSignOut.isolationSkipRemote",
+                    "generation=\(generation)",
+                ])
                 return
             }
             #endif
@@ -136,6 +156,13 @@ final class AuthManager {
                 GIDSignIn.sharedInstance.signOut()
                 guard let self, generation == self.leftoverSignOutGeneration, !self.isAuthenticated else {
                     LaunchLog.auth("skip leftover signOut — Google/session already present")
+                    #if DEBUG
+                    AuthTransitionDiagnostics.record(fields: [
+                        "site=leftoverSignOut.skipBeforeRemote",
+                        "generationMatch=\(self?.leftoverSignOutGeneration == generation)",
+                        "wasAuthenticated=\(self?.isAuthenticated ?? false)",
+                    ])
+                    #endif
                     return
                 }
                 do {
@@ -147,8 +174,23 @@ final class AuthManager {
                 }
                 guard generation == self.leftoverSignOutGeneration, !self.isAuthenticated else {
                     LaunchLog.auth("skip leftover signOut apply — session already present")
+                    #if DEBUG
+                    AuthTransitionDiagnostics.record(fields: [
+                        "site=leftoverSignOut.skipAfterRemote",
+                        "generationMatch=\(generation == self.leftoverSignOutGeneration)",
+                        "wasAuthenticated=\(self.isAuthenticated)",
+                    ])
+                    #endif
                     return
                 }
+                #if DEBUG
+                AuthTransitionDiagnostics.record(fields: [
+                    "site=leftoverSignOut.applyAfterRemote",
+                    "generation=\(generation)",
+                    "wasAuthenticated=\(self.isAuthenticated)",
+                ])
+                self.applySite = "leftoverSignOut.applyAfterRemote"
+                #endif
                 self.apply(session: nil)
             }
         }
@@ -208,6 +250,14 @@ final class AuthManager {
     }
 
     func signOut() async {
+        #if DEBUG
+        AuthTransitionDiagnostics.record(fields: [
+            "site=AuthManager.signOut",
+            "wasAuthenticated=\(isAuthenticated)",
+            "hasClient=\(client != nil)",
+        ])
+        applySite = "AuthManager.signOut"
+        #endif
         GIDSignIn.sharedInstance.signOut()
         guard let client else {
             apply(session: nil)
@@ -218,6 +268,9 @@ final class AuthManager {
         } catch {
             errorMessage = Self.message(for: error)
         }
+        #if DEBUG
+        applySite = "AuthManager.signOut.afterRemote"
+        #endif
         apply(session: nil)
     }
 
@@ -285,6 +338,13 @@ final class AuthManager {
         if let client {
             try? await client.auth.signOut(scope: .local)
         }
+        #if DEBUG
+        AuthTransitionDiagnostics.record(fields: [
+            "site=clearSessionAfterRemoteAccountDeletion",
+            "wasAuthenticated=\(isAuthenticated)",
+        ])
+        applySite = "clearSessionAfterRemoteAccountDeletion"
+        #endif
         apply(session: nil)
     }
 
@@ -297,6 +357,11 @@ final class AuthManager {
             return
         }
 
+        isProviderAuthenticationUIPresented = true
+        defer {
+            isProviderAuthenticationUIPresented = false
+            isLoading = false
+        }
         isLoading = true
         do {
             let rawNonce = Self.randomNonce()
@@ -318,7 +383,6 @@ final class AuthManager {
                 errorMessage = Self.appleMessage(for: error)
             }
         }
-        isLoading = false
     }
 
     func signInWithGoogle() async {
@@ -338,10 +402,22 @@ final class AuthManager {
             return
         }
 
+        // Mark in-flight before leftover-generation or GID presents.
+        // Do not set isLoading here: SignInView disables the hosting controller
+        // while isLoading, which can prevent the Google sheet from appearing.
+        isProviderAuthenticationUIPresented = true
+        defer {
+            isProviderAuthenticationUIPresented = false
+            isLoading = false
+        }
         leftoverSignOutGeneration += 1
-        // Do not set isLoading before GID presents. SignInView disables the
-        // hosting controller while isLoading, which can prevent the Google
-        // sheet from appearing and then look like a dead tap.
+        #if DEBUG
+        AuthTransitionDiagnostics.record(fields: [
+            "site=signInWithGoogle.bumpLeftoverGeneration",
+            "generation=\(leftoverSignOutGeneration)",
+            "wasAuthenticated=\(isAuthenticated)",
+        ])
+        #endif
         LaunchLog.auth("Starting Google sign-in presenter=\(type(of: presenter))")
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleClientID)
 
@@ -362,7 +438,6 @@ final class AuthManager {
                 errorMessage = Self.googleMessage(for: error)
             }
         }
-        isLoading = false
     }
 
     static let missingGoogleClientIDMessage = """
@@ -529,6 +604,14 @@ final class AuthManager {
         leftoverSignOutGeneration += 1
         interactiveAdoptCount += 1
         CheckMedAuthPersistence.skipRestoreThisProcess = false
+        #if DEBUG
+        AuthTransitionDiagnostics.record(fields: [
+            "site=adoptInteractiveSession",
+            "wasAuthenticated=\(isAuthenticated)",
+            "hasSession=true",
+        ])
+        applySite = "adoptInteractiveSession"
+        #endif
         apply(session: session)
         LaunchLog.auth("interactive session applied user=\(session.user.id.uuidString)")
         Task { [weak self] in
@@ -544,7 +627,19 @@ final class AuthManager {
             "Auth listener fired event=\(event) count=\(authEventCount) hasSession=\(session != nil) "
                 + "user=\(session?.user.id.uuidString ?? "nil")"
         )
+        #if DEBUG
+        AuthTransitionDiagnostics.record(fields: [
+            "site=handleAuthChange",
+            "event=\(event)",
+            "hasSession=\(session != nil)",
+            "wasAuthenticated=\(isAuthenticated)",
+            "skipRestore=\(CheckMedAuthPersistence.skipRestoreThisProcess)",
+        ])
+        #endif
         if CheckMedAuthPersistence.skipRestoreThisProcess, event == .initialSession {
+            #if DEBUG
+            applySite = "handleAuthChange.ignoreLeftoverInitialSession"
+            #endif
             apply(session: nil)
             releaseRestoreGate(reason: "ignore leftover session")
             LaunchLog.auth("checkingSession ignore leftover session (new install)")
@@ -560,6 +655,9 @@ final class AuthManager {
         }
         let wasAuthenticated = isAuthenticated
         let sameUser = wasAuthenticated && session?.user.id != nil && session?.user.id == userId
+        #if DEBUG
+        applySite = "handleAuthChange.\(event)"
+        #endif
         apply(session: session)
         // Session known — leave the branded restore screen before any profile/replica work.
         if event == .initialSession || event == .signedOut || session != nil {
@@ -596,6 +694,19 @@ final class AuthManager {
 
     private func apply(session: Session?) {
         let wasAuthenticated = isAuthenticated
+        #if DEBUG
+        let site = applySite
+        applySite = "apply"
+        if wasAuthenticated != (session != nil) {
+            AuthTransitionDiagnostics.record(fields: [
+                "site=apply",
+                "callSite=\(site)",
+                "wasAuthenticated=\(wasAuthenticated)",
+                "willAuthenticate=\(session != nil)",
+                "transition=\(wasAuthenticated && session == nil ? "authenticated->unsigned" : (!wasAuthenticated && session != nil ? "unsigned->authenticated" : "unchanged"))",
+            ])
+        }
+        #endif
         isAuthenticated = session != nil
         email = session?.user.email
         if session != nil, !wasAuthenticated {

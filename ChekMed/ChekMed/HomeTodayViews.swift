@@ -26,6 +26,95 @@ enum HomePlanPresentationMapper {
     }
 }
 
+/// Read-only quiet-day Home row. Never an actionable today dose.
+struct HomeQuietDayMedicine: Identifiable, Equatable {
+    var id: UUID
+    var name: String
+    var detail: String
+    var nextScheduledAt: Date?
+}
+
+struct HomeQuietDayMedicineProbe: Equatable {
+    var id: UUID
+    var treatmentId: UUID
+    var name: String
+    var detail: String
+}
+
+struct HomeQuietDayLogProbe: Equatable {
+    var medicineId: UUID
+    var scheduledAt: Date
+    var isEligibleNextDose: Bool
+}
+
+/// Presentation-only. CURRENT medicines + earliest future pending/snoozed DoseLog.
+enum HomeQuietDayPresentationMapper {
+    /// Quiet-day "Next dose" only. Does not change canonical `DoseLogStatus.isOpen`.
+    static func isEligibleNextDose(_ status: DoseLogStatus) -> Bool {
+        status == .pending || status == .snoozed
+    }
+
+    static func showsUpcomingChip(nextScheduledAt: Date?) -> Bool {
+        nextScheduledAt != nil
+    }
+
+    static func rows(
+        currentTreatmentIds: Set<UUID>,
+        medicines: [HomeQuietDayMedicineProbe],
+        logs: [HomeQuietDayLogProbe],
+        now: Date
+    ) -> [HomeQuietDayMedicine] {
+        var unique: [UUID: HomeQuietDayMedicineProbe] = [:]
+        for medicine in medicines {
+            guard currentTreatmentIds.contains(medicine.treatmentId) else { continue }
+            unique[medicine.id] = medicine
+        }
+        var nextByMedicine: [UUID: Date] = [:]
+        for log in logs {
+            guard unique[log.medicineId] != nil else { continue }
+            guard log.isEligibleNextDose, log.scheduledAt > now else { continue }
+            if let existing = nextByMedicine[log.medicineId], existing <= log.scheduledAt {
+                continue
+            }
+            nextByMedicine[log.medicineId] = log.scheduledAt
+        }
+        return unique.values
+            .map { medicine in
+                HomeQuietDayMedicine(
+                    id: medicine.id,
+                    name: medicine.name,
+                    detail: medicine.detail,
+                    nextScheduledAt: nextByMedicine[medicine.id]
+                )
+            }
+            .sorted { lhs, rhs in
+                switch (lhs.nextScheduledAt, rhs.nextScheduledAt) {
+                case let (left?, right?) where left != right:
+                    return left < right
+                case (_?, nil):
+                    return true
+                case (nil, _?):
+                    return false
+                default:
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+            }
+    }
+
+    static func formatNextScheduledAt(
+        _ date: Date,
+        calendar: Calendar,
+        locale: Locale
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.setLocalizedDateFormatFromTemplate("dMMMHHmm")
+        return formatter.string(from: date)
+    }
+}
+
 /// Compact week orientation. Uses canonical weekly snapshots when present; otherwise calendar days only.
 struct ConnyWeekStrip: View {
     @Environment(SessionStore.self) private var session
@@ -386,6 +475,112 @@ struct HomePrimaryActionsRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+}
+
+struct HomeQuietDayMedicinesCard: View {
+    @Environment(SessionStore.self) private var session
+    let rows: [HomeQuietDayMedicine]
+    var onSelect: (UUID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                Image(systemName: "pills.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(CheckMedTheme.flowDot)
+                    .frame(width: 32, height: 32)
+                    .background(CheckMedTheme.philFlowCanvas, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(session.t(.homeQuietDayMedicines))
+                        .font(.system(.headline, design: .rounded).weight(.heavy))
+                    Text(session.t(.challengeNoDosesToday))
+                        .font(.system(.caption, design: .rounded).weight(.semibold))
+                        .foregroundStyle(CheckMedTheme.muted)
+                }
+                Spacer()
+            }
+            VStack(spacing: 0) {
+                ForEach(rows) { row in
+                    Button {
+                        onSelect(row.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "pills.fill")
+                                .foregroundStyle(CheckMedTheme.flowDot)
+                                .frame(width: 36, height: 36)
+                                .background(
+                                    CheckMedTheme.philFlowCanvas,
+                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                )
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(row.name)
+                                    .font(.system(.subheadline, design: .rounded).weight(.heavy))
+                                    .foregroundStyle(CheckMedTheme.ink)
+                                    .lineLimit(1)
+                                if !row.detail.isEmpty {
+                                    Text(row.detail)
+                                        .font(.system(.caption2, design: .rounded).weight(.bold))
+                                        .foregroundStyle(CheckMedTheme.muted)
+                                        .lineLimit(1)
+                                }
+                                Text(nextLine(for: row))
+                                    .font(.system(.caption2, design: .rounded).weight(.bold))
+                                    .foregroundStyle(CheckMedTheme.muted)
+                                    .lineLimit(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 6)
+                            if HomeQuietDayPresentationMapper.showsUpcomingChip(nextScheduledAt: row.nextScheduledAt) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "clock")
+                                        .font(.system(size: 10, weight: .bold))
+                                    Text(session.t(.homeStatusUpcoming))
+                                        .font(.system(.caption2, design: .rounded).weight(.heavy))
+                                }
+                                .foregroundStyle(CheckMedTheme.muted)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(CheckMedTheme.muted.opacity(0.16), in: Capsule())
+                            }
+                        }
+                        .padding(.vertical, 4)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(accessibilityLabel(for: row))
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(CheckMedTheme.hairline, lineWidth: 1.5)
+        )
+        .shadow(color: CheckMedTheme.navy.opacity(0.06), radius: 14, y: 6)
+    }
+
+    private func nextLine(for row: HomeQuietDayMedicine) -> String {
+        guard let next = row.nextScheduledAt else {
+            return session.t(.homeNoUpcomingDose)
+        }
+        return session.t(
+            .homeNextDoseAt,
+            HomeQuietDayPresentationMapper.formatNextScheduledAt(
+                next,
+                calendar: session.foundationCalendar,
+                locale: session.locale.foundationLocale
+            )
+        )
+    }
+
+    private func accessibilityLabel(for row: HomeQuietDayMedicine) -> String {
+        [row.name, row.detail, nextLine(for: row)]
+            .filter { !$0.isEmpty }
+            .joined(separator: ", ")
     }
 }
 

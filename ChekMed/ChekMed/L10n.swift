@@ -366,6 +366,7 @@ enum L10n {
         case homePrimaryActions, homeYoureDoingWell, homeFinishDayOne, homeFinishDayMany
         case homeTreatmentCompleteTitle, homeTreatmentCompleteBody
         case homeActiveNoDosesToday, homeFutureTreatmentBody
+        case homeQuietDayMedicines, homeNextDoseAt, homeNoUpcomingDose
         case progressThisWeek, progressSeeDetails, progressDaysCompletedStat, progressWeekPercentStat
         case progressJourneyBannerTitle, progressJourneyBannerBody
         case badgesSeeAll
@@ -711,6 +712,9 @@ enum L10n {
         .homeTreatmentCompleteTitle: "Treatment completed",
         .homeTreatmentCompleteBody: "Beautiful work. You can view your report or add another prescription when you’re ready.",
         .homeActiveNoDosesToday: "Nothing is scheduled for today. Your treatment is still active.",
+        .homeQuietDayMedicines: "Your medicines",
+        .homeNextDoseAt: "Next dose: %@",
+        .homeNoUpcomingDose: "No upcoming dose scheduled",
         .homeFutureTreatmentBody: "This treatment hasn’t started yet. You can review it in Treatments.",
         .homeFriendName: "friend",
         .homeMoodGreat: "Great",
@@ -1897,6 +1901,9 @@ enum L10n {
         .homeTreatmentCompleteTitle: "Tratamento concluído",
         .homeTreatmentCompleteBody: "Lindo trabalho. Você pode ver o relatório ou adicionar outra receita quando estiver pronto.",
         .homeActiveNoDosesToday: "Nada está agendado para hoje. Seu tratamento continua ativo.",
+        .homeQuietDayMedicines: "Seus medicamentos",
+        .homeNextDoseAt: "Próxima dose: %@",
+        .homeNoUpcomingDose: "Nenhuma dose seguinte agendada",
         .homeFutureTreatmentBody: "Este tratamento ainda não começou. Você pode vê-lo em Tratamentos.",
         .homeFriendName: "amigo",
         .homeMoodGreat: "Ótimo",
@@ -3083,6 +3090,9 @@ enum L10n {
         .homeTreatmentCompleteTitle: "Tratamiento completado",
         .homeTreatmentCompleteBody: "Hermoso trabajo. Puedes ver tu informe o añadir otra receta cuando quieras.",
         .homeActiveNoDosesToday: "Hoy no hay dosis programadas. Tu tratamiento sigue activo.",
+        .homeQuietDayMedicines: "Tus medicamentos",
+        .homeNextDoseAt: "Próxima dosis: %@",
+        .homeNoUpcomingDose: "No hay una próxima dosis programada",
         .homeFutureTreatmentBody: "Este tratamiento aún no ha empezado. Puedes verlo en Tratamientos.",
         .homeFriendName: "amigo",
         .homeMoodGreat: "Genial",
@@ -4269,6 +4279,9 @@ enum L10n {
         .homeTreatmentCompleteTitle: "Traitement terminé",
         .homeTreatmentCompleteBody: "Beau travail. Vous pouvez voir le rapport ou ajouter une autre ordonnance quand vous serez prêt.",
         .homeActiveNoDosesToday: "Rien n’est prévu aujourd’hui. Votre traitement reste actif.",
+        .homeQuietDayMedicines: "Vos médicaments",
+        .homeNextDoseAt: "Prochaine dose : %@",
+        .homeNoUpcomingDose: "Aucune dose suivante prévue",
         .homeFutureTreatmentBody: "Ce traitement n’a pas encore commencé. Vous pouvez le voir dans Traitements.",
         .homeFriendName: "ami",
         .homeMoodGreat: "Super",

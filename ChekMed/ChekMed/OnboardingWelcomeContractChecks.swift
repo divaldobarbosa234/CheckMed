@@ -616,6 +616,141 @@ enum OnboardingWelcomeContractChecks {
             )
         }
 
+        expect(
+            SessionStore.shouldRestartPreAuthOnBackground(
+                isSessionUnlocked: false,
+                isRestoring: false,
+                isLoading: false,
+                isUserDataLoading: false,
+                isProviderAuthenticationUIPresented: false
+            ),
+            "AUTH: unsigned background without provider UI still restarts pre-auth"
+        )
+        expect(
+            !SessionStore.shouldRestartPreAuthOnBackground(
+                isSessionUnlocked: false,
+                isRestoring: false,
+                isLoading: false,
+                isUserDataLoading: false,
+                isProviderAuthenticationUIPresented: true
+            ),
+            "AUTH: Google/Apple provider UI background must not restart pre-auth (isLoading may be false)"
+        )
+        expect(
+            !SessionStore.shouldRestartPreAuthOnBackground(
+                isSessionUnlocked: false,
+                isRestoring: false,
+                isLoading: true,
+                isUserDataLoading: false,
+                isProviderAuthenticationUIPresented: false
+            ),
+            "AUTH: isLoading still suppresses pre-auth restart"
+        )
+        expect(
+            !SessionStore.shouldRestartPreAuthOnBackground(
+                isSessionUnlocked: true,
+                isRestoring: false,
+                isLoading: false,
+                isUserDataLoading: false,
+                isProviderAuthenticationUIPresented: false
+            ),
+            "AUTH: unlocked session never restarts pre-auth from background"
+        )
+        expect(
+            !SessionStore.shouldRestartPreAuthOnBackground(
+                isSessionUnlocked: false,
+                isRestoring: false,
+                isLoading: false,
+                isUserDataLoading: false,
+                isProviderAuthenticationUIPresented: false,
+                pendingInstallOwnerMismatch: true
+            ),
+            "AUTH: install-owner reject must not restart pre-auth from background"
+        )
+        expect(
+            SessionStore.shouldReplayIntroSplashAfterSignOut(pendingInstallOwnerMismatch: false),
+            "AUTH: ordinary unsigned drop may still replay intro splash"
+        )
+        expect(
+            !SessionStore.shouldReplayIntroSplashAfterSignOut(pendingInstallOwnerMismatch: true),
+            "AUTH: install-owner reject must not replay intro splash"
+        )
+        expect(
+            !OnboardingWelcomeRouting.shouldReplayIntroSplashOnBootstrap(
+                isSessionUnlocked: true,
+                hasCompletedSignInThisInstall: true,
+                pendingInstallOwnerMismatch: false,
+                introSplashUnseen: true,
+                isRestoring: false,
+                isUserDataLoading: false
+            ),
+            "O0: authenticated remount after this-install Sign-in never replays OPEN Splash"
+        )
+        expect(
+            OnboardingWelcomeRouting.hostPhase(firstTime) == .welcome,
+            "O0: authenticated remount resumes Welcome, not Splash"
+        )
+        expect(
+            OnboardingWelcomeRouting.hostPhase(afterWelcome) == .careContext,
+            "O2: authenticated remount after Welcome resumes Care Context, not Splash"
+        )
+        expect(
+            OnboardingWelcomeRouting.shouldReplayIntroSplashOnBootstrap(
+                isSessionUnlocked: false,
+                hasCompletedSignInThisInstall: false,
+                pendingInstallOwnerMismatch: false,
+                introSplashUnseen: true,
+                isRestoring: false,
+                isUserDataLoading: false
+            ),
+            "O0: unsigned intro still shows OPEN Splash"
+        )
+        expect(
+            OnboardingWelcomeRouting.shouldReplayIntroSplashOnBootstrap(
+                isSessionUnlocked: false,
+                hasCompletedSignInThisInstall: false,
+                pendingInstallOwnerMismatch: false,
+                introSplashUnseen: true,
+                isRestoring: false,
+                isUserDataLoading: false
+            ) && SessionStore.shouldReplayIntroSplashAfterSignOut(pendingInstallOwnerMismatch: false),
+            "AUTH: manual sign-out still replays introductory Splash"
+        )
+        expect(
+            !OnboardingWelcomeRouting.shouldReplayIntroSplashOnBootstrap(
+                isSessionUnlocked: false,
+                hasCompletedSignInThisInstall: true,
+                pendingInstallOwnerMismatch: true,
+                introSplashUnseen: true,
+                isRestoring: false,
+                isUserDataLoading: false
+            ),
+            "AUTH: install-owner mismatch bootstrap stays off Splash"
+        )
+        expect(
+            !OnboardingWelcomeRouting.shouldReplayIntroSplashOnBootstrap(
+                isSessionUnlocked: true,
+                hasCompletedSignInThisInstall: true,
+                pendingInstallOwnerMismatch: false,
+                introSplashUnseen: true,
+                isRestoring: true,
+                isUserDataLoading: false
+            ),
+            "O0: restoring authenticated session does not replay OPEN Splash"
+        )
+        expect(
+            SessionStore.shouldClearSignInMessagesOnAppear(pendingInstallOwnerMismatch: false),
+            "AUTH: ordinary Sign-in appear still clears leftover banners"
+        )
+        expect(
+            !SessionStore.shouldClearSignInMessagesOnAppear(pendingInstallOwnerMismatch: true),
+            "AUTH: Sign-in appear must keep install-owner mismatch copy"
+        )
+        expect(
+            !L10n.string(.installAccountMismatch, locale: .english).isEmpty,
+            "AUTH: install-owner mismatch explanation exists"
+        )
+
         return failures
     }
 }

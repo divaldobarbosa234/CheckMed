@@ -69,8 +69,14 @@ struct SignInView: View {
             showBanner(note, isError: false)
         }
         .onAppear {
-            session.auth.clearMessages()
-            toast = nil
+            if SessionStore.shouldClearSignInMessagesOnAppear(
+                pendingInstallOwnerMismatch: session.pendingInstallOwnerMismatch
+            ) {
+                session.auth.clearMessages()
+                toast = nil
+            } else if let message = session.auth.errorMessage, !message.isEmpty {
+                toast = Banner(text: message, isError: true)
+            }
             readyForBanners = true
             applyDebugLaunchHooks()
         }

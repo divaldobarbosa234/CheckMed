@@ -402,14 +402,7 @@ struct HomeView: View {
                 primaryAction: { navPath.append(AppRoute.treatmentOverview) }
             )
         case .activeQuietDay:
-            HomeStatusCard(
-                title: session.t(.challengeNoDosesToday),
-                bodyText: session.t(.homeActiveNoDosesToday),
-                primaryTitle: session.t(.tabTreatments),
-                primaryAction: { navPath.append(AppRoute.treatmentOverview) },
-                secondaryTitle: session.t(.myProgress),
-                secondaryAction: { navPath.append(AppRoute.progressDashboard) }
-            )
+            quietDayStack()
         case .activeToday:
             activeTodayStack(game: game, nodes: nodes)
         }
@@ -418,6 +411,26 @@ struct HomeView: View {
             onCalendar: { navPath.append(AppRoute.adherence) },
             onProgress: { navPath.append(AppRoute.progressDashboard) }
         )
+    }
+
+    @ViewBuilder
+    private func quietDayStack() -> some View {
+        let rows = treatments.quietDayCurrentMedicines()
+        VStack(alignment: .leading, spacing: 8) {
+            HomeStatusCard(
+                title: session.t(.challengeNoDosesToday),
+                bodyText: session.t(.homeActiveNoDosesToday),
+                primaryTitle: session.t(.tabTreatments),
+                primaryAction: { navPath.append(AppRoute.treatmentOverview) },
+                secondaryTitle: session.t(.myProgress),
+                secondaryAction: { navPath.append(AppRoute.progressDashboard) }
+            )
+            if !rows.isEmpty {
+                HomeQuietDayMedicinesCard(rows: rows) { medicineId in
+                    navPath.append(AppRoute.medicationDetail(medicineId))
+                }
+            }
+        }
     }
 
     private func activeTodayStack(

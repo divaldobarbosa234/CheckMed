@@ -72,6 +72,23 @@ enum OnboardingWelcomeRouting: Equatable {
         input.hasChosenLanguage && input.hasAcknowledgedPrivacy && input.hasCompletedSignInThisInstall
     }
 
+    /// Intro OPEN Splash is pre-auth only. Authenticated remount after this-install
+    /// Sign-in must resume `hostPhase` (Welcome / Care Context), not replay Splash.
+    /// Mismatch stays on Sign-in. Unsigned intro and manual sign-out still replay.
+    static func shouldReplayIntroSplashOnBootstrap(
+        isSessionUnlocked: Bool,
+        hasCompletedSignInThisInstall: Bool,
+        pendingInstallOwnerMismatch: Bool,
+        introSplashUnseen: Bool,
+        isRestoring: Bool,
+        isUserDataLoading: Bool
+    ) -> Bool {
+        if pendingInstallOwnerMismatch { return false }
+        if isSessionUnlocked, hasCompletedSignInThisInstall { return false }
+        if isRestoring || isUserDataLoading { return false }
+        return introSplashUnseen
+    }
+
     static func hostPhase(_ input: Input) -> Step {
         if input.allowsGuest {
             return .signIn

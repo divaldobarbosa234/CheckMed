@@ -2248,6 +2248,40 @@ final class CheckMedStore {
         return nodes
     }
 
+    /// Quiet-day Home list. CURRENT medicines only; next time from future pending/snoozed DoseLogs.
+    /// Read-only. Does not seed logs or apply dose defaults.
+    func quietDayCurrentMedicines(now: Date = CheckMedClock.now) -> [HomeQuietDayMedicine] {
+        _ = revision
+        guard surfacesPlan else { return [] }
+        let currentIds = currentTreatmentIds(now: now)
+        guard !currentIds.isEmpty else { return [] }
+        let medicineProbes = medicines().compactMap { medicine -> HomeQuietDayMedicineProbe? in
+            guard currentIds.contains(medicine.treatmentId) else { return nil }
+            return HomeQuietDayMedicineProbe(
+                id: medicine.id,
+                treatmentId: medicine.treatmentId,
+                name: medicine.name,
+                detail: medicine.doseLabel
+            )
+        }
+        let schedulesById = Dictionary(uniqueKeysWithValues: allSchedules().map { ($0.id, $0) })
+        let logProbes = logs().compactMap { log -> HomeQuietDayLogProbe? in
+            guard let schedule = schedulesById[log.scheduleId], schedule.deletedAt == nil else { return nil }
+            let status = DoseLogStatus(rawValue: log.status) ?? .pending
+            return HomeQuietDayLogProbe(
+                medicineId: schedule.medicineId,
+                scheduledAt: log.scheduledAt,
+                isEligibleNextDose: HomeQuietDayPresentationMapper.isEligibleNextDose(status)
+            )
+        }
+        return HomeQuietDayPresentationMapper.rows(
+            currentTreatmentIds: currentIds,
+            medicines: medicineProbes,
+            logs: logProbes,
+            now: now
+        )
+    }
+
     /// Display-only: one Challenge/path node per medicine + minute. Never deletes logs.
     private func collapseDuplicateSlotNodes(_ nodes: [DoseNode]) -> [DoseNode] {
         func rank(_ status: PathStatus) -> Int {
