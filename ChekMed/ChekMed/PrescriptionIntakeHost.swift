@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 /// Home / Treatments “add prescription” path: photo, PDF, or manual, then analyse, edit, persist.
 struct AddPrescriptionIntakeHost: View {
@@ -30,6 +31,8 @@ struct AddPrescriptionIntakeHost: View {
     @State private var laterAddIntent: LaterAddTreatmentIntent = .addToCurrent
     @State private var persistError: String? = nil
     @State private var isPersisting = false
+    /// Tab-hosted Home/Treatments/Refill push only. Sheets and root intake stay false.
+    @State private var clearsFloatingTabBar = false
 
     private enum Phase {
         case choose, camera, manual, analysing, slotLimit, confirm, planResume
@@ -57,8 +60,16 @@ struct AddPrescriptionIntakeHost: View {
                         }
                     },
                     showsTreatmentIntent: asksLaterAddTreatmentIntent,
-                    treatmentIntent: $laterAddIntent
+                    treatmentIntent: $laterAddIntent,
+                    clearsFloatingTabBar: clearsFloatingTabBar
                 )
+                .background {
+                    TabHostedPresentationProbe(homeRoot: session.rootDestination == .home) { needed in
+                        if clearsFloatingTabBar != needed {
+                            clearsFloatingTabBar = needed
+                        }
+                    }
+                }
             case .camera:
                 OnboardingCameraView(
                     onCaptured: { data in
@@ -414,6 +425,73 @@ struct AddPrescriptionIntakeHost: View {
                 session.beginResumeSetup()
                 dismiss()
             }
+        }
+    }
+}
+
+/// True only when Add Prescription is pushed inside `MainTabView` (root `.home`)
+/// and is not a presented sheet (plus-menu Scan). First-time / returning / root
+/// intake stay on other destinations and never enable clearance.
+private enum FloatingTabBarClearance {
+    static func shouldClear(from view: UIView, homeRoot: Bool) -> Bool {
+        guard homeRoot else { return false }
+        return !isInsidePresentedSheet(view)
+    }
+
+    private static func isInsidePresentedSheet(_ view: UIView) -> Bool {
+        var responder: UIResponder? = view
+        var controller: UIViewController?
+        while let current = responder {
+            if let found = current as? UIViewController {
+                controller = found
+                break
+            }
+            responder = current.next
+        }
+        var node = controller
+        while let current = node {
+            if current.presentingViewController != nil {
+                return true
+            }
+            node = current.parent
+        }
+        return false
+    }
+}
+
+private struct TabHostedPresentationProbe: UIViewRepresentable {
+    var homeRoot: Bool
+    var onResolve: (Bool) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onResolve: onResolve)
+    }
+
+    final class Coordinator {
+        var onResolve: (Bool) -> Void
+        var didResolve = false
+        init(onResolve: @escaping (Bool) -> Void) {
+            self.onResolve = onResolve
+        }
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        view.isAccessibilityElement = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.onResolve = onResolve
+        guard !context.coordinator.didResolve else { return }
+        DispatchQueue.main.async {
+            guard !context.coordinator.didResolve else { return }
+            context.coordinator.didResolve = true
+            context.coordinator.onResolve(
+                FloatingTabBarClearance.shouldClear(from: uiView, homeRoot: homeRoot)
+            )
         }
     }
 }

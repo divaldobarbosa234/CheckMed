@@ -574,6 +574,11 @@ extension [OnboardingPrescriptionDraft] {
     }
 }
 
+/// Matches `ProfileChrome.tabBarClearance`: floating tab bar only, no FAB.
+private enum OnboardingAddChrome {
+    static let floatingTabBarClearance: CGFloat = 52
+}
+
 struct OnboardingAddMedicationView: View {
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
@@ -586,6 +591,9 @@ struct OnboardingAddMedicationView: View {
     var showsChoosePhotos: Bool = true
     var showsTreatmentIntent: Bool = false
     var treatmentIntent: Binding<LaterAddTreatmentIntent> = .constant(.addToCurrent)
+    /// When true, reserve space so Take a Photo / PDF / Back can scroll above the
+    /// floating `TabView` bar. Default false: first-time onboarding and sheets.
+    var clearsFloatingTabBar: Bool = false
 
     private var medicineCount: Int { treatments.storedMedicineCount }
     private var remainingSlots: Int {
@@ -634,6 +642,13 @@ struct OnboardingAddMedicationView: View {
                 .padding(.top, 6)
                 SafetyCaption()
                     .frame(maxWidth: .infinity)
+                if clearsFloatingTabBar {
+                    Color.clear
+                        .frame(height: OnboardingAddChrome.floatingTabBarClearance)
+                        .frame(maxWidth: .infinity)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 36)
