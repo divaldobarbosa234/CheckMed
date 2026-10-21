@@ -11,6 +11,17 @@ enum DebugContractLaunch {
         ProcessInfo.processInfo.environment[environmentKey] == "1"
     }
 }
+
+/// Focused onboarding / Splash / quiet-day / auth-routing contracts.
+/// Takes precedence over `CHECKMED_DEBUG_CONTRACTS` and never runs SyncProtocolE2E.
+enum DebugOnboardingContractLaunch {
+    static let environmentKey = "CHECKMED_DEBUG_ONBOARDING_CONTRACTS"
+    static let reportName = "checkmed-onboarding-contracts.txt"
+
+    static var isRequested: Bool {
+        ProcessInfo.processInfo.environment[environmentKey] == "1"
+    }
+}
 #endif
 
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -46,7 +57,47 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         #if DEBUG
         // Interactive Debug must not run the heavyweight suite. Explicit
         // CHECKMED_DEBUG_CONTRACTS=1 still executes every suite and asserts.
-        if CapacityContractLaunch.isRequested {
+        // CHECKMED_DEBUG_ONBOARDING_CONTRACTS=1 wins over the full suite and
+        // cannot fall through into SyncProtocolE2E / DoseLoop / unrelated checks.
+        if DebugOnboardingContractLaunch.isRequested {
+            Task {
+                let welcomeFailures = OnboardingWelcomeContractChecks.failures()
+                let quietDayFailures = await MainActor.run { HomeQuietDayContractChecks.failures() }
+                let failures = welcomeFailures + quietDayFailures
+                let result = failures.isEmpty ? "PASS" : "FAIL"
+                print("OnboardingWelcome failures:", welcomeFailures)
+                print("HomeQuietDay failures:", quietDayFailures)
+                print("Onboarding contracts result:", result)
+                var lines = [
+                    "result: \(result)",
+                    "OnboardingWelcome: \(welcomeFailures.isEmpty ? "PASS" : "FAIL")",
+                    "HomeQuietDay: \(quietDayFailures.isEmpty ? "PASS" : "FAIL")",
+                    "OnboardingWelcome failures: \(welcomeFailures)",
+                    "HomeQuietDay failures: \(quietDayFailures)",
+                    "failureNames:",
+                ]
+                if failures.isEmpty {
+                    lines.append("(none)")
+                } else {
+                    lines.append(contentsOf: failures.map { "- \($0)" })
+                }
+                let report = lines.joined(separator: "\n")
+                if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+                    try? report.write(
+                        to: docs.appendingPathComponent(DebugOnboardingContractLaunch.reportName),
+                        atomically: true,
+                        encoding: .utf8
+                    )
+                }
+                assert(
+                    failures.isEmpty,
+                    [
+                        welcomeFailures.isEmpty ? nil : "ONBOARDING WELCOME FAILURE: \(welcomeFailures.joined(separator: "; "))",
+                        quietDayFailures.isEmpty ? nil : "HOME QUIET DAY FAILURE: \(quietDayFailures.joined(separator: "; "))",
+                    ].compactMap { $0 }.joined(separator: " | ")
+                )
+            }
+        } else if CapacityContractLaunch.isRequested {
             print(
                 "[CheckMed] DEBUG contracts skipped (capacity-only). "
                     + "Full suite requires \(DebugContractLaunch.environmentKey)=1."

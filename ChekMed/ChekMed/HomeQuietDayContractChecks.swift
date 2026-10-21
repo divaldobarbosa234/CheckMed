@@ -199,8 +199,44 @@ enum HomeQuietDayContractChecks {
         let owner = UUID()
         let profile = UUID()
         let otherOwner = UUID()
+        let otherProfile = UUID()
         let store = CheckMedStore(isolatedInMemoryForContracts: true)
+        store.debugContractBind(ownerId: otherOwner, profileId: otherProfile)
+        let foreign = store.debugInsertPlan(
+            title: "Other owner",
+            status: "active",
+            startDate: liveToday,
+            endDate: liveCalendar.date(byAdding: .day, value: 6, to: liveToday),
+            medicineName: "OtherAAS",
+            ownerId: otherOwner,
+            profileId: otherProfile,
+            scheduleTime: "08:00",
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: liveTomorrow0800
+        )
         store.debugContractBind(ownerId: owner, profileId: profile)
+        expect(otherOwner != owner, "fixture otherOwner is distinct from the bound local owner")
+        expect(store.debugMedicineName(foreign.medicineId) == "OtherAAS", "foreign OtherAAS row remains stored")
+        expect(
+            store.debugStoredTreatmentStatus(foreign.treatmentId) == "active",
+            "foreign treatment remains stored after rebind"
+        )
+        expect(
+            store.debugTreatmentStatus(foreign.treatmentId) == nil,
+            "foreign treatment is not in the bound owner's live treatments()"
+        )
+        expect(
+            store.debugLiveMedicationRowsMatch(ownerId: otherOwner, profileId: otherProfile),
+            "stored OtherAAS ownerId remains otherOwner after rebind"
+        )
+        expect(
+            !store.debugLiveMedicationRowsMatch(ownerId: owner, profileId: profile),
+            "stored OtherAAS ownerId differs from the bound local owner"
+        )
+        expect(
+            !store.debugCurrentTreatmentIds().contains(foreign.treatmentId),
+            "foreign CURRENT dates do not enter bound currentTreatmentIds"
+        )
         let current = store.debugInsertPlan(
             title: "Current AAS",
             status: "active",
@@ -236,18 +272,6 @@ enum HomeQuietDayContractChecks {
             scheduleTime: "08:00",
             logStatus: DoseLogStatus.taken.rawValue,
             logScheduledAt: liveCalendar.date(byAdding: .day, value: -2, to: liveToday)!
-        )
-        _ = store.debugInsertPlan(
-            title: "Other owner",
-            status: "active",
-            startDate: liveToday,
-            endDate: liveCalendar.date(byAdding: .day, value: 6, to: liveToday),
-            medicineName: "OtherAAS",
-            ownerId: otherOwner,
-            profileId: profile,
-            scheduleTime: "08:00",
-            logStatus: DoseLogStatus.pending.rawValue,
-            logScheduledAt: liveTomorrow0800
         )
         let second = store.debugInsertMedicine(
             treatmentId: current.treatmentId,
