@@ -1,0 +1,137 @@
+---
+description: Permanent CheckMed engineering constitution — protect working features, root-cause first, minimum change, freeze unrelated systems.
+alwaysApply: true
+---
+
+# CheckMed — master engineering constitution
+
+This is the project-wide process contract. It does not replace body-purity, SwiftData idempotent-writes, or change-discipline rules; it governs *whether* and *how far* any change may proceed.
+
+Existing working behavior is product contract. A feature must not disappear because the current task did not mention it.
+
+## 1. Protect working features
+
+Before changing UI, state, navigation, persistence, notifications, medication logic, reports, prescription sources, or onboarding:
+
+- Inspect the current implementation (and last known working commit/worktree).
+- List what already works on that screen/flow.
+- Preserve it unless the task explicitly changes that behavior.
+
+Do not assume unused-looking UI, extra parameters, or “dead” preview/archive paths are disposable.
+
+## 2. Root cause first
+
+Do not patch the visible symptom.
+
+Before editing: reproduce or understand the problem; trace the flow; name canonical vs presentation state; name the root cause; name consumers; define the smallest safe change.
+
+If the root cause is uncertain: **STOP** and investigate. Do not code.
+
+## 3. Minimum change
+
+Modify only what the requested issue requires.
+
+Forbidden unless explicitly in scope: opportunistic refactors, unrelated renames, architecture redesign, unrelated UI polish, drive-by cleanup, behavior changes outside the agreed changeset.
+
+“While I’m here” is prohibited.
+
+## 4. Freeze unrelated systems
+
+Every implementation task must declare, before edits:
+
+- **FILES TO CHANGE**
+- **FILES NOT TO CHANGE**
+- **SYSTEMS AFFECTED**
+- **SYSTEMS FROZEN**
+
+If a dependency outside that list appears: **STOP** and report before expanding.
+
+## 5. Canonical medication state
+
+Canonical chain: **DoseLog → DoseSchedule → Medicine → Treatment**.
+
+Do not create a second medication truth. Do not invent DoseLogs for tests or UI. Do not bypass DoseLoop. Do not write canonical medication state unless the task is about that state and the root cause is proven.
+
+## 6. Presentation vs canonical state
+
+**Presentation:** navigation, highlight, scroll, sheets, previews, banners, temporary UI flags.
+
+**Canonical:** DoseLogs, treatments, medicines, schedules, dose actions, persistence, sync.
+
+A presentation task must not mutate canonical medication state.
+
+## 7. Notification safety
+
+Default / body tap must never mark a dose taken. Only explicit actions (Taken, Snooze, Didn’t take, Dismiss/stop) may call dose actions.
+
+Keep AlarmKit on MainActor. Do not reintroduce `Task.detached` around AlarmKit. Do not change UN delegate isolation, the 48-notification cap, or throttle semantics unless the task is explicitly about that system.
+
+## 8. Preserve existing features (example)
+
+Confirm Medicine (when present on the branch in use) includes:
+
+upload photo/PDF → small source preview on Confirm → tap → full-screen original (image/PDF) → dismiss → Confirm still has the source.
+
+That is product behavior. Unrelated work (notifications, Journey Tree, gamification) must not drop it. If it is missing on a worktree, treat that as a regression to restore from the known-good commit — not as optional UI.
+
+## 9. Testing is part of implementation
+
+**Build succeeded ≠ fixed.**
+
+State the test level actually reached:
+
+source inspection | contract/unit | generic Debug build | Simulator Debug build | Simulator runtime | physical iPhone | end-to-end
+
+Never call an untested physical notification/dose flow “verified.”
+
+## 10. Regression testing
+
+After a change, test: (A) requested behavior, (B) adjacent behavior, (C) previously working behavior in the same subsystem.
+
+A new feature does not excuse a regression.
+
+## 11. Git safety
+
+Before implementation: `git status`, HEAD, uncommitted files, branch/worktree, unrelated dirty files.
+
+Never overwrite, reset, stash-drop, or commit another subsystem’s work. Commit only when asked, and only the files for that changeset.
+
+## 12. Worktree safety
+
+Isolated worktrees stay isolated. Do not copy, merge, or “bring over” work between main and Phase 5 (or any other worktree) unless explicitly instructed.
+
+Main Journey Tree work stays on main. Phase 5 notification work stays on the Phase 5 worktree until authorized otherwise.
+
+## 13. One root cause / one changeset
+
+Group only cases that share one root cause.
+
+Do not combine in one change: notification routing, 48-cap, prescription-source UI, Journey Tree, gamification, DoseLoop — even if they share `HomeView` or `ReminderScheduler`.
+
+## 14. Stop conditions
+
+**STOP** and report instead of coding when:
+
+- root cause is uncertain
+- requested behavior conflicts with existing architecture
+- unrelated files would need modification
+- canonical medication state would change unexpectedly
+- a previously working feature appears gone
+- uncommitted user work could be overwritten
+- tests cannot show whether the change works
+
+## 15. Final diff audit
+
+Before claiming done: `git diff`, `git diff --stat`, `git status`; confirm only expected files; confirm no unrelated behavior; build; run existing DEBUG contracts if this repo’s DEBUG launch path applies; report test level honestly.
+
+```swift
+// BAD — presentation task writing canonical state
+func consumeNotificationFocus() {
+    treatments.applyDoseAction(id, .confirmTaken)
+}
+
+// GOOD — presentation only
+func consumeNotificationFocus() {
+    highlightedNotificationLogId = path.consumeNotificationFocus()?.uuidString
+}
+```
