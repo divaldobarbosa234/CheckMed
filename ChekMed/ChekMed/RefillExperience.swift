@@ -188,6 +188,7 @@ struct RefillRootScreen: View {
             .padding(.top, 8)
             .padding(.bottom, 8)
         }
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear
                 .frame(height: RefillChrome.fabClearance)
@@ -196,7 +197,6 @@ struct RefillRootScreen: View {
                 .accessibilityHidden(true)
         }
         .background(CheckMedTheme.background)
-        .checkMedStatusBarSafeContent()
         .toolbar(.hidden, for: .navigationBar)
         .onAppear { presentTipIfNeeded() }
         .alert(session.t(.refillTipTitle), isPresented: $showTip) {
