@@ -936,12 +936,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func speakIfNeeded(_ notification: UNNotification) async {
-        let body = notification.request.content.body
-        await MainActor.run {
-            guard let entitlements, entitlements.canUseVoiceReading else { return }
-            guard ReminderPreferences.voiceRemindersEnabled else { return }
-            guard let session, let voice else { return }
-            voice.speak(body, locale: session.locale)
-        }
+        _ = notification
+        _ = voice
     }
 }

@@ -124,7 +124,24 @@ enum ReminderPreferences {
 
     static var alarmTheme: AlarmTheme {
         get { AlarmTheme(rawValue: UserDefaults.standard.string(forKey: Keys.theme) ?? "") ?? .philChime }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: Keys.theme) }
+        set {
+            guard alarmTheme != newValue else { return }
+            UserDefaults.standard.set(newValue.rawValue, forKey: Keys.theme)
+        }
+    }
+
+    /// Free always hears Cooper chime. Super uses the stored preference.
+    static func resolvedAlarmTheme(canChoose: Bool) -> AlarmTheme {
+        canChoose ? alarmTheme : .philChime
+    }
+
+    /// Super-only write. Returns true when the stored theme changed.
+    @discardableResult
+    static func setAlarmThemeIfAllowed(_ theme: AlarmTheme, allowed: Bool) -> Bool {
+        guard allowed else { return false }
+        guard alarmTheme != theme else { return false }
+        alarmTheme = theme
+        return true
     }
 
     static var quietHoursEnabled: Bool {
@@ -135,9 +152,13 @@ enum ReminderPreferences {
         set { UserDefaults.standard.set(newValue, forKey: Keys.quietHours) }
     }
 
+    /// Legacy Voice Reading is retired. A stored `true` must not enable speech.
     static var voiceRemindersEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Keys.voiceReminders) }
-        set { UserDefaults.standard.set(newValue, forKey: Keys.voiceReminders) }
+        get {
+            _ = UserDefaults.standard.bool(forKey: Keys.voiceReminders)
+            return false
+        }
+        set { }
     }
 
     static var advanceHourEnabled: Bool {
@@ -361,22 +382,63 @@ struct SuperLockBadge: View {
     }
 }
 
-struct VoiceReadButton: View {
+struct AlarmThemePreferenceCard: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
-    @Environment(PhilVoice.self) private var voice
-    let text: String
+    @Binding var alarmTheme: AlarmTheme
 
     var body: some View {
-        CheckMedButton(
-            title: session.t(.voiceReadAloud),
-            style: entitlements.canUseVoiceReading ? .secondary : .ghost
-        ) {
-            if entitlements.canUseVoiceReading {
-                voice.speak(text, locale: session.locale)
-            } else {
-                entitlements.presentPaywall()
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(session.t(.alarmTheme))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                if !entitlements.canChooseAlarmTheme {
+                    SuperLockBadge()
+                }
             }
+            if entitlements.canChooseAlarmTheme {
+                Picker(selection: $alarmTheme) {
+                    ForEach(AlarmTheme.allCases) { theme in
+                        Text(theme.title(session)).tag(theme)
+                    }
+                } label: {
+                    Text(alarmTheme.title(session))
+                        .font(.system(.body, design: .rounded).weight(.bold))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .onChange(of: alarmTheme) { _, theme in
+                    applySelection(theme)
+                }
+            } else {
+                Text(AlarmTheme.philChime.title(session))
+                    .font(.system(.body, design: .rounded).weight(.bold))
+                Text(session.t(.alarmThemeLockedHint))
+                    .font(.system(.caption, design: .rounded).weight(.semibold))
+                    .foregroundStyle(CheckMedTheme.muted)
+                CheckMedButton(title: session.t(.paywallSuper), style: .ghost) {
+                    entitlements.presentPaywall()
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(CheckMedTheme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onChange(of: entitlements.canChooseAlarmTheme) { _, canChoose in
+            alarmTheme = ReminderPreferences.resolvedAlarmTheme(canChoose: canChoose)
+        }
+    }
+
+    private func applySelection(_ theme: AlarmTheme) {
+        guard entitlements.canChooseAlarmTheme else {
+            alarmTheme = .philChime
+            entitlements.presentPaywall()
+            return
+        }
+        if ReminderPreferences.setAlarmThemeIfAllowed(theme, allowed: true) {
+            ReminderScheduler.shared.reschedule()
         }
     }
 }

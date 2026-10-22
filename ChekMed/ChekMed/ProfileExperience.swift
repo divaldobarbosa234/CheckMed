@@ -532,7 +532,7 @@ struct ProfileNotificationsScreen: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
     @State private var quietHours = ReminderPreferences.quietHoursEnabled
-    @State private var voiceReminders = ReminderPreferences.voiceRemindersEnabled
+    @State private var alarmTheme = ReminderPreferences.alarmTheme
     @State private var authorized = false
 
     var body: some View {
@@ -565,27 +565,7 @@ struct ProfileNotificationsScreen: View {
                 .padding(14)
                 .background(CheckMedTheme.surface)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                VStack(alignment: .leading, spacing: 6) {
-                    Toggle(session.t(.voiceRemindersToggle), isOn: $voiceReminders)
-                        .font(.system(.body, design: .rounded).weight(.bold))
-                        .disabled(!entitlements.canUseVoiceReading)
-                        .onChange(of: voiceReminders) { _, value in
-                            if entitlements.canUseVoiceReading {
-                                ReminderPreferences.voiceRemindersEnabled = value
-                            } else {
-                                voiceReminders = false
-                                entitlements.presentPaywall()
-                            }
-                        }
-                    if !entitlements.canUseVoiceReading {
-                        Text(session.t(.voiceLockedHint))
-                            .font(.system(.caption, design: .rounded).weight(.semibold))
-                            .foregroundStyle(CheckMedTheme.muted)
-                    }
-                }
-                .padding(14)
-                .background(CheckMedTheme.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                AlarmThemePreferenceCard(alarmTheme: $alarmTheme)
                 Toggle(session.t(.advanceHourToggle), isOn: Binding(
                     get: { entitlements.canUseAdvanceReminder && ReminderPreferences.advanceHourEnabled },
                     set: { value in
@@ -659,7 +639,7 @@ struct ProfileNotificationsScreen: View {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             authorized = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
             quietHours = ReminderPreferences.quietHoursEnabled
-            voiceReminders = entitlements.canUseVoiceReading && ReminderPreferences.voiceRemindersEnabled
+            alarmTheme = ReminderPreferences.resolvedAlarmTheme(canChoose: entitlements.canChooseAlarmTheme)
         }
     }
 

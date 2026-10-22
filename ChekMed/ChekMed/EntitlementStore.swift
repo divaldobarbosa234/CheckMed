@@ -33,7 +33,7 @@ final class EntitlementStore {
     var familySlots: Int { isSuper ? 2 : freeFamilySlots }
     var extraFamilySlotUnlocked: Bool { isSuper }
     var canChooseAlarmTheme: Bool { isSuper }
-    var canUseVoiceReading: Bool { isSuper }
+    var canUseVoiceReading: Bool { false }
     var canUseAdvanceReminder: Bool { isSuper }
     /// Share/export PDF for reports (browse/view/edit stays free).
     var canViewJourneyReport: Bool { isSuper }

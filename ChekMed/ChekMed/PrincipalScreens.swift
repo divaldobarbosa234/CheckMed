@@ -651,7 +651,6 @@ struct NextDoseScreen: View {
             Text(next?.medicine ?? session.t(.todayNothing))
                 .font(.system(.title2, design: .rounded).weight(.heavy))
             if let next {
-                VoiceReadButton(text: session.t(.notificationDoseBody, next.medicine, next.detail, next.time))
                 CheckMedButton(title: session.t(.homeAlarm), style: .secondary) { go(.medicationAlarm) }
             }
         }
@@ -675,9 +674,6 @@ struct MedicationAlarmScreen: View {
         ) {
             Text(next.map { "\($0.medicine) · \($0.time)" } ?? session.t(.todayNothing))
                 .font(.system(.title3, design: .rounded).weight(.heavy))
-            if let next {
-                VoiceReadButton(text: session.t(.notificationDoseBody, next.medicine, next.detail, next.time))
-            }
             Text(session.t(.takenStaysFree))
                 .font(.system(.body, design: .rounded).weight(.bold))
                 .foregroundStyle(CheckMedTheme.muted)
@@ -892,7 +888,6 @@ struct ReminderSettingsScreen: View {
     var go: (AppRoute) -> Void
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
-    @Environment(EntitlementStore.self) private var entitlements
     @State private var drafts: [ReminderDraft] = []
 
     var body: some View {
@@ -912,11 +907,6 @@ struct ReminderSettingsScreen: View {
                     Text("• \(draft.time) · \(draft.medicine)")
                         .font(.system(.body, design: .rounded).weight(.bold))
                 }
-            }
-            if !entitlements.canUseVoiceReading {
-                Text(session.t(.voiceLockedHint))
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.muted)
             }
             CheckMedButton(title: session.t(.prefsTitle), style: .secondary) { go(.notificationPrefs) }
         }
@@ -1858,7 +1848,6 @@ struct NotificationPrefsScreen: View {
     @Environment(SessionStore.self) private var session
     @Environment(EntitlementStore.self) private var entitlements
     @State private var quietHours = ReminderPreferences.quietHoursEnabled
-    @State private var voiceReminders = ReminderPreferences.voiceRemindersEnabled
     @State private var authorized = false
 
     var body: some View {
@@ -1871,22 +1860,6 @@ struct NotificationPrefsScreen: View {
                     ReminderPreferences.quietHoursEnabled = value
                     ReminderScheduler.shared.reschedule()
                 }
-            Toggle(session.t(.voiceRemindersToggle), isOn: $voiceReminders)
-                .font(.system(.body, design: .rounded).weight(.bold))
-                .disabled(!entitlements.canUseVoiceReading)
-                .onChange(of: voiceReminders) { _, value in
-                    if entitlements.canUseVoiceReading {
-                        ReminderPreferences.voiceRemindersEnabled = value
-                    } else {
-                        voiceReminders = false
-                        entitlements.presentPaywall()
-                    }
-                }
-            if !entitlements.canUseVoiceReading {
-                Text(session.t(.voiceLockedHint))
-                    .font(.system(.caption, design: .rounded).weight(.bold))
-                    .foregroundStyle(CheckMedTheme.muted)
-            }
             Toggle(session.t(.advanceHourToggle), isOn: Binding(
                 get: { entitlements.canUseAdvanceReminder && ReminderPreferences.advanceHourEnabled },
                 set: { value in
@@ -1943,7 +1916,6 @@ struct NotificationPrefsScreen: View {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             authorized = settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
             quietHours = ReminderPreferences.quietHoursEnabled
-            voiceReminders = entitlements.canUseVoiceReading && ReminderPreferences.voiceRemindersEnabled
         }
     }
 }

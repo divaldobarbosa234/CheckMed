@@ -254,12 +254,52 @@ enum SuperTrialContractChecks {
                 super10.contains("alarm") || super10.contains("alarme") || super10.contains("alarma"),
                 "O4: Super10 advertises alarm theme, not free refill (\(locale.rawValue))"
             )
+            let advertised: [L10n.Key] = [
+                .paywallOnBubble, .paywallOffBubble, .paywallBenefitRxBody,
+                .paywallSuper1, .paywallSuper2, .paywallSuper3,
+                .paywallSuper6, .paywallSuper7, .paywallSuper8, .paywallSuper9, .paywallSuper10,
+            ]
+            for key in advertised {
+                let lower = L10n.string(key, locale: locale).lowercased()
+                expect(
+                    !lower.contains("voice reading")
+                        && !lower.contains("leitura em voz")
+                        && !lower.contains("lectura en voz")
+                        && !lower.contains("lecture vocale"),
+                    "O4: \(key) does not advertise legacy Voice Reading (\(locale.rawValue))"
+                )
+            }
+            expect(
+                !L10n.string(.alarmTheme, locale: locale).isEmpty
+                    && !L10n.string(.alarmThemeLockedHint, locale: locale).isEmpty,
+                "O4: alarm theme picker copy localized (\(locale.rawValue))"
+            )
             let refill = L10n.string(.refillSuperBody, locale: locale).lowercased()
             expect(
                 refill.contains("pharmac") || refill.contains("farmá") || refill.contains("farmac"),
                 "O4: Refill Super card still offers pharmacy search (\(locale.rawValue))"
             )
         }
+
+        expect(
+            !ReminderPreferences.voiceRemindersEnabled,
+            "O4: stored voice reminder preference cannot enable speech"
+        )
+        expect(
+            AlarmTheme.allCases.map(\.rawValue) == ["philChime", "gentle", "bright", "forest"],
+            "O4: four alarm themes remain philChime, gentle, bright, forest"
+        )
+        expect(
+            AlarmTheme.philChime.soundFileName == "phil_chime.wav"
+                && AlarmTheme.gentle.soundFileName == "alarm_gentle.wav"
+                && AlarmTheme.bright.soundFileName == "alarm_bright.wav"
+                && AlarmTheme.forest.soundFileName == "alarm_forest.wav",
+            "O4: alarm theme sound filenames unchanged"
+        )
+        expect(
+            ReminderPreferences.resolvedAlarmTheme(canChoose: false) == .philChime,
+            "O4: Free resolved alarm theme is Cooper chime"
+        )
 
         return failures
     }

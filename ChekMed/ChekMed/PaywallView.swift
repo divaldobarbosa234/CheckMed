@@ -28,7 +28,6 @@ struct PaywallView: View {
             session.t(.paywallSuper1),
             session.t(.paywallSuper2),
             session.t(.paywallSuper3),
-            session.t(.paywallSuper5),
             session.t(.paywallSuper6),
             session.t(.paywallSuper7),
             session.t(.paywallSuper8),

@@ -1178,6 +1178,7 @@ struct MedicationScheduleScreen: View {
     var medicineId: UUID
     @Environment(CheckMedStore.self) private var treatments
     @Environment(SessionStore.self) private var session
+    @Environment(EntitlementStore.self) private var entitlements
 
     private var medicine: CheckMedStore.MedicineSummary? {
         treatments.reportMedicineSummaries().first { $0.id == medicineId }
@@ -1229,7 +1230,11 @@ struct MedicationScheduleScreen: View {
                         .font(.system(.headline, design: .rounded).weight(.heavy))
                         .padding(.top, 8)
                     globalRow(session.t(.treatmentsReminderGlobal), session.t(.prefsTypes))
-                    globalRow(session.t(.treatmentsSoundGlobal), session.t(.alarmThemePhil))
+                    globalRow(
+                        session.t(.treatmentsSoundGlobal),
+                        ReminderPreferences.resolvedAlarmTheme(canChoose: entitlements.canChooseAlarmTheme)
+                            .title(session)
+                    )
                     globalRow(
                         session.t(.treatmentsAdvanceGlobal),
                         ReminderPreferences.advanceHourEnabled ? session.t(.advanceHourToggle) : session.t(.todayNothing)
