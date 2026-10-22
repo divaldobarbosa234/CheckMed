@@ -129,8 +129,8 @@ struct TreatmentsRootScreen: View {
             .padding(.top, 8)
             .padding(.bottom, TreatmentsChrome.fabClearance)
         }
+        .scrollEdgeEffectStyle(.soft, for: .top)
         .background(CheckMedTheme.background)
-        .checkMedStatusBarSafeContent()
         .toolbar(.hidden, for: .navigationBar)
     }
 
