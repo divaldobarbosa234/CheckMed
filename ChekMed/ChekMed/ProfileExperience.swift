@@ -106,6 +106,7 @@ struct ProfileRootScreen: View {
                 .padding(.top, 4)
                 .padding(.bottom, 8)
             }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear
                     .frame(height: ProfileChrome.tabBarClearance)
@@ -113,8 +114,7 @@ struct ProfileRootScreen: View {
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
-            .background(CheckMedTheme.background)
-            .checkMedStatusBarSafeContent()
+            .background(CheckMedTheme.background.ignoresSafeArea(edges: .top))
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: AppRoute.self) { route in
                 AppRouteView(route: route, path: $path)
