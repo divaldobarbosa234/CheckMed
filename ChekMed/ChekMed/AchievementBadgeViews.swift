@@ -531,8 +531,6 @@ struct BadgesScreen: View {
         .background(CheckMedTheme.background)
         .navigationTitle(session.t(.badgesTitle))
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(CheckMedTheme.background, for: .navigationBar)
-        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Color.clear.frame(height: ProgressOverlayGeometry.bottomClearance)
         }
