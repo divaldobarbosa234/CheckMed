@@ -1135,14 +1135,14 @@ final class CheckMedStore {
         }
         if let doseLabel {
             let trimmed = doseLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
+            if !trimmed.isEmpty, medicine.doseLabel != trimmed {
                 assign(trimmed, to: \.doseLabel)
                 let parsed = MedicineUnits.parseDoseLabel(trimmed)
                 assign(parsed.quantity, to: \.quantityPerDose)
                 assign(parsed.unit.rawValue, to: \.doseUnit)
             }
         }
-        if let frequency {
+        if let frequency, medicine.frequency != frequency {
             assign(PrescriptionParser.intervalOnly(frequency), to: \.frequency)
         }
         if let duration {
@@ -4736,6 +4736,99 @@ final class CheckMedStore {
 
     func debugTreatmentCompleteGrantCount() -> Int {
         allRewardGrants().filter { $0.kind == RewardCatalog.XPEvent.treatmentComplete.rawValue }.count
+    }
+
+    /// Report Edit must not reparse dose/frequency when those strings are unchanged.
+    static func medicineDetailsUpdateContractFailures() -> [String] {
+        var failures: [String] = []
+        func expect(_ ok: Bool, _ name: String) {
+            if !ok { failures.append(name) }
+        }
+        let store = CheckMedStore(isolatedInMemoryForContracts: true)
+        var notifyCount = 0
+        store.onRecordsChanged = { notifyCount += 1 }
+        let owner = UUID()
+        let profile = UUID()
+        store.debugContractBind(ownerId: owner, profileId: profile)
+        let inserted = store.debugInsertPlan(
+            title: "Report edit",
+            status: "active",
+            startDate: Date(),
+            endDate: nil,
+            medicineName: "Amox",
+            ownerId: owner,
+            profileId: profile,
+            logStatus: DoseLogStatus.pending.rawValue,
+            logScheduledAt: Date()
+        )
+        guard let medicine = store.medicines().first(where: { $0.id == inserted.medicineId }) else {
+            return ["medicine-details: missing fixture"]
+        }
+        medicine.quantityPerDose = 2.5
+        medicine.doseUnit = MedicineUnit.mg.rawValue
+        store.save()
+        let doseLabel = medicine.doseLabel
+        let frequency = medicine.frequency
+        let logStatus = store.allLogs().first(where: { $0.id == inserted.logId })?.status
+        let scheduleCount = store.schedules(for: medicine.id).count
+        notifyCount = 0
+        let revisionAfterSeed = store.revision
+
+        store.updateMedicineDetails(id: medicine.id, doctorNotes: "Report note")
+        expect(medicine.doctorNotes == "Report note", "notes-only: notes persist")
+        expect(medicine.quantityPerDose == 2.5, "notes-only: quantityPerDose unchanged")
+        expect(medicine.doseUnit == MedicineUnit.mg.rawValue, "notes-only: doseUnit unchanged")
+        expect(medicine.frequency == frequency, "notes-only: frequency unchanged")
+        expect(medicine.doseLabel == doseLabel, "notes-only: doseLabel unchanged")
+        expect(
+            store.allLogs().first(where: { $0.id == inserted.logId })?.status == logStatus,
+            "notes-only: DoseLog unchanged"
+        )
+        expect(notifyCount == 1, "notes-only: notify once for metadata write")
+        expect(store.revision == revisionAfterSeed + 1, "notes-only: one revision bump")
+
+        notifyCount = 0
+        store.updateMedicineDetails(
+            id: medicine.id,
+            doctorName: "Dr Test",
+            hospitalName: "Clinic",
+            reason: "infection"
+        )
+        expect(medicine.doctorName == "Dr Test", "metadata: doctor")
+        expect(medicine.hospitalName == "Clinic", "metadata: hospital")
+        expect(medicine.reason == "infection", "metadata: reason")
+        expect(medicine.quantityPerDose == 2.5, "metadata: quantity unchanged")
+        expect(medicine.frequency == frequency, "metadata: frequency unchanged")
+        expect(store.schedules(for: medicine.id).count == scheduleCount, "metadata: schedules unchanged")
+
+        notifyCount = 0
+        let revisionBeforeNoop = store.revision
+        let updatedAt = medicine.updatedAt
+        store.updateMedicineDetails(id: medicine.id)
+        store.updateMedicineDetails(
+            id: medicine.id,
+            name: medicine.name,
+            doseLabel: medicine.doseLabel,
+            frequency: medicine.frequency,
+            duration: medicine.duration,
+            doctorName: medicine.doctorName,
+            doctorId: medicine.doctorId,
+            hospitalName: medicine.hospitalName,
+            doctorNotes: medicine.doctorNotes,
+            reason: medicine.reason
+        )
+        expect(store.revision == revisionBeforeNoop, "no-change: no revision")
+        expect(notifyCount == 0, "no-change: no notify/reschedule")
+        expect(medicine.updatedAt == updatedAt, "no-change: timestamp unchanged")
+        expect(medicine.quantityPerDose == 2.5, "no-change: quantity still sentinel")
+
+        notifyCount = 0
+        store.updateMedicineDetails(id: medicine.id, frequency: "every 8 hours")
+        expect(store.schedules(for: medicine.id).count == scheduleCount, "frequency: no schedule reconstruction")
+        expect(medicine.quantityPerDose == 2.5, "frequency: quantity unchanged")
+        expect(medicine.frequency == PrescriptionParser.intervalOnly("every 8 hours"), "frequency: existing intervalOnly preserved")
+
+        return failures
     }
     #endif
 

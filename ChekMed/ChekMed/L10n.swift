@@ -351,6 +351,7 @@ enum L10n {
         case reportDownloadPDF, reportShareWithDoctor, reportDownloadPaywallTitle, reportDownloadPaywallBody
         case reportMaybeLater
         case reportUnrecordedDueCount, reportPercentDueNote, reportExportFailed, reportPatientNameRequired
+        case reportEditDoseConsequence, reportEditFrequencyConsequence, reportEditKeepEditing, reportEditConfirmDose
         case alarmDoseTitle, alarmDoseBody
         case notificationActionTookIt, notificationActionSnooze, notificationActionRemindLater
         case notificationConfirmTitle
@@ -1622,6 +1623,10 @@ enum L10n {
         .reportPercentDueNote: "This percentage uses due doses only. Future scheduled doses are not included.",
         .reportExportFailed: "Couldn't save the PDF. Try again.",
         .reportPatientNameRequired: "Add a name for this profile before exporting a report.",
+        .reportEditDoseConsequence: "Changing the dose may also change how much medicine Conny Cooper counts as used when you record a dose.",
+        .reportEditFrequencyConsequence: "This updates the frequency text on your report and medication details. It does not change reminder times.",
+        .reportEditKeepEditing: "Keep editing",
+        .reportEditConfirmDose: "Change dose",
         .alarmDoseTitle: "💊 Time for your medicine",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ I took it",
@@ -2815,6 +2820,10 @@ enum L10n {
         .reportPercentDueNote: "Esta percentagem usa só doses já devidas. Doses futuras não entram.",
         .reportExportFailed: "Não foi possível guardar o PDF. Tente de novo.",
         .reportPatientNameRequired: "Defina um nome para este perfil antes de exportar o relatório.",
+        .reportEditDoseConsequence: "Alterar a dose também pode mudar quanto medicamento o Conny Cooper conta como usado quando registra uma dose.",
+        .reportEditFrequencyConsequence: "Isto atualiza o texto da frequência no relatório e nos detalhes do medicamento. Não altera os horários dos lembretes.",
+        .reportEditKeepEditing: "Continuar a editar",
+        .reportEditConfirmDose: "Alterar a dose",
         .alarmDoseTitle: "💊 Hora do seu medicamento",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ Tomei",
@@ -4008,6 +4017,10 @@ enum L10n {
         .reportPercentDueNote: "Este porcentaje usa solo dosis ya vencidas. Las programadas a futuro no se incluyen.",
         .reportExportFailed: "No se pudo guardar el PDF. Inténtalo de nuevo.",
         .reportPatientNameRequired: "Añade un nombre para este perfil antes de exportar el informe.",
+        .reportEditDoseConsequence: "Cambiar la dosis también puede cambiar cuánto medicamento Conny Cooper cuenta como usado cuando registras una toma.",
+        .reportEditFrequencyConsequence: "Esto actualiza el texto de la frecuencia en el informe y los detalles del medicamento. No cambia las horas de los recordatorios.",
+        .reportEditKeepEditing: "Seguir editando",
+        .reportEditConfirmDose: "Cambiar la dosis",
         .alarmDoseTitle: "💊 Es hora de tu medicamento",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ Lo tomé",
@@ -5201,6 +5214,10 @@ enum L10n {
         .reportPercentDueNote: "Ce pourcentage n’utilise que les doses déjà dues. Les doses futures ne sont pas incluses.",
         .reportExportFailed: "Impossible d’enregistrer le PDF. Réessayez.",
         .reportPatientNameRequired: "Indiquez un nom pour ce profil avant d’exporter le rapport.",
+        .reportEditDoseConsequence: "Modifier la dose peut aussi changer la quantité que Conny Cooper compte comme utilisée lorsque vous enregistrez une prise.",
+        .reportEditFrequencyConsequence: "Ceci met à jour le texte de fréquence sur le rapport et la fiche du médicament. Cela ne change pas les heures de rappel.",
+        .reportEditKeepEditing: "Continuer à modifier",
+        .reportEditConfirmDose: "Modifier la dose",
         .alarmDoseTitle: "💊 C’est l’heure de votre médicament",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ Je l’ai pris",

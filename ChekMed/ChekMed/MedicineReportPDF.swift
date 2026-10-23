@@ -1289,23 +1289,50 @@ struct MedicineReportEditScreen: View {
             }
         }
         .alert(session.t(.confirmEditHeadline), isPresented: $showMedicalConfirm) {
-            Button(session.t(.cancel), role: .cancel) {}
-            Button(session.t(.confirmLooksGood)) {
+            Button(session.t(.reportEditKeepEditing), role: .cancel) {}
+            Button(session.t(hasDoseLabelChanges ? .reportEditConfirmDose : .confirmLooksGood)) {
                 saveAll()
                 dismiss()
             }
+        } message: {
+            Text(confirmationMessage)
         }
         .onAppear(perform: loadDrafts)
+    }
+
+    private var hasDoseLabelChanges: Bool {
+        medicines.contains { med in
+            guard let draft = drafts[med.id] else { return false }
+            return changedField(draft.doseLabel, med.doseLabel, trim: true) != nil
+        }
+    }
+
+    private var hasFrequencyChanges: Bool {
+        medicines.contains { med in
+            guard let draft = drafts[med.id] else { return false }
+            return changedField(draft.frequency, med.frequency) != nil
+        }
     }
 
     private var hasMedicallyImportantChanges: Bool {
         medicines.contains { med in
             guard let draft = drafts[med.id] else { return false }
-            return draft.name != med.name
-                || draft.doseLabel != med.doseLabel
-                || draft.frequency != med.frequency
-                || draft.duration != med.duration
+            return changedField(draft.name, med.name, trim: true) != nil
+                || changedField(draft.doseLabel, med.doseLabel, trim: true) != nil
+                || changedField(draft.frequency, med.frequency) != nil
+                || changedField(draft.duration, med.duration, trim: true) != nil
         }
+    }
+
+    private var confirmationMessage: String {
+        var parts: [String] = []
+        if hasDoseLabelChanges {
+            parts.append(session.t(.reportEditDoseConsequence))
+        }
+        if hasFrequencyChanges {
+            parts.append(session.t(.reportEditFrequencyConsequence))
+        }
+        return parts.joined(separator: "\n\n")
     }
 
     private func loadDrafts() {
@@ -1340,19 +1367,42 @@ struct MedicineReportEditScreen: View {
     private func saveAll() {
         for med in medicines {
             guard let draft = drafts[med.id] else { continue }
+            let name = changedField(draft.name, med.name, trim: true)
+            let doseLabel = changedField(draft.doseLabel, med.doseLabel, trim: true)
+            let frequency = changedField(draft.frequency, med.frequency)
+            let duration = changedField(draft.duration, med.duration, trim: true)
+            let doctorName = changedField(draft.doctorName, med.doctorName)
+            let doctorId = changedField(draft.doctorId, med.doctorId)
+            let hospitalName = changedField(draft.hospitalName, med.hospitalName)
+            let doctorNotes = changedField(draft.doctorNotes, med.doctorNotes)
+            let reason = changedField(draft.reason, med.reason)
+            guard name != nil || doseLabel != nil || frequency != nil || duration != nil
+                || doctorName != nil || doctorId != nil || hospitalName != nil
+                || doctorNotes != nil || reason != nil
+            else { continue }
             treatments.updateMedicineDetails(
                 id: med.id,
-                name: draft.name,
-                doseLabel: draft.doseLabel,
-                frequency: draft.frequency,
-                duration: draft.duration,
-                doctorName: draft.doctorName,
-                doctorId: draft.doctorId,
-                hospitalName: draft.hospitalName,
-                doctorNotes: draft.doctorNotes,
-                reason: draft.reason
+                name: name,
+                doseLabel: doseLabel,
+                frequency: frequency,
+                duration: duration,
+                doctorName: doctorName,
+                doctorId: doctorId,
+                hospitalName: hospitalName,
+                doctorNotes: doctorNotes,
+                reason: reason
             )
         }
+    }
+
+    /// `nil` means unchanged versus the loaded summary, so `updateMedicineDetails` skips that field.
+    private func changedField(_ draft: String, _ original: String, trim: Bool = false) -> String? {
+        if trim {
+            let next = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            let prev = original.trimmingCharacters(in: .whitespacesAndNewlines)
+            return next == prev ? nil : draft
+        }
+        return draft == original ? nil : draft
     }
 }
 
@@ -1561,6 +1611,7 @@ enum MedicineReportExportContractLaunch {
     @MainActor
     static func runAndWriteOutputs() {
         let failures = MedicineReportExportContractChecks.failures()
+            + CheckMedStore.medicineDetailsUpdateContractFailures()
         let contractPass = failures.isEmpty
 
         let counts = MedicineReportAdherence.counts(
