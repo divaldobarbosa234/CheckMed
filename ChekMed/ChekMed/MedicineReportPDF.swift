@@ -254,10 +254,29 @@ enum MedicineReportPDF {
             }
             y = max(y, savedY + 88)
 
+            ensureSpace(36)
+            _ = drawText(
+                session.t(.reportAdherenceActiveHeading),
+                font: .systemFont(ofSize: 11, weight: .heavy)
+            )
+            y += 14
+            _ = drawText(
+                session.t(.reportAdherenceActiveNote),
+                font: .systemFont(ofSize: 9, weight: .semibold),
+                color: theme.ink.withAlphaComponent(0.7)
+            )
+            y += 18
+
             // Medications
-            ensureSpace(40)
-            _ = drawText(session.t(.reportMedications), font: .systemFont(ofSize: 15, weight: .heavy))
-            y += 20
+            ensureSpace(48)
+            _ = drawText(session.t(.reportMedicationHistoryHeading), font: .systemFont(ofSize: 15, weight: .heavy))
+            y += 14
+            _ = drawText(
+                session.t(.reportMedicationHistoryNote),
+                font: .systemFont(ofSize: 9, weight: .semibold),
+                color: theme.ink.withAlphaComponent(0.7)
+            )
+            y += 16
 
             for med in document.medicines {
                 let lines: [(String, String)] = [
@@ -433,6 +452,7 @@ struct MedicineReportScreen: View {
                 reportNavigation
                 reportHero
                 if snap.hasReportData {
+                    reportScopeNote
                     completenessCard(snap)
                     currentMedicationsCard(snap)
                     historyCard(snap)
@@ -530,6 +550,18 @@ struct MedicineReportScreen: View {
                 .font(.system(.subheadline, design: .rounded).weight(.semibold))
                 .foregroundStyle(CheckMedTheme.muted)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var reportScopeNote: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(session.t(.reportAdherenceActiveHeading))
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+                .foregroundStyle(CheckMedTheme.ink)
+            Text(session.t(.reportAdherenceActiveNote))
+                .font(.system(.caption, design: .rounded).weight(.semibold))
+                .foregroundStyle(CheckMedTheme.muted)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -1144,9 +1176,19 @@ struct ReportThemeCoverView: View {
                 }
             }
 
-            Text(session.t(.reportMedications))
+            Text(session.t(.reportAdherenceActiveHeading))
+                .font(.system(.caption, design: .rounded).weight(.heavy))
+                .foregroundStyle(theme.inkColor)
+            Text(session.t(.reportAdherenceActiveNote))
+                .font(.system(.caption2, design: .rounded).weight(.semibold))
+                .foregroundStyle(theme.inkColor.opacity(0.7))
+
+            Text(session.t(.reportMedicationHistoryHeading))
                 .font(.system(.subheadline, design: .rounded).weight(.heavy))
                 .foregroundStyle(theme.inkColor)
+            Text(session.t(.reportMedicationHistoryNote))
+                .font(.system(.caption2, design: .rounded).weight(.semibold))
+                .foregroundStyle(theme.inkColor.opacity(0.7))
 
             if let med = medicines.first {
                 VStack(alignment: .leading, spacing: 5) {

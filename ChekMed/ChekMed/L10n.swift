@@ -351,6 +351,7 @@ enum L10n {
         case reportDownloadPDF, reportShareWithDoctor, reportDownloadPaywallTitle, reportDownloadPaywallBody
         case reportMaybeLater
         case reportUnrecordedDueCount, reportPercentDueNote, reportExportFailed, reportPatientNameRequired
+        case reportAdherenceActiveHeading, reportAdherenceActiveNote, reportMedicationHistoryHeading, reportMedicationHistoryNote
         case reportEditDoseConsequence, reportEditFrequencyConsequence, reportEditKeepEditing, reportEditConfirmDose
         case alarmDoseTitle, alarmDoseBody
         case notificationActionTookIt, notificationActionSnooze, notificationActionRemindLater
@@ -1621,6 +1622,10 @@ enum L10n {
         .reportMaybeLater: "Maybe later",
         .reportUnrecordedDueCount: "%d due, not recorded as taken or missed",
         .reportPercentDueNote: "This percentage uses due doses only. Future scheduled doses are not included.",
+        .reportAdherenceActiveHeading: "Adherence for active treatments",
+        .reportAdherenceActiveNote: "Based on doses due for currently active treatments.",
+        .reportMedicationHistoryHeading: "Medication history",
+        .reportMedicationHistoryNote: "Includes current and completed treatments.",
         .reportExportFailed: "Couldn't save the PDF. Try again.",
         .reportPatientNameRequired: "Add a name for this profile before exporting a report.",
         .reportEditDoseConsequence: "Changing the dose may also change how much medicine Conny Cooper counts as used when you record a dose.",
@@ -2818,6 +2823,10 @@ enum L10n {
         .reportMaybeLater: "Talvez depois",
         .reportUnrecordedDueCount: "%d devidas, sem registro de tomada ou falta",
         .reportPercentDueNote: "Esta percentagem usa só doses já devidas. Doses futuras não entram.",
+        .reportAdherenceActiveHeading: "Adesão nos tratamentos ativos",
+        .reportAdherenceActiveNote: "Com base nas doses já devidas dos tratamentos atualmente ativos.",
+        .reportMedicationHistoryHeading: "Histórico de medicamentos",
+        .reportMedicationHistoryNote: "Inclui tratamentos atuais e concluídos.",
         .reportExportFailed: "Não foi possível guardar o PDF. Tente de novo.",
         .reportPatientNameRequired: "Defina um nome para este perfil antes de exportar o relatório.",
         .reportEditDoseConsequence: "Alterar a dose também pode mudar quanto medicamento o Conny Cooper conta como usado quando registra uma dose.",
@@ -4015,6 +4024,10 @@ enum L10n {
         .reportMaybeLater: "Quizá más tarde",
         .reportUnrecordedDueCount: "%d vencidas, sin registro de toma o falta",
         .reportPercentDueNote: "Este porcentaje usa solo dosis ya vencidas. Las programadas a futuro no se incluyen.",
+        .reportAdherenceActiveHeading: "Adherencia de los tratamientos activos",
+        .reportAdherenceActiveNote: "Según las dosis ya vencidas de los tratamientos actualmente activos.",
+        .reportMedicationHistoryHeading: "Historial de medicamentos",
+        .reportMedicationHistoryNote: "Incluye tratamientos actuales y completados.",
         .reportExportFailed: "No se pudo guardar el PDF. Inténtalo de nuevo.",
         .reportPatientNameRequired: "Añade un nombre para este perfil antes de exportar el informe.",
         .reportEditDoseConsequence: "Cambiar la dosis también puede cambiar cuánto medicamento Conny Cooper cuenta como usado cuando registras una toma.",
@@ -5212,6 +5225,10 @@ enum L10n {
         .reportMaybeLater: "Peut-être plus tard",
         .reportUnrecordedDueCount: "%d dues, sans enregistrement de prise ou d’oubli",
         .reportPercentDueNote: "Ce pourcentage n’utilise que les doses déjà dues. Les doses futures ne sont pas incluses.",
+        .reportAdherenceActiveHeading: "Observance des traitements actifs",
+        .reportAdherenceActiveNote: "Selon les doses déjà dues des traitements actuellement actifs.",
+        .reportMedicationHistoryHeading: "Historique des médicaments",
+        .reportMedicationHistoryNote: "Inclut les traitements en cours et terminés.",
         .reportExportFailed: "Impossible d’enregistrer le PDF. Réessayez.",
         .reportPatientNameRequired: "Indiquez un nom pour ce profil avant d’exporter le rapport.",
         .reportEditDoseConsequence: "Modifier la dose peut aussi changer la quantité que Conny Cooper compte comme utilisée lorsque vous enregistrez une prise.",
