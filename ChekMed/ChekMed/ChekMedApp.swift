@@ -38,6 +38,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             SeedDurableContractLaunch.runFromAppDelegate()
             return true
         }
+        if MedicineReportExportContractLaunch.shouldIsolateProcess {
+            MedicineReportExportContractLaunch.runFromAppDelegate()
+            return true
+        }
         if TH1LocalVerification.shouldIsolateProcess {
             TH1LocalVerification.logActivation(stage: "AppDelegate")
             return true
@@ -97,9 +101,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
                     ].compactMap { $0 }.joined(separator: " | ")
                 )
             }
-        } else if CapacityContractLaunch.isRequested {
+        } else if CapacityContractLaunch.isRequested
+            || MedicineReportExportContractLaunch.isRequested {
             print(
-                "[CheckMed] DEBUG contracts skipped (capacity-only). "
+                "[CheckMed] DEBUG contracts skipped (isolated). "
                     + "Full suite requires \(DebugContractLaunch.environmentKey)=1."
             )
         } else if DebugContractLaunch.isRequested {
@@ -273,6 +278,8 @@ struct ChekMedApp: App {
                 CapacityContractHost()
             } else if SeedDurableContractLaunch.isRequested {
                 SeedDurableContractHost()
+            } else if MedicineReportExportContractLaunch.isRequested {
+                MedicineReportExportContractHost()
             } else {
                 standardRoot
             }
@@ -290,6 +297,9 @@ struct ChekMedApp: App {
             return CheckMedStore(isolatedInMemoryForContracts: true)
         }
         if SeedDurableContractLaunch.shouldIsolateProcess {
+            return CheckMedStore(isolatedInMemoryForContracts: true)
+        }
+        if MedicineReportExportContractLaunch.shouldIsolateProcess {
             return CheckMedStore(isolatedInMemoryForContracts: true)
         }
         if IntakeVerify.shouldIsolateProcess && !TH1LocalVerification.shouldIsolateProcess {
@@ -456,6 +466,7 @@ struct ChekMedApp: App {
         #if DEBUG
         CapacityContractLaunch.shouldIsolateProcess
             || SeedDurableContractLaunch.shouldIsolateProcess
+            || MedicineReportExportContractLaunch.shouldIsolateProcess
             || TH1LocalVerification.shouldIsolateProcess
             || IntakeVerify.shouldIsolateProcess
         #else

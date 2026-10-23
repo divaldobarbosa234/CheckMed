@@ -350,6 +350,7 @@ enum L10n {
         case reportNotesSection, reportSources, reportMissingSection, reportMedicinesDetected
         case reportDownloadPDF, reportShareWithDoctor, reportDownloadPaywallTitle, reportDownloadPaywallBody
         case reportMaybeLater
+        case reportUnrecordedDueCount, reportPercentDueNote, reportExportFailed, reportPatientNameRequired
         case alarmDoseTitle, alarmDoseBody
         case notificationActionTookIt, notificationActionSnooze, notificationActionRemindLater
         case notificationConfirmTitle
@@ -1617,6 +1618,10 @@ enum L10n {
         .reportDownloadPaywallTitle: "Take your report with you",
         .reportDownloadPaywallBody: "Your Medical Report is ready. Keep reviewing and editing it for free. Upgrade to Super to download and share it as a PDF with your doctor.",
         .reportMaybeLater: "Maybe later",
+        .reportUnrecordedDueCount: "%d due, not recorded as taken or missed",
+        .reportPercentDueNote: "This percentage uses due doses only. Future scheduled doses are not included.",
+        .reportExportFailed: "Couldn't save the PDF. Try again.",
+        .reportPatientNameRequired: "Add a name for this profile before exporting a report.",
         .alarmDoseTitle: "💊 Time for your medicine",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ I took it",
@@ -2806,6 +2811,10 @@ enum L10n {
         .reportDownloadPaywallTitle: "Leve seu relatório com você",
         .reportDownloadPaywallBody: "Seu Relatório Médico está pronto. Continue revisando e editando de graça. Atualize para Super para baixar e partilhar o PDF com o médico.",
         .reportMaybeLater: "Talvez depois",
+        .reportUnrecordedDueCount: "%d devidas, sem registro de tomada ou falta",
+        .reportPercentDueNote: "Esta percentagem usa só doses já devidas. Doses futuras não entram.",
+        .reportExportFailed: "Não foi possível guardar o PDF. Tente de novo.",
+        .reportPatientNameRequired: "Defina um nome para este perfil antes de exportar o relatório.",
         .alarmDoseTitle: "💊 Hora do seu medicamento",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ Tomei",
@@ -3995,6 +4004,10 @@ enum L10n {
         .reportDownloadPaywallTitle: "Lleva tu informe contigo",
         .reportDownloadPaywallBody: "Tu Informe Médico está listo. Sigue revisándolo y editándolo gratis. Pasa a Super para descargarlo y compartirlo en PDF con tu médico.",
         .reportMaybeLater: "Quizá más tarde",
+        .reportUnrecordedDueCount: "%d vencidas, sin registro de toma o falta",
+        .reportPercentDueNote: "Este porcentaje usa solo dosis ya vencidas. Las programadas a futuro no se incluyen.",
+        .reportExportFailed: "No se pudo guardar el PDF. Inténtalo de nuevo.",
+        .reportPatientNameRequired: "Añade un nombre para este perfil antes de exportar el informe.",
         .alarmDoseTitle: "💊 Es hora de tu medicamento",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ Lo tomé",
@@ -5184,6 +5197,10 @@ enum L10n {
         .reportDownloadPaywallTitle: "Emportez votre rapport",
         .reportDownloadPaywallBody: "Votre Rapport médical est prêt. Continuez à le consulter et à le modifier gratuitement. Passez à Super pour le télécharger et le partager en PDF avec votre médecin.",
         .reportMaybeLater: "Peut-être plus tard",
+        .reportUnrecordedDueCount: "%d dues, sans enregistrement de prise ou d’oubli",
+        .reportPercentDueNote: "Ce pourcentage n’utilise que les doses déjà dues. Les doses futures ne sont pas incluses.",
+        .reportExportFailed: "Impossible d’enregistrer le PDF. Réessayez.",
+        .reportPatientNameRequired: "Indiquez un nom pour ce profil avant d’exporter le rapport.",
         .alarmDoseTitle: "💊 C’est l’heure de votre médicament",
         .alarmDoseBody: "%@ · %@",
         .notificationActionTookIt: "✓ Je l’ai pris",

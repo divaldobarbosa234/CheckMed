@@ -1,3 +1,6 @@
+#if DEBUG
+import Darwin
+#endif
 import PDFKit
 import SwiftUI
 import UIKit
@@ -46,9 +49,70 @@ struct MedicineReportDocument: Sendable {
     var generatedAt: Date
     var medicines: [CheckMedStore.MedicineSummary]
     var takenCount: Int
-    var skippedCount: Int
+    var missedCount: Int
+    var unrecordedDueCount: Int
     var plannedCount: Int
     var refillDates: [String]
+}
+
+/// Presentation counts from `AdherenceSnapshot`. Does not invent DoseLog statuses.
+enum MedicineReportAdherence {
+    struct Counts: Equatable, Sendable {
+        var takenCount: Int
+        var missedCount: Int
+        var unrecordedDueCount: Int
+        var plannedCount: Int
+        var percent: Int
+    }
+
+    /// `plannedCount` is due logs only (`scheduledAt <= now`). Taken is confirmed taken + taken late.
+    /// Missed is canonical missed-like. Remainder is due and neither — not labeled skipped or pending.
+    static func counts(from snapshot: AdherenceSnapshot) -> Counts {
+        let taken = max(0, snapshot.takenCount)
+        let missed = max(0, snapshot.missedCount)
+        let planned = max(0, snapshot.plannedCount)
+        let unrecordedDue = max(0, planned - taken - missed)
+        let percent = planned == 0
+            ? 0
+            : Int((Double(taken) / Double(planned) * 100).rounded())
+        return Counts(
+            takenCount: taken,
+            missedCount: missed,
+            unrecordedDueCount: unrecordedDue,
+            plannedCount: planned,
+            percent: percent
+        )
+    }
+
+    /// Bound extra profile name, or the account preferred name when viewing primary.
+    /// Returns nil instead of placeholders (`there` / `friend` / email).
+    static func patientName(session: SessionStore, family: FamilyStore) -> String? {
+        resolvedPatientName(
+            isViewingExtra: family.isViewingExtra,
+            extraName: family.extra?.name,
+            primaryEligible: session.hasPreferredName,
+            primaryName: session.displayName
+        )
+    }
+
+    static func resolvedPatientName(
+        isViewingExtra: Bool,
+        extraName: String?,
+        primaryEligible: Bool,
+        primaryName: String
+    ) -> String? {
+        if isViewingExtra {
+            let name = extraName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return name.isEmpty ? nil : name
+        }
+        guard primaryEligible else { return nil }
+        let name = primaryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    static func shouldPresentShare(pdfData: Data, writeSucceeded: Bool, fileExists: Bool) -> Bool {
+        writeSucceeded && fileExists && !pdfData.isEmpty
+    }
 }
 
 enum MedicineReportPDF {
@@ -62,7 +126,7 @@ enum MedicineReportPDF {
         let dateText = df.string(from: document.generatedAt)
         let percent: Int = document.plannedCount == 0
             ? 0
-            : Int((Double(document.takenCount) / Double(max(1, document.plannedCount)) * 100).rounded())
+            : Int((Double(document.takenCount) / Double(document.plannedCount) * 100).rounded())
 
         return renderer.pdfData { context in
             context.beginPage()
@@ -168,14 +232,26 @@ enum MedicineReportPDF {
                 x: statsX,
                 width: contentW - 100
             )
-            y += 18
-            _ = drawText(
-                session.t(.journeySkipped, document.skippedCount),
-                font: .systemFont(ofSize: 12, weight: .semibold),
-                color: theme.ink.withAlphaComponent(0.75),
-                x: statsX,
-                width: contentW - 100
-            )
+            if document.missedCount > 0 {
+                y += 16
+                _ = drawText(
+                    session.t(.reportMissedDoses, document.missedCount),
+                    font: .systemFont(ofSize: 12, weight: .semibold),
+                    color: theme.ink.withAlphaComponent(0.75),
+                    x: statsX,
+                    width: contentW - 100
+                )
+            }
+            if document.unrecordedDueCount > 0 {
+                y += 16
+                _ = drawText(
+                    session.t(.reportUnrecordedDueCount, document.unrecordedDueCount),
+                    font: .systemFont(ofSize: 12, weight: .semibold),
+                    color: theme.ink.withAlphaComponent(0.75),
+                    x: statsX,
+                    width: contentW - 100
+                )
+            }
             y = max(y, savedY + 88)
 
             // Medications
@@ -274,7 +350,19 @@ enum MedicineReportPDF {
             }
 
             y += 18
-            ensureSpace(40)
+            ensureSpace(70)
+            _ = drawText(
+                session.t(.reportPercentDueNote),
+                font: .systemFont(ofSize: 9, weight: .semibold),
+                color: UIColor.darkGray
+            )
+            y += 12
+            _ = drawText(
+                session.t(.adherenceRecordNote),
+                font: .systemFont(ofSize: 9, weight: .semibold),
+                color: UIColor.darkGray
+            )
+            y += 12
             _ = drawText(
                 session.t(.journeyNotAdvice),
                 font: .systemFont(ofSize: 9, weight: .semibold),
@@ -297,6 +385,7 @@ struct MedicineReportScreen: View {
     @Environment(SessionStore.self) private var session
     @Environment(CheckMedStore.self) private var treatments
     @Environment(EntitlementStore.self) private var entitlements
+    @Environment(FamilyStore.self) private var family
     @Environment(\.dismiss) private var dismiss
 
     @State private var shareURL: URL?
@@ -304,6 +393,7 @@ struct MedicineReportScreen: View {
     @State private var showDownloadPaywall = false
     @State private var showThemePicker = false
     @State private var previewSource: CheckMedStore.PrescriptionSourceItem?
+    @State private var exportIssue: ReportExportIssue?
 
     private struct ReportSnapshot {
         var medicines: [CheckMedStore.MedicineSummary]
@@ -381,7 +471,7 @@ struct MedicineReportScreen: View {
         }
         .sheet(isPresented: $showThemePicker) {
             ReportPDFThemePicker(
-                patientName: session.displayName,
+                patientName: MedicineReportAdherence.patientName(session: session, family: family) ?? "",
                 medicines: snap.medicines,
                 adherence: snap.adherence
             ) { theme in
@@ -392,10 +482,23 @@ struct MedicineReportScreen: View {
         .sheet(item: $previewSource) { item in
             PrescriptionSourcePreview(item: item)
         }
+        .alert(session.t(exportIssue?.titleKey ?? .reportExportFailed), isPresented: Binding(
+            get: { exportIssue != nil },
+            set: { if !$0 { exportIssue = nil } }
+        )) {
+            Button(session.t(.ok), role: .cancel) { exportIssue = nil }
+        }
         .onAppear {
             ReportPerf.log("REPORT ONAPPEAR")
             ReportPerf.log("REPORT TASK absent (MedicineReportScreen has no .task)")
             ReportPerf.ready()
+            #if DEBUG
+            if ProcessInfo.processInfo.environment["CHECKMED_DEBUG_REPORT_EXPORT_CONTRACTS"] == "1" {
+                let failures = MedicineReportExportContractChecks.failures()
+                print("MedicineReportExport failures:", failures)
+                assert(failures.isEmpty, "MEDICINE REPORT EXPORT FAILURE: \(failures.joined(separator: "; "))")
+            }
+            #endif
         }
     }
 
@@ -705,19 +808,31 @@ struct MedicineReportScreen: View {
             return
         }
         guard !treatments.reportMedicineSummaries().isEmpty else { return }
+        guard MedicineReportAdherence.patientName(session: session, family: family) != nil else {
+            exportIssue = .patientNameMissing
+            return
+        }
         showThemePicker = true
     }
 
     private func exportPDF(theme: ReportTheme) {
+        shareURL = nil
+        showShare = false
+        guard let patientName = MedicineReportAdherence.patientName(session: session, family: family) else {
+            exportIssue = .patientNameMissing
+            return
+        }
         let live = treatments.reportMedicineSummaries()
-        let stats = treatments.adherence()
+        guard !live.isEmpty else { return }
+        let counts = MedicineReportAdherence.counts(from: treatments.adherence())
         let doc = MedicineReportDocument(
-            patientName: session.displayName,
+            patientName: patientName,
             generatedAt: Date(),
             medicines: live,
-            takenCount: stats.takenCount,
-            skippedCount: max(0, stats.plannedCount - stats.takenCount),
-            plannedCount: stats.plannedCount,
+            takenCount: counts.takenCount,
+            missedCount: counts.missedCount,
+            unrecordedDueCount: counts.unrecordedDueCount,
+            plannedCount: counts.plannedCount,
             refillDates: live.compactMap { med in
                 guard let date = med.lastRefillAt else { return nil }
                 let df = DateFormatter()
@@ -728,9 +843,37 @@ struct MedicineReportScreen: View {
         )
         let data = MedicineReportPDF.build(document: doc, theme: theme, session: session)
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("Conny-Cooper-Medical-Report-\(theme.rawValue).pdf")
-        try? data.write(to: url, options: .atomic)
-        shareURL = url
-        showShare = true
+        do {
+            try data.write(to: url, options: .atomic)
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            guard MedicineReportAdherence.shouldPresentShare(pdfData: data, writeSucceeded: true, fileExists: exists) else {
+                exportIssue = .writeFailed
+                return
+            }
+            shareURL = url
+            showShare = true
+        } catch {
+            exportIssue = .writeFailed
+        }
+    }
+}
+
+private enum ReportExportIssue: Identifiable {
+    case writeFailed
+    case patientNameMissing
+
+    var id: String {
+        switch self {
+        case .writeFailed: "writeFailed"
+        case .patientNameMissing: "patientNameMissing"
+        }
+    }
+
+    var titleKey: L10n.Key {
+        switch self {
+        case .writeFailed: .reportExportFailed
+        case .patientNameMissing: .reportPatientNameRequired
+        }
     }
 }
 
@@ -769,6 +912,7 @@ private struct ReportPDFThemePicker: View {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(session.t(.reportChooseTheme))
                         .font(.system(.headline, design: .rounded).weight(.heavy))
+                    let counts = MedicineReportAdherence.counts(from: adherence)
                     ForEach(ReportTheme.allCases) { theme in
                         Button {
                             onPick(theme)
@@ -777,10 +921,11 @@ private struct ReportPDFThemePicker: View {
                                 theme: theme,
                                 patientName: patientName,
                                 medicines: medicines,
-                                percent: adherence.percent ?? 0,
-                                taken: adherence.takenCount,
-                                planned: adherence.plannedCount,
-                                skipped: max(0, adherence.plannedCount - adherence.takenCount)
+                                percent: counts.percent,
+                                taken: counts.takenCount,
+                                planned: counts.plannedCount,
+                                missed: counts.missedCount,
+                                unrecordedDue: counts.unrecordedDueCount
                             )
                             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                         }
@@ -854,8 +999,9 @@ struct ReportBookstoreCard: View {
     var onDownload: () -> Void
     var onEdit: () -> Void
 
-    private var percent: Int { adherence.percent ?? 0 }
-    private var skipped: Int { max(0, adherence.plannedCount - adherence.takenCount) }
+    private var counts: MedicineReportAdherence.Counts {
+        MedicineReportAdherence.counts(from: adherence)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -869,10 +1015,11 @@ struct ReportBookstoreCard: View {
                 theme: theme,
                 patientName: patientName,
                 medicines: medicines,
-                percent: percent,
-                taken: adherence.takenCount,
-                planned: adherence.plannedCount,
-                skipped: skipped
+                percent: counts.percent,
+                taken: counts.takenCount,
+                planned: counts.plannedCount,
+                missed: counts.missedCount,
+                unrecordedDue: counts.unrecordedDueCount
             )
             .frame(maxWidth: .infinity)
             .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -922,7 +1069,8 @@ struct ReportThemeCoverView: View {
     let percent: Int
     let taken: Int
     let planned: Int
-    let skipped: Int
+    let missed: Int
+    let unrecordedDue: Int
 
     private var dateText: String {
         let df = DateFormatter()
@@ -983,9 +1131,16 @@ struct ReportThemeCoverView: View {
                     Text(session.t(.reportDosesTakenShort, taken, planned))
                         .font(.system(.subheadline, design: .rounded).weight(.bold))
                         .foregroundStyle(theme.inkColor)
-                    Text(session.t(.journeySkipped, skipped))
-                        .font(.system(.caption, design: .rounded).weight(.semibold))
-                        .foregroundStyle(theme.inkColor.opacity(0.7))
+                    if missed > 0 {
+                        Text(session.t(.reportMissedDoses, missed))
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(theme.inkColor.opacity(0.7))
+                    }
+                    if unrecordedDue > 0 {
+                        Text(session.t(.reportUnrecordedDueCount, unrecordedDue))
+                            .font(.system(.caption, design: .rounded).weight(.semibold))
+                            .foregroundStyle(theme.inkColor.opacity(0.7))
+                    }
                 }
             }
 
@@ -1222,3 +1377,392 @@ struct ShareSheet: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
+
+#if DEBUG
+enum MedicineReportExportContractChecks {
+    static func failures() -> [String] {
+        var failures: [String] = []
+        func expect(_ ok: Bool, _ name: String) {
+            if !ok { failures.append(name) }
+        }
+        func snap(taken: Int, late: Int, missed: Int, planned: Int, percent: Int?) -> AdherenceSnapshot {
+            AdherenceSnapshot(
+                streakDays: 0,
+                longestStreakDays: 0,
+                takenCount: taken,
+                takenLateCount: late,
+                missedCount: missed,
+                plannedCount: planned,
+                percent: percent,
+                treatmentCount: 1,
+                todayTaken: 0,
+                todayTotal: 0,
+                todayMissedCount: 0,
+                hasHistory: planned > 0,
+                weekTaken: 0,
+                weekPlanned: 0,
+                weekPercent: nil
+            )
+        }
+
+        var counts = MedicineReportAdherence.counts(
+            from: snap(taken: 2, late: 0, missed: 0, planned: 2, percent: 100)
+        )
+        expect(
+            counts.takenCount == 2 && counts.missedCount == 0 && counts.unrecordedDueCount == 0 && counts.percent == 100,
+            "taken: 2 of 2 due"
+        )
+
+        counts = MedicineReportAdherence.counts(
+            from: snap(taken: 2, late: 1, missed: 0, planned: 2, percent: 100)
+        )
+        expect(
+            counts.takenCount == 2 && counts.unrecordedDueCount == 0 && counts.missedCount == 0,
+            "takenLate: already included in takenCount"
+        )
+
+        counts = MedicineReportAdherence.counts(
+            from: snap(taken: 1, late: 0, missed: 2, planned: 3, percent: 33)
+        )
+        expect(
+            counts.missedCount == 2 && counts.unrecordedDueCount == 0 && counts.percent == 33,
+            "missed-like: not treated as remainder"
+        )
+
+        counts = MedicineReportAdherence.counts(
+            from: snap(taken: 1, late: 0, missed: 0, planned: 3, percent: 33)
+        )
+        expect(
+            counts.unrecordedDueCount == 2 && counts.missedCount == 0,
+            "open due: remainder is not skipped"
+        )
+
+        counts = MedicineReportAdherence.counts(
+            from: snap(taken: 1, late: 0, missed: 0, planned: 1, percent: 100)
+        )
+        expect(
+            counts.plannedCount == 1 && counts.unrecordedDueCount == 0,
+            "future scheduled doses are outside plannedCount"
+        )
+
+        counts = MedicineReportAdherence.counts(
+            from: snap(taken: 0, late: 0, missed: 0, planned: 0, percent: nil)
+        )
+        expect(
+            counts.percent == 0 && counts.takenCount == 0 && counts.unrecordedDueCount == 0,
+            "no due doses"
+        )
+
+        counts = MedicineReportAdherence.counts(
+            from: snap(taken: 2, late: 1, missed: 1, planned: 5, percent: 40)
+        )
+        expect(
+            counts.takenCount == 2 && counts.missedCount == 1 && counts.unrecordedDueCount == 2 && counts.percent == 40,
+            "mixed statuses"
+        )
+
+        expect(
+            MedicineReportAdherence.resolvedPatientName(
+                isViewingExtra: false,
+                extraName: "Alex",
+                primaryEligible: true,
+                primaryName: "Jordan"
+            ) == "Jordan",
+            "primary profile identity"
+        )
+        expect(
+            MedicineReportAdherence.resolvedPatientName(
+                isViewingExtra: true,
+                extraName: "Alex",
+                primaryEligible: true,
+                primaryName: "Jordan"
+            ) == "Alex",
+            "bound extra-profile identity"
+        )
+        expect(
+            MedicineReportAdherence.resolvedPatientName(
+                isViewingExtra: false,
+                extraName: nil,
+                primaryEligible: false,
+                primaryName: "there"
+            ) == nil,
+            "placeholder primary name is not exported"
+        )
+        expect(
+            MedicineReportAdherence.resolvedPatientName(
+                isViewingExtra: true,
+                extraName: "  ",
+                primaryEligible: true,
+                primaryName: "Jordan"
+            ) == nil,
+            "empty extra name is not exported"
+        )
+
+        let pdf = Data("pdf".utf8)
+        expect(
+            !MedicineReportAdherence.shouldPresentShare(pdfData: Data(), writeSucceeded: true, fileExists: true),
+            "empty PDF is not shared"
+        )
+        expect(
+            !MedicineReportAdherence.shouldPresentShare(pdfData: pdf, writeSucceeded: false, fileExists: true),
+            "failed write is not shared"
+        )
+        expect(
+            !MedicineReportAdherence.shouldPresentShare(pdfData: pdf, writeSucceeded: true, fileExists: false),
+            "missing file is not shared"
+        )
+        expect(
+            MedicineReportAdherence.shouldPresentShare(pdfData: pdf, writeSucceeded: true, fileExists: true),
+            "successful write can be shared"
+        )
+        return failures
+    }
+}
+
+/// Launch-only DEBUG runner for report export contracts + one synthetic PDF.
+/// Interactive Debug and Release never set `CHECKMED_REPORT_EXPORT_CONTRACTS`.
+enum MedicineReportExportContractLaunch {
+    static let environmentKey = "CHECKMED_REPORT_EXPORT_CONTRACTS"
+    static let simctlChildKey = "SIMCTL_CHILD_" + environmentKey
+    static let pointerName = "checkmed-report-export-output.txt"
+
+    static var isRequested: Bool {
+        flagValue() == "1"
+    }
+
+    private static func flagValue() -> String? {
+        let env = ProcessInfo.processInfo.environment
+        if let value = env[environmentKey], !value.isEmpty { return value }
+        if let value = env[simctlChildKey], !value.isEmpty { return value }
+        if let pointer = getenv(environmentKey) {
+            let value = String(cString: pointer)
+            if !value.isEmpty { return value }
+        }
+        if let pointer = getenv(simctlChildKey) {
+            let value = String(cString: pointer)
+            if !value.isEmpty { return value }
+        }
+        return nil
+    }
+
+    static var shouldIsolateProcess: Bool { isRequested }
+
+    /// UIKit calls `didFinishLaunching` on the main thread. Do not wait for SwiftUI.
+    static func runFromAppDelegate() {
+        guard Thread.isMainThread else {
+            writePointerAndLog(blocked: "app-delegate-not-main")
+            return
+        }
+        MainActor.assumeIsolated {
+            runAndWriteOutputs()
+        }
+    }
+
+    @MainActor
+    static func runAndWriteOutputs() {
+        let failures = MedicineReportExportContractChecks.failures()
+        let contractPass = failures.isEmpty
+
+        let counts = MedicineReportAdherence.counts(
+            from: AdherenceSnapshot(
+                streakDays: 0,
+                longestStreakDays: 0,
+                takenCount: 2,
+                takenLateCount: 1,
+                missedCount: 1,
+                plannedCount: 5,
+                percent: 40,
+                treatmentCount: 1,
+                todayTaken: 0,
+                todayTotal: 0,
+                todayMissedCount: 0,
+                hasHistory: true,
+                weekTaken: 0,
+                weekPlanned: 0,
+                weekPercent: nil
+            )
+        )
+        let document = MedicineReportDocument(
+            patientName: "Jordan",
+            generatedAt: Date(timeIntervalSince1970: 1_735_689_600),
+            medicines: [syntheticMedicineSummary()],
+            takenCount: counts.takenCount,
+            missedCount: counts.missedCount,
+            unrecordedDueCount: counts.unrecordedDueCount,
+            plannedCount: counts.plannedCount,
+            refillDates: []
+        )
+
+        let session = SessionStore()
+        let pdfData = MedicineReportPDF.build(document: document, theme: .creamPhil, session: session)
+
+        let fm = FileManager.default
+        let outputDir = fm.temporaryDirectory.appendingPathComponent(
+            "checkmed-report-export-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        var pdfPath = ""
+        var reportPath = ""
+        var pdfWriteOK = false
+        var pdfBytes = 0
+        var writeError = ""
+
+        do {
+            try fm.createDirectory(at: outputDir, withIntermediateDirectories: true)
+            let pdfURL = outputDir.appendingPathComponent("checkmed-report-export-synthetic.pdf")
+            let reportURL = outputDir.appendingPathComponent("checkmed-report-export-contracts.txt")
+            guard !pdfData.isEmpty else {
+                throw NSError(
+                    domain: "MedicineReportExportContractLaunch",
+                    code: 1,
+                    userInfo: [NSLocalizedDescriptionKey: "empty-pdf-data"]
+                )
+            }
+            try pdfData.write(to: pdfURL, options: .atomic)
+            let writtenSize = (try pdfURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            pdfBytes = writtenSize > 0 ? writtenSize : pdfData.count
+            pdfWriteOK = fm.fileExists(atPath: pdfURL.path) && pdfBytes > 0
+            pdfPath = pdfURL.path
+            reportPath = reportURL.path
+
+            let overallPass = contractPass && pdfWriteOK
+            let body = reportBody(
+                overallPass: overallPass,
+                contractPass: contractPass,
+                failures: failures,
+                counts: counts,
+                pdfWriteOK: pdfWriteOK,
+                pdfBytes: pdfBytes,
+                outputDir: outputDir.path,
+                reportPath: reportPath,
+                pdfPath: pdfPath,
+                writeError: ""
+            )
+            try body.write(to: reportURL, atomically: true, encoding: .utf8)
+            writePointer(body)
+            print("[REPORT-EXPORT-CONTRACT] \(overallPass ? "PASS" : "FAIL") dir=\(outputDir.path)")
+            print("[REPORT-EXPORT-CONTRACT] report=\(reportPath)")
+            print("[REPORT-EXPORT-CONTRACT] pdf=\(pdfPath) bytes=\(pdfBytes)")
+        } catch {
+            writeError = String(describing: error)
+            let overallPass = false
+            let body = reportBody(
+                overallPass: overallPass,
+                contractPass: contractPass,
+                failures: failures,
+                counts: counts,
+                pdfWriteOK: pdfWriteOK,
+                pdfBytes: pdfBytes,
+                outputDir: outputDir.path,
+                reportPath: reportPath,
+                pdfPath: pdfPath,
+                writeError: writeError
+            )
+            writePointer(body)
+            print("[REPORT-EXPORT-CONTRACT] FAIL writeError=\(writeError) dir=\(outputDir.path)")
+        }
+    }
+
+    private static func syntheticMedicineSummary() -> CheckMedStore.MedicineSummary {
+        CheckMedStore.MedicineSummary(
+            id: UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE") ?? UUID(),
+            treatmentId: UUID(uuidString: "11111111-2222-3333-4444-555555555555") ?? UUID(),
+            name: "Synthetic Amoxicillin",
+            doseLabel: "500 mg",
+            frequency: "twice daily",
+            duration: "7 days",
+            timesPerDay: 2,
+            treatmentTitle: "Synthetic treatment",
+            treatmentStatus: "active",
+            form: .tablet,
+            packageAmount: 14,
+            packageUnit: .tablet,
+            stockPercent: 1,
+            quantityPerDose: 1,
+            doseUnit: .tablet,
+            doctorName: "Dr Synthetic",
+            doctorId: "",
+            hospitalName: "Synthetic Clinic",
+            doctorNotes: "",
+            reason: "contract fixture",
+            lastRefillAt: nil,
+            refillRemindEnabled: false,
+            daysLeft: nil,
+            scheduleTimes: ["08:00", "20:00"],
+            daysOnTreatment: 3,
+            missedCount: 1,
+            refillDataComplete: true
+        )
+    }
+
+    private static func reportBody(
+        overallPass: Bool,
+        contractPass: Bool,
+        failures: [String],
+        counts: MedicineReportAdherence.Counts,
+        pdfWriteOK: Bool,
+        pdfBytes: Int,
+        outputDir: String,
+        reportPath: String,
+        pdfPath: String,
+        writeError: String
+    ) -> String {
+        var lines = [
+            "result: \(overallPass ? "PASS" : "FAIL")",
+            "suite: MedicineReportExportContractChecks",
+            "contractResult: \(contractPass ? "PASS" : "FAIL")",
+            "failures: \(failures.count)",
+            "takenCount: \(counts.takenCount)",
+            "missedCount: \(counts.missedCount)",
+            "unrecordedDueCount: \(counts.unrecordedDueCount)",
+            "plannedCount: \(counts.plannedCount)",
+            "percent: \(counts.percent)",
+            "patientName: Jordan",
+            "pdfWriteOK: \(pdfWriteOK)",
+            "pdfBytes: \(pdfBytes)",
+            "outputDir: \(outputDir)",
+            "reportPath: \(reportPath)",
+            "pdfPath: \(pdfPath)",
+        ]
+        if !writeError.isEmpty {
+            lines.append("writeError: \(writeError)")
+        }
+        if failures.isEmpty {
+            lines.append("failureNames: (none)")
+        } else {
+            lines.append("failureNames:")
+            lines.append(contentsOf: failures.map { "- \($0)" })
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private static func writePointerAndLog(blocked: String) {
+        let body = [
+            "result: BLOCKED",
+            "suite: MedicineReportExportContractChecks",
+            "blocked: \(blocked)",
+        ].joined(separator: "\n")
+        writePointer(body)
+        print("[REPORT-EXPORT-CONTRACT] BLOCKED \(blocked)")
+    }
+
+    private static func writePointer(_ body: String) {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
+            print("[REPORT-EXPORT-CONTRACT] no Documents directory")
+            return
+        }
+        try? body.write(
+            to: docs.appendingPathComponent(pointerName),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+}
+
+struct MedicineReportExportContractHost: View {
+    var body: some View {
+        Text("MedicineReportExportContractChecks")
+            .padding()
+    }
+}
+#endif
